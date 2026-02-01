@@ -127,53 +127,36 @@ fn main() -> anyhow::Result<()> {
         config.audio.north_tick_channel = ChannelRole::Left;
     }
 
-    let use_stderr_banner = !matches!(args.format, OutputFormat::Text);
-
-    macro_rules! banner {
-        ($($arg:tt)*) => {
-            if use_stderr_banner {
-                eprintln!($($arg)*);
-            } else {
-                println!($($arg)*);
-            }
-        };
-    }
-
-    banner!("=== Rotary Club - Pseudo Doppler RDF ===");
-    banner!("Sample rate: {} Hz", config.audio.sample_rate);
-    banner!("Expected rotation: {} Hz", config.doppler.expected_freq);
-    banner!(
+    eprintln!("=== Rotary Club - Pseudo Doppler RDF ===");
+    eprintln!("Sample rate: {} Hz", config.audio.sample_rate);
+    eprintln!("Expected rotation: {} Hz", config.doppler.expected_freq);
+    eprintln!(
         "Doppler bandpass: {}-{} Hz",
-        config.doppler.bandpass_low,
-        config.doppler.bandpass_high
+        config.doppler.bandpass_low, config.doppler.bandpass_high
     );
-    banner!("North tick threshold: {}", config.north_tick.threshold);
-    banner!("North tick tracking: {:?}", config.north_tick.mode);
-    banner!("Bearing method: {:?}", config.doppler.method);
-    banner!("Output rate: {} Hz", config.bearing.output_rate_hz);
-    banner!(
+    eprintln!("North tick threshold: {}", config.north_tick.threshold);
+    eprintln!("North tick tracking: {:?}", config.north_tick.mode);
+    eprintln!("Bearing method: {:?}", config.doppler.method);
+    eprintln!("Output rate: {} Hz", config.bearing.output_rate_hz);
+    eprintln!(
         "Channel assignment: Doppler={:?}, North tick={:?}",
-        config.audio.doppler_channel,
-        config.audio.north_tick_channel
+        config.audio.doppler_channel, config.audio.north_tick_channel
     );
-    banner!("");
+    eprintln!();
 
     let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
         Some(path) => {
-            banner!("Loading WAV file: {}", path.display());
+            eprintln!("Loading WAV file: {}", path.display());
             let chunk_size = config.audio.buffer_size * 2;
             (Box::new(WavFileSource::new(path, chunk_size)?), false)
         }
         None => {
-            banner!("Starting audio capture...");
+            eprintln!("Starting audio capture...");
             (Box::new(DeviceSource::new(&config.audio)?), true)
         }
     };
 
-    banner!("Processing...");
-    if !use_stderr_banner {
-        println!();
-    }
+    eprintln!("Processing...");
 
     let formatter = create_formatter(args.format, args.verbose >= 1);
     if let Some(header) = formatter.header() {
@@ -183,28 +166,28 @@ fn main() -> anyhow::Result<()> {
     let stats = run_processing_loop(source, config, formatter, throttle_output)?;
 
     if args.input.is_some() && stats.bearing_stats.count > 0 {
-        banner!("");
-        banner!("Bearing statistics:");
-        banner!("  Measurements: {}", stats.bearing_stats.count);
-        banner!("  Mean: {:.1}°", stats.bearing_stats.mean);
-        banner!("  Std dev: {:.1}°", stats.bearing_stats.std_dev);
-        banner!("  Min: {:.1}°", stats.bearing_stats.min);
-        banner!("  Max: {:.1}°", stats.bearing_stats.max);
-        banner!(
+        eprintln!();
+        eprintln!("Bearing statistics:");
+        eprintln!("  Measurements: {}", stats.bearing_stats.count);
+        eprintln!("  Mean: {:.1}°", stats.bearing_stats.mean);
+        eprintln!("  Std dev: {:.1}°", stats.bearing_stats.std_dev);
+        eprintln!("  Min: {:.1}°", stats.bearing_stats.min);
+        eprintln!("  Max: {:.1}°", stats.bearing_stats.max);
+        eprintln!(
             "  Range: {:.1}°",
             stats.bearing_stats.max - stats.bearing_stats.min
         );
     }
 
     if args.input.is_some() && stats.rotation_stats.count > 0 {
-        banner!("");
-        banner!("Rotation statistics:");
-        banner!("  Measurements: {}", stats.rotation_stats.count);
-        banner!("  Mean: {:.1} Hz", stats.rotation_stats.mean);
-        banner!("  Std dev: {:.3} Hz", stats.rotation_stats.std_dev);
-        banner!("  Min: {:.1} Hz", stats.rotation_stats.min);
-        banner!("  Max: {:.1} Hz", stats.rotation_stats.max);
-        banner!(
+        eprintln!();
+        eprintln!("Rotation statistics:");
+        eprintln!("  Measurements: {}", stats.rotation_stats.count);
+        eprintln!("  Mean: {:.1} Hz", stats.rotation_stats.mean);
+        eprintln!("  Std dev: {:.3} Hz", stats.rotation_stats.std_dev);
+        eprintln!("  Min: {:.1} Hz", stats.rotation_stats.min);
+        eprintln!("  Max: {:.1} Hz", stats.rotation_stats.max);
+        eprintln!(
             "  Range: {:.3} Hz",
             stats.rotation_stats.max - stats.rotation_stats.min
         );
