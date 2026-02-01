@@ -105,8 +105,10 @@ mod tests {
 
     #[test]
     fn test_simple_tracker() {
-        let mut config = NorthTickConfig::default();
-        config.mode = NorthTrackingMode::Simple;
+        let config = NorthTickConfig {
+            mode: NorthTrackingMode::Simple,
+            ..Default::default()
+        };
         let sample_rate = 48000.0;
         let mut tracker = NorthReferenceTracker::new(&config, sample_rate).unwrap();
 
@@ -121,8 +123,10 @@ mod tests {
 
     #[test]
     fn test_dpll_tracker() {
-        let mut config = NorthTickConfig::default();
-        config.mode = NorthTrackingMode::Dpll;
+        let config = NorthTickConfig {
+            mode: NorthTrackingMode::Dpll,
+            ..Default::default()
+        };
         let sample_rate = 48000.0;
         let mut tracker = NorthReferenceTracker::new(&config, sample_rate).unwrap();
 

@@ -155,7 +155,6 @@ impl PeakDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::PI;
 
     #[test]
     fn test_zero_crossing_detection() {

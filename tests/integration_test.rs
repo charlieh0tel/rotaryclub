@@ -101,7 +101,7 @@ fn calculate_bearing_from_synthetic(
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();
-    let mut tick_count = 0;
+    let mut _tick_count = 0;
     let mut last_tick: Option<NorthTick> = None;
 
     for chunk in signal.chunks(chunk_size) {
@@ -120,7 +120,7 @@ fn calculate_bearing_from_synthetic(
 
         // Update north tracker and save most recent tick for next iteration
         let ticks = north_tracker.process_buffer(&north_tick);
-        tick_count += ticks.len();
+        _tick_count += ticks.len();
 
         if let Some(tick) = ticks.last() {
             last_tick = Some(*tick);

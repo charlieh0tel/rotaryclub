@@ -20,18 +20,16 @@ fn main() -> anyhow::Result<()> {
         100.0, 200.0, 300.0, 400.0, 450.0, 500.0, 550.0, 600.0, 700.0, 800.0, 1000.0,
     ] {
         let attenuation = test_frequency(&mut bandpass, freq, sample_rate);
-        let status = if freq >= 400.0 && freq <= 600.0 {
+        let status = if (400.0..=600.0).contains(&freq) {
             if attenuation > -3.0 {
                 "PASS"
             } else {
                 "FAIL (too attenuated)"
             }
+        } else if attenuation < -20.0 {
+            "PASS"
         } else {
-            if attenuation < -20.0 {
-                "PASS"
-            } else {
-                "FAIL (not attenuated)"
-            }
+            "FAIL (not attenuated)"
         };
 
         println!("{:<10.1} {:<15.2} {:<15}", freq, attenuation, status);
@@ -56,12 +54,10 @@ fn main() -> anyhow::Result<()> {
             } else {
                 "FAIL (not attenuated)"
             }
+        } else if attenuation > -3.0 {
+            "PASS"
         } else {
-            if attenuation > -3.0 {
-                "PASS"
-            } else {
-                "FAIL (too attenuated)"
-            }
+            "FAIL (too attenuated)"
         };
 
         println!("{:<10.1} {:<15.2} {:<15}", freq, attenuation, status);

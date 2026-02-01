@@ -10,7 +10,7 @@ pub fn generate_test_signal(
     duration_secs: f32,
     sample_rate: u32,
     rotation_hz: f32,
-    doppler_tone_hz: f32,
+    _doppler_tone_hz: f32,
     bearing_degrees: f32,
 ) -> Vec<f32> {
     let num_samples = (duration_secs * sample_rate as f32) as usize;

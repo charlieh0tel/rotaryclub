@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let right_peaks = find_peaks(&right[..one_sec.min(right.len())], 0.3);
 
     println!("\nLEFT channel peaks (>0.5): {}", left_peaks.len());
-    if left_peaks.len() > 0 {
+    if !left_peaks.is_empty() {
         println!(
             "  Intervals between peaks (ms): {:?}",
             left_peaks
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\nRIGHT channel peaks (>0.3): {}", right_peaks.len());
-    if right_peaks.len() > 0 {
+    if !right_peaks.is_empty() {
         println!(
             "  Intervals between peaks (ms): {:?}",
             right_peaks
