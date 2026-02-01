@@ -36,6 +36,7 @@ impl ZeroCrossingDetector {
     }
 
     /// Reset detector state
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.last_sample = 0.0;
     }
@@ -98,6 +99,7 @@ impl PeakDetector {
     }
 
     /// Reset detector state
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.samples_since_peak = self.min_samples_between_peaks;
         self.last_sample = 0.0;

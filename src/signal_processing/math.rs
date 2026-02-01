@@ -1,6 +1,7 @@
 use std::f32::consts::PI;
 
 /// Calculate instantaneous phase from zero-crossing
+#[allow(dead_code)]
 pub fn phase_from_crossing(crossing_sample: usize, samples_per_rotation: f32) -> f32 {
     let phase_radians = (crossing_sample as f32 / samples_per_rotation) * 2.0 * PI;
     phase_radians % (2.0 * PI)
@@ -18,6 +19,7 @@ pub fn phase_to_bearing(phase_radians: f32) -> f32 {
 }
 
 /// Calculate phase difference with wrap-around handling
+#[allow(dead_code)]
 pub fn phase_difference(phase1: f32, phase2: f32) -> f32 {
     let diff = phase1 - phase2;
     // Wrap to [-PI, PI]
@@ -67,6 +69,7 @@ impl MovingAverage {
         sum / count as f32
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.buffer.fill(0.0);
         self.index = 0;

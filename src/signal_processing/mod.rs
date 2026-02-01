@@ -6,4 +6,4 @@ pub mod math;
 pub use agc::AutomaticGainControl;
 pub use detector::{PeakDetector, ZeroCrossingDetector};
 pub use filters::{BandpassFilter, HighpassFilter};
-pub use math::{phase_to_bearing, MovingAverage};
+pub use math::{MovingAverage, phase_to_bearing};

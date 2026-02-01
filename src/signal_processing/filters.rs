@@ -1,6 +1,6 @@
 use crate::error::{RdfError, Result};
 use iir_filters::filter::{DirectForm2Transposed, Filter};
-use iir_filters::filter_design::{butter, FilterType};
+use iir_filters::filter_design::{FilterType, butter};
 use iir_filters::sos::zpk2sos;
 
 /// Butterworth bandpass filter for Doppler tone extraction

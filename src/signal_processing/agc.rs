@@ -63,6 +63,7 @@ impl AutomaticGainControl {
         }
     }
 
+    #[allow(dead_code)]
     pub fn current_gain(&self) -> f32 {
         self.current_gain
     }

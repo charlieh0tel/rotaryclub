@@ -19,12 +19,12 @@ impl AudioCapture {
             .default_input_device()
             .ok_or_else(|| RdfError::AudioDevice("No input device found".into()))?;
 
-        println!("Input device: {}", device.name().unwrap_or_default());
+        println!("Input device: {:?}", device.description());
 
         // Configure stereo input
         let stream_config = cpal::StreamConfig {
             channels: config.channels,
-            sample_rate: cpal::SampleRate(config.sample_rate),
+            sample_rate: config.sample_rate,
             buffer_size: cpal::BufferSize::Fixed(config.buffer_size as u32),
         };
 

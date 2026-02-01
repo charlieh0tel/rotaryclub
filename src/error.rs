@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum RdfError {
     #[error("Audio device error: {0}")]
     AudioDevice(String),

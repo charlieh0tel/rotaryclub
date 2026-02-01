@@ -60,7 +60,6 @@ pub struct NorthTickConfig {
 #[derive(Debug, Clone)]
 pub struct BearingConfig {
     pub smoothing_window: usize,
-    pub max_phase_jump: f32,
     pub output_rate_hz: f32,
 }
 
@@ -136,7 +135,6 @@ impl Default for BearingConfig {
     fn default() -> Self {
         Self {
             smoothing_window: 5,
-            max_phase_jump: 45.0,
             output_rate_hz: 10.0,
         }
     }

@@ -2,7 +2,7 @@ use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{
-    phase_to_bearing, AutomaticGainControl, BandpassFilter, MovingAverage, ZeroCrossingDetector,
+    AutomaticGainControl, BandpassFilter, MovingAverage, ZeroCrossingDetector, phase_to_bearing,
 };
 use std::f32::consts::PI;
 
@@ -105,6 +105,7 @@ impl BearingCalculator {
     }
 
     /// Reset calculator state
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.sample_counter = 0;
         self.zero_detector.reset();
@@ -117,6 +118,7 @@ pub struct BearingMeasurement {
     pub bearing_degrees: f32,
     pub raw_bearing: f32,
     pub confidence: f32,
+    #[allow(dead_code)]
     pub timestamp_samples: usize,
 }
 

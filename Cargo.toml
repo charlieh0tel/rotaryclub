@@ -1,22 +1,22 @@
 [package]
 name = "rotaryclub"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 # Audio I/O
-cpal = "0.15"
+cpal = "0.17"
 
 # Signal Processing
 iir_filters = "0.1"
 
 # Concurrency and Real-time
 crossbeam-channel = "0.5"
-audio_thread_priority = "0.32"
+audio_thread_priority = "0.34"
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Utilities
 log = "0.4"

@@ -48,11 +48,13 @@ impl AudioRingBuffer {
     }
 
     /// Check buffer length
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
     /// Check if buffer is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }

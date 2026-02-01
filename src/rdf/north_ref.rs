@@ -67,6 +67,7 @@ impl NorthReferenceTracker {
     }
 
     /// Get current rotation period estimate in samples
+    #[allow(dead_code)]
     pub fn rotation_period(&self) -> Option<f32> {
         self.samples_per_rotation
     }
@@ -78,6 +79,7 @@ impl NorthReferenceTracker {
     }
 
     /// Reset tracker state
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.last_tick_sample = None;
         self.samples_per_rotation = None;
