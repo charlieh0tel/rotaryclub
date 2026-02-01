@@ -112,9 +112,6 @@ fn calculate_bearing_from_synthetic(
         if let Some(ref tick) = last_tick {
             if let Some(bearing) = bearing_calc.process_buffer(&doppler, tick) {
                 measurements.push(bearing.bearing_degrees);
-                eprintln!("Got bearing: {}", bearing.bearing_degrees);
-            } else {
-                eprintln!("Warning: no bearing calculated for tick at sample {}", tick.sample_index);
             }
         } else {
             // No tick yet, but still need to advance sample_counter
@@ -127,15 +124,7 @@ fn calculate_bearing_from_synthetic(
 
         if let Some(tick) = ticks.last() {
             last_tick = Some(*tick);
-            eprintln!("Tick at sample {} with period {:?}", tick.sample_index, tick.period);
         }
-    }
-
-    eprintln!("Bearing {}: ticks={}, measurements={}", bearing_degrees, tick_count, measurements.len());
-
-    if !measurements.is_empty() {
-        eprintln!("First 10 measurements: {:?}", &measurements[..measurements.len().min(10)]);
-        eprintln!("Last 10 measurements: {:?}", &measurements[measurements.len().saturating_sub(10)..]);
     }
 
     if measurements.len() > 5 {
