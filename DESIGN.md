@@ -30,7 +30,9 @@ bearing = (phase_offset / 2π) × 360°
 ### North Tick Detection (Right Channel)
 1. Highpass filter at 5 kHz (isolate 20µs pulse transients)
 2. Peak detection with 0.15 threshold and 0.6ms minimum spacing
-3. Exponential smoothing to track rotation period
+3. Rotation tracking (configurable):
+   - **DPLL mode** (default): Digital PLL locks onto rotation frequency for smooth tracking
+   - **Simple mode**: Exponential smoothing of period measurements
 
 ### Doppler Tone Extraction (Left Channel)
 1. AGC (Automatic Gain Control) normalizes signal amplitude to 0.5 RMS

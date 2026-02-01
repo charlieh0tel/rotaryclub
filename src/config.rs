@@ -49,8 +49,16 @@ pub struct DopplerConfig {
     pub zero_cross_hysteresis: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NorthTrackingMode {
+    #[allow(dead_code)]
+    Simple,
+    Dpll,
+}
+
 #[derive(Debug, Clone)]
 pub struct NorthTickConfig {
+    pub mode: NorthTrackingMode,
     pub highpass_cutoff: f32,
     pub filter_order: usize,
     pub threshold: f32,
@@ -123,6 +131,7 @@ impl Default for DopplerConfig {
 impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
+            mode: NorthTrackingMode::Dpll,
             highpass_cutoff: 5000.0,
             filter_order: 2,
             threshold: 0.15,

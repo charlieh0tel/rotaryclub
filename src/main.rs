@@ -24,6 +24,7 @@ fn main() -> anyhow::Result<()> {
         config.doppler.bandpass_low, config.doppler.bandpass_high
     );
     println!("North tick threshold: {}", config.north_tick.threshold);
+    println!("North tick tracking: {:?}", config.north_tick.mode);
     println!("Output rate: {} Hz", config.bearing.output_rate_hz);
     println!(
         "Channel assignment: Doppler={:?}, North tick={:?}",
