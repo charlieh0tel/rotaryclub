@@ -2,6 +2,11 @@ use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
 use std::f32::consts::PI;
 
+const MIN_POWER_THRESHOLD: f32 = 1e-10;
+const COHERENCE_WINDOW_COUNT: usize = 4;
+const MAX_PHASE_VARIANCE: f32 = PI * PI / 3.0;
+const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
+
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
 use super::{BearingMeasurement, ConfidenceMetrics, NorthTick};
@@ -132,19 +137,19 @@ impl CorrelationBearingCalculator {
         correlation_magnitude: f32,
     ) -> ConfidenceMetrics {
         let n = self.base.work_buffer.len();
-        if n < 4 || signal_power < 1e-10 {
+        if n < COHERENCE_WINDOW_COUNT || signal_power < MIN_POWER_THRESHOLD {
             return ConfidenceMetrics::default();
         }
 
         // --- SNR Estimation ---
         let correlated_power = correlation_magnitude * correlation_magnitude;
-        let noise_power = (signal_power - correlated_power).max(1e-10);
+        let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
         let snr_db = 10.0 * (correlated_power / noise_power).log10();
 
         // --- Coherence Estimation ---
-        // Split buffer into 4 sub-windows and compute phase in each
-        let window_size = n / 4;
-        let mut phases = [0.0f32; 4];
+        // Split buffer into sub-windows and compute phase in each
+        let window_size = n / COHERENCE_WINDOW_COUNT;
+        let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
 
         for (win_idx, phase) in phases.iter_mut().enumerate() {
             let start = win_idx * window_size;
@@ -164,7 +169,7 @@ impl CorrelationBearingCalculator {
         }
 
         // Calculate phase variance (circular variance)
-        let mean_phase = phases.iter().sum::<f32>() / 4.0;
+        let mean_phase = phases.iter().sum::<f32>() / COHERENCE_WINDOW_COUNT as f32;
         let phase_variance: f32 = phases
             .iter()
             .map(|p| {
@@ -173,13 +178,13 @@ impl CorrelationBearingCalculator {
                 wrapped * wrapped
             })
             .sum::<f32>()
-            / 4.0;
+            / COHERENCE_WINDOW_COUNT as f32;
 
-        let max_variance = PI * PI / 3.0;
+        let max_variance = MAX_PHASE_VARIANCE;
         let coherence = (1.0 - phase_variance / max_variance).clamp(0.0, 1.0);
 
         // --- Signal Strength ---
-        let signal_strength = if signal_power > 0.01 {
+        let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
             (correlation_magnitude / signal_power.sqrt()).clamp(0.0, 1.0)
         } else {
             0.0

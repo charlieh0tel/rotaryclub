@@ -3,6 +3,8 @@ use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{IirButterworthHighpass, PeakDetector};
 
+const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
+
 pub struct SimpleNorthTracker {
     highpass: IirButterworthHighpass,
     peak_detector: PeakDetector,
@@ -47,7 +49,10 @@ impl SimpleNorthTracker {
 
                 self.samples_per_rotation = Some(
                     self.samples_per_rotation
-                        .map(|prev| 0.9 * prev + 0.1 * period)
+                        .map(|prev| {
+                            (1.0 - PERIOD_SMOOTHING_FACTOR) * prev
+                                + PERIOD_SMOOTHING_FACTOR * period
+                        })
                         .unwrap_or(period),
                 );
             }

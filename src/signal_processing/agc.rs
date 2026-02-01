@@ -1,5 +1,9 @@
 use crate::config::AgcConfig;
 
+const MIN_RMS_THRESHOLD: f32 = 1e-6;
+const MIN_GAIN: f32 = 0.1;
+const MAX_GAIN: f32 = 10.0;
+
 /// Automatic Gain Control (AGC)
 ///
 /// Dynamically adjusts signal amplitude to maintain a target RMS level,
@@ -67,7 +71,7 @@ impl AutomaticGainControl {
             self.rms_accumulator = 0.0;
             self.sample_count = 0;
 
-            if rms > 1e-6 {
+            if rms > MIN_RMS_THRESHOLD {
                 let desired_gain = self.target_rms / rms;
                 let coeff = if desired_gain > self.current_gain {
                     self.attack_coeff
@@ -76,7 +80,7 @@ impl AutomaticGainControl {
                 };
 
                 self.current_gain = coeff * self.current_gain + (1.0 - coeff) * desired_gain;
-                self.current_gain = self.current_gain.clamp(0.1, 10.0);
+                self.current_gain = self.current_gain.clamp(MIN_GAIN, MAX_GAIN);
             }
         }
 
@@ -189,6 +193,6 @@ mod tests {
         let mut output = silent_signal.clone();
         agc.process_buffer(&mut output);
 
-        assert!(agc.current_gain() <= 10.0);
+        assert!(agc.current_gain() <= MAX_GAIN);
     }
 }

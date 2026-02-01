@@ -3,6 +3,11 @@ use crate::error::Result;
 use crate::signal_processing::ZeroCrossingDetector;
 use std::f32::consts::PI;
 
+const DEFAULT_SINGLE_CROSSING_COHERENCE: f32 = 0.5;
+const MIN_POWER_THRESHOLD: f32 = 1e-10;
+const SNR_DB_OFFSET: f32 = 40.0;
+const MAX_SNR_DB: f32 = 40.0;
+
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
 use super::{BearingMeasurement, ConfidenceMetrics, NorthTick};
@@ -135,20 +140,20 @@ impl ZeroCrossingBearingCalculator {
                 interval_errors.iter().sum::<f32>() / interval_errors.len() as f32;
             (1.0 - mean_error.min(1.0)).clamp(0.0, 1.0)
         } else {
-            0.5
+            DEFAULT_SINGLE_CROSSING_COHERENCE
         };
 
         // --- SNR Estimation from signal amplitude ---
         let signal_power: f32 = self.base.work_buffer.iter().map(|s| s * s).sum::<f32>()
             / self.base.work_buffer.len() as f32;
-        let snr_db = if signal_power > 1e-10 {
-            10.0 * signal_power.log10() + 40.0
+        let snr_db = if signal_power > MIN_POWER_THRESHOLD {
+            10.0 * signal_power.log10() + SNR_DB_OFFSET
         } else {
             0.0
         };
 
         ConfidenceMetrics {
-            snr_db: snr_db.clamp(0.0, 40.0),
+            snr_db: snr_db.clamp(0.0, MAX_SNR_DB),
             coherence,
             signal_strength,
         }

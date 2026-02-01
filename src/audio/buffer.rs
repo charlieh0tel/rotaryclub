@@ -1,3 +1,5 @@
+const DEFAULT_BUFFER_CAPACITY: usize = 8192;
+
 /// Stereo sample
 #[derive(Copy, Clone, Debug, Default)]
 pub struct StereoSample {
@@ -8,14 +10,12 @@ pub struct StereoSample {
 /// Ring buffer for audio samples
 pub struct AudioRingBuffer {
     buffer: Vec<StereoSample>,
-    capacity: usize,
 }
 
 impl AudioRingBuffer {
     pub fn new() -> Self {
         Self {
-            buffer: Vec::with_capacity(8192),
-            capacity: 8192,
+            buffer: Vec::with_capacity(DEFAULT_BUFFER_CAPACITY),
         }
     }
 
@@ -30,8 +30,8 @@ impl AudioRingBuffer {
         }
 
         // Keep only the most recent samples
-        if self.buffer.len() > self.capacity {
-            let excess = self.buffer.len() - self.capacity;
+        if self.buffer.len() > DEFAULT_BUFFER_CAPACITY {
+            let excess = self.buffer.len() - DEFAULT_BUFFER_CAPACITY;
             self.buffer.drain(0..excess);
         }
     }

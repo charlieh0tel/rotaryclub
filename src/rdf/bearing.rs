@@ -1,3 +1,8 @@
+const SNR_NORMALIZATION_DB: f32 = 20.0;
+const SNR_WEIGHT: f32 = 0.4;
+const COHERENCE_WEIGHT: f32 = 0.4;
+const SIGNAL_STRENGTH_WEIGHT: f32 = 0.2;
+
 /// Convert phase angle to bearing in degrees
 ///
 /// Converts a phase angle in radians to a bearing angle in degrees,
@@ -32,8 +37,10 @@ pub struct ConfidenceMetrics {
 impl ConfidenceMetrics {
     /// Calculate combined confidence score from metrics
     pub fn combined_score(&self) -> f32 {
-        let snr_score = (self.snr_db / 20.0).clamp(0.0, 1.0);
-        0.4 * snr_score + 0.4 * self.coherence + 0.2 * self.signal_strength
+        let snr_score = (self.snr_db / SNR_NORMALIZATION_DB).clamp(0.0, 1.0);
+        SNR_WEIGHT * snr_score
+            + COHERENCE_WEIGHT * self.coherence
+            + SIGNAL_STRENGTH_WEIGHT * self.signal_strength
     }
 }
 
@@ -90,7 +97,7 @@ mod tests {
             signal_strength: 0.5,
         };
         let score = metrics.combined_score();
-        let expected = 0.4 * 0.5 + 0.4 * 0.5 + 0.2 * 0.5;
+        let expected = SNR_WEIGHT * 0.5 + COHERENCE_WEIGHT * 0.5 + SIGNAL_STRENGTH_WEIGHT * 0.5;
         assert!((score - expected).abs() < 0.001);
     }
 
