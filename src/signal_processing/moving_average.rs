@@ -57,13 +57,6 @@ impl MovingAverage {
         };
         sum / count as f32
     }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.buffer.fill(0.0);
-        self.index = 0;
-        self.filled = false;
-    }
 }
 
 #[cfg(test)]

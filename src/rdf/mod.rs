@@ -1,4 +1,5 @@
 pub mod bearing;
+mod bearing_calculator_base;
 mod bearing_correlation;
 mod bearing_zero_crossing;
 pub mod north_ref;

@@ -70,14 +70,6 @@ impl NorthReferenceTracker {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn rotation_period(&self) -> Option<f32> {
-        match self {
-            Self::Simple(tracker) => tracker.rotation_period(),
-            Self::Dpll(tracker) => tracker.rotation_period(),
-        }
-    }
-
     /// Get the current rotation frequency estimate in Hz
     ///
     /// Returns `None` if insufficient ticks have been detected to establish
@@ -86,14 +78,6 @@ impl NorthReferenceTracker {
         match self {
             Self::Simple(tracker) => tracker.rotation_frequency(),
             Self::Dpll(tracker) => tracker.rotation_frequency(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        match self {
-            Self::Simple(tracker) => tracker.reset(),
-            Self::Dpll(tracker) => tracker.reset(),
         }
     }
 }

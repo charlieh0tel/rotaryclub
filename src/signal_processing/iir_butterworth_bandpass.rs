@@ -3,7 +3,7 @@ use iir_filters::filter::{DirectForm2Transposed, Filter};
 use iir_filters::filter_design::{FilterType, butter};
 use iir_filters::sos::zpk2sos;
 
-/// Butterworth bandpass filter for Doppler tone extraction
+/// Butterworth IIR bandpass filter for Doppler tone extraction
 ///
 /// Implements a Butterworth bandpass filter using direct form II transposed
 /// structure for efficient filtering of the Doppler tone around the antenna
@@ -12,12 +12,12 @@ use iir_filters::sos::zpk2sos;
 /// The filter passes frequencies between `low_hz` and `high_hz` while
 /// attenuating frequencies outside this range. Higher filter orders provide
 /// steeper rolloff at the cost of slightly more processing.
-pub struct BandpassFilter {
+pub struct IirButterworthBandpass {
     filter: DirectForm2Transposed,
 }
 
-impl BandpassFilter {
-    /// Create a new bandpass filter
+impl IirButterworthBandpass {
+    /// Create a new Butterworth bandpass filter
     ///
     /// # Arguments
     /// * `low_hz` - Lower cutoff frequency in Hz
@@ -28,66 +28,9 @@ impl BandpassFilter {
     /// # Errors
     /// Returns `RdfError::FilterDesign` if filter parameters are invalid
     pub fn new(low_hz: f32, high_hz: f32, sample_rate: f32, order: usize) -> Result<Self> {
-        // Design Butterworth bandpass
         let zpk = butter(
             order as u32,
             FilterType::BandPass(low_hz as f64, high_hz as f64),
-            sample_rate as f64,
-        )
-        .map_err(|e| RdfError::FilterDesign(format!("{:?}", e)))?;
-
-        // Convert to second-order sections
-        let sos = zpk2sos(&zpk, None).map_err(|e| RdfError::FilterDesign(format!("{:?}", e)))?;
-
-        Ok(Self {
-            filter: DirectForm2Transposed::new(&sos),
-        })
-    }
-
-    /// Process a single audio sample through the filter
-    ///
-    /// Returns the filtered sample value.
-    pub fn process(&mut self, sample: f32) -> f32 {
-        self.filter.filter(sample as f64) as f32
-    }
-
-    /// Process an entire buffer of audio samples in-place
-    ///
-    /// Filters each sample in the buffer, replacing the original values
-    /// with the filtered output.
-    pub fn process_buffer(&mut self, buffer: &mut [f32]) {
-        for sample in buffer.iter_mut() {
-            *sample = self.process(*sample);
-        }
-    }
-}
-
-/// Butterworth highpass filter for north tick extraction
-///
-/// Implements a Butterworth highpass filter to isolate the high-frequency
-/// transients of north timing reference pulses (~20 µs width).
-///
-/// The filter passes frequencies above `cutoff_hz` while attenuating lower
-/// frequencies. This is essential for detecting the sharp transients of
-/// north tick pulses against background signals.
-pub struct HighpassFilter {
-    filter: DirectForm2Transposed,
-}
-
-impl HighpassFilter {
-    /// Create a new highpass filter
-    ///
-    /// # Arguments
-    /// * `cutoff_hz` - Cutoff frequency in Hz (typically 5000+ for north ticks)
-    /// * `sample_rate` - Audio sample rate in Hz
-    /// * `order` - Filter order (higher = steeper rolloff, typically 2)
-    ///
-    /// # Errors
-    /// Returns `RdfError::FilterDesign` if filter parameters are invalid
-    pub fn new(cutoff_hz: f32, sample_rate: f32, order: usize) -> Result<Self> {
-        let zpk = butter(
-            order as u32,
-            FilterType::HighPass(cutoff_hz as f64),
             sample_rate as f64,
         )
         .map_err(|e| RdfError::FilterDesign(format!("{:?}", e)))?;
@@ -123,20 +66,14 @@ mod tests {
     use std::f32::consts::PI;
 
     #[test]
-    fn test_bandpass_filter_design() {
-        let filter = BandpassFilter::new(400.0, 600.0, 48000.0, 4);
+    fn test_butterworth_bandpass_design() {
+        let filter = IirButterworthBandpass::new(400.0, 600.0, 48000.0, 4);
         assert!(filter.is_ok());
     }
 
     #[test]
-    fn test_highpass_filter_design() {
-        let filter = HighpassFilter::new(2000.0, 48000.0, 2);
-        assert!(filter.is_ok());
-    }
-
-    #[test]
-    fn test_bandpass_passes_center_frequency() {
-        let mut filter = BandpassFilter::new(400.0, 600.0, 48000.0, 4).unwrap();
+    fn test_butterworth_bandpass_passes_center_frequency() {
+        let mut filter = IirButterworthBandpass::new(400.0, 600.0, 48000.0, 4).unwrap();
 
         // Generate 500Hz sine wave (center of bandpass)
         let input: Vec<f32> = (0..4800)

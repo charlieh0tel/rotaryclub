@@ -1,4 +1,4 @@
-use rotaryclub::signal_processing::{BandpassFilter, HighpassFilter};
+use rotaryclub::signal_processing::{IirButterworthBandpass, IirButterworthHighpass};
 use std::f32::consts::PI;
 
 fn main() -> anyhow::Result<()> {
@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
     );
     println!("{}", "-".repeat(45));
 
-    let mut bandpass = BandpassFilter::new(400.0, 600.0, sample_rate, 4)?;
+    let mut bandpass = IirButterworthBandpass::new(400.0, 600.0, sample_rate, 4)?;
 
     for freq in [
         100.0, 200.0, 300.0, 400.0, 450.0, 500.0, 550.0, 600.0, 700.0, 800.0, 1000.0,
@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     );
     println!("{}", "-".repeat(45));
 
-    let mut highpass = HighpassFilter::new(2000.0, sample_rate, 2)?;
+    let mut highpass = IirButterworthHighpass::new(2000.0, sample_rate, 2)?;
 
     for freq in [
         100.0, 500.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 10000.0,
@@ -97,14 +97,14 @@ trait Filter {
     fn process_buffer(&mut self, buffer: &mut [f32]);
 }
 
-impl Filter for BandpassFilter {
+impl Filter for IirButterworthBandpass {
     fn process_buffer(&mut self, buffer: &mut [f32]) {
-        BandpassFilter::process_buffer(self, buffer);
+        IirButterworthBandpass::process_buffer(self, buffer);
     }
 }
 
-impl Filter for HighpassFilter {
+impl Filter for IirButterworthHighpass {
     fn process_buffer(&mut self, buffer: &mut [f32]) {
-        HighpassFilter::process_buffer(self, buffer);
+        IirButterworthHighpass::process_buffer(self, buffer);
     }
 }

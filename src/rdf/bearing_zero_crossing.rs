@@ -1,10 +1,11 @@
 use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
-use crate::rdf::{BearingMeasurement, ConfidenceMetrics, NorthTick};
-use crate::signal_processing::{
-    AutomaticGainControl, BandpassFilter, MovingAverage, ZeroCrossingDetector, phase_to_bearing,
-};
+use crate::signal_processing::ZeroCrossingDetector;
 use std::f32::consts::PI;
+
+use super::bearing::phase_to_bearing;
+use super::bearing_calculator_base::BearingCalculatorBase;
+use super::{BearingMeasurement, ConfidenceMetrics, NorthTick};
 
 /// Zero-crossing based bearing calculator
 ///
@@ -14,12 +15,8 @@ use std::f32::consts::PI;
 /// This method is simple and fast (~7° accuracy) but less robust to noise than
 /// correlation-based methods.
 pub struct ZeroCrossingBearingCalculator {
-    agc: AutomaticGainControl,
-    bandpass: BandpassFilter,
+    base: BearingCalculatorBase,
     zero_detector: ZeroCrossingDetector,
-    sample_counter: usize,
-    bearing_smoother: MovingAverage,
-    work_buffer: Vec<f32>,
 }
 
 impl ZeroCrossingBearingCalculator {
@@ -37,17 +34,8 @@ impl ZeroCrossingBearingCalculator {
         smoothing: usize,
     ) -> Result<Self> {
         Ok(Self {
-            agc: AutomaticGainControl::new(agc_config, sample_rate as u32),
-            bandpass: BandpassFilter::new(
-                doppler_config.bandpass_low,
-                doppler_config.bandpass_high,
-                sample_rate,
-                doppler_config.filter_order,
-            )?,
+            base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
             zero_detector: ZeroCrossingDetector::new(doppler_config.zero_cross_hysteresis),
-            sample_counter: 0,
-            bearing_smoother: MovingAverage::new(smoothing),
-            work_buffer: Vec::new(),
         })
     }
 
@@ -64,37 +52,35 @@ impl ZeroCrossingBearingCalculator {
         doppler_buffer: &[f32],
         north_tick: &NorthTick,
     ) -> Option<BearingMeasurement> {
-        // Apply AGC to normalize signal amplitude
-        self.work_buffer.clear();
-        self.work_buffer.extend_from_slice(doppler_buffer);
-        self.agc.process_buffer(&mut self.work_buffer);
+        self.base.preprocess(doppler_buffer);
 
-        // Filter doppler tone
-        self.bandpass.process_buffer(&mut self.work_buffer);
-
-        // Find zero crossings
-        let crossings = self.zero_detector.find_all_crossings(&self.work_buffer);
+        // Find zero crossings in the filtered buffer
+        let crossings = self
+            .zero_detector
+            .find_all_crossings(&self.base.work_buffer);
 
         if crossings.is_empty() {
-            self.sample_counter += doppler_buffer.len();
+            self.base.advance_counter(doppler_buffer.len());
             return None;
         }
+
+        // Calculate base offset from north tick
+        let base_offset = match self.base.offset_from_north_tick(north_tick) {
+            Some(offset) => offset,
+            None => {
+                self.base.advance_counter(doppler_buffer.len());
+                return None;
+            }
+        };
 
         // Get rotation period
         let samples_per_rotation = north_tick.period?;
 
         // Use the first crossing in the buffer
         let crossing_idx = crossings[0];
-        let global_crossing = self.sample_counter + crossing_idx;
 
         // Calculate samples elapsed since north tick
-        let samples_since_tick = if global_crossing >= north_tick.sample_index {
-            (global_crossing - north_tick.sample_index) as f32
-        } else {
-            // Handle wrap-around (shouldn't normally happen)
-            self.sample_counter += doppler_buffer.len();
-            return None;
-        };
+        let samples_since_tick = (base_offset + crossing_idx) as f32;
 
         // Calculate phase in radians
         let phase = (samples_since_tick / samples_per_rotation) * 2.0 * PI;
@@ -103,9 +89,9 @@ impl ZeroCrossingBearingCalculator {
         let raw_bearing = phase_to_bearing(phase);
 
         // Apply smoothing
-        let smoothed_bearing = self.bearing_smoother.add(raw_bearing);
+        let smoothed_bearing = self.base.smooth_bearing(raw_bearing);
 
-        self.sample_counter += doppler_buffer.len();
+        self.base.advance_counter(doppler_buffer.len());
 
         let metrics = self.calculate_metrics(&crossings, samples_per_rotation);
 
@@ -114,7 +100,6 @@ impl ZeroCrossingBearingCalculator {
             raw_bearing,
             confidence: metrics.combined_score(),
             metrics,
-            timestamp_samples: global_crossing,
         })
     }
 
@@ -128,8 +113,7 @@ impl ZeroCrossingBearingCalculator {
         }
 
         // --- Signal Strength ---
-        // Based on crossing count - more crossings indicates stronger signal
-        let expected_crossings = (self.work_buffer.len() as f32 / samples_per_rotation) * 2.0;
+        let expected_crossings = (self.base.work_buffer.len() as f32 / samples_per_rotation) * 2.0;
         let signal_strength = if expected_crossings > 0.0 {
             (crossings.len() as f32 / expected_crossings).clamp(0.0, 1.0)
         } else {
@@ -137,7 +121,6 @@ impl ZeroCrossingBearingCalculator {
         };
 
         // --- Coherence from crossing regularity ---
-        // Measure how regular the crossing intervals are
         let coherence = if crossings.len() >= 2 {
             let expected_interval = samples_per_rotation / 2.0;
             let mut interval_errors = Vec::with_capacity(crossings.len() - 1);
@@ -156,9 +139,8 @@ impl ZeroCrossingBearingCalculator {
         };
 
         // --- SNR Estimation from signal amplitude ---
-        // Use signal power from the work buffer
-        let signal_power: f32 =
-            self.work_buffer.iter().map(|s| s * s).sum::<f32>() / self.work_buffer.len() as f32;
+        let signal_power: f32 = self.base.work_buffer.iter().map(|s| s * s).sum::<f32>()
+            / self.base.work_buffer.len() as f32;
         let snr_db = if signal_power > 1e-10 {
             10.0 * signal_power.log10() + 40.0
         } else {
@@ -170,14 +152,6 @@ impl ZeroCrossingBearingCalculator {
             coherence,
             signal_strength,
         }
-    }
-
-    /// Reset calculator state
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.sample_counter = 0;
-        self.zero_detector.reset();
-        self.bearing_smoother.reset();
     }
 }
 

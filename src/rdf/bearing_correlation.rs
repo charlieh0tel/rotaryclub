@@ -1,10 +1,10 @@
 use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
-use crate::rdf::{BearingMeasurement, ConfidenceMetrics, NorthTick};
-use crate::signal_processing::{
-    AutomaticGainControl, BandpassFilter, MovingAverage, phase_to_bearing,
-};
 use std::f32::consts::PI;
+
+use super::bearing::phase_to_bearing;
+use super::bearing_calculator_base::BearingCalculatorBase;
+use super::{BearingMeasurement, ConfidenceMetrics, NorthTick};
 
 /// Correlation-based bearing calculator using I/Q demodulation
 ///
@@ -14,12 +14,8 @@ use std::f32::consts::PI;
 /// This method is more accurate (~1-2° accuracy) and robust to noise than
 /// zero-crossing detection, at the cost of slightly higher CPU usage.
 pub struct CorrelationBearingCalculator {
-    agc: AutomaticGainControl,
-    bandpass: BandpassFilter,
-    sample_counter: usize,
-    bearing_smoother: MovingAverage,
+    base: BearingCalculatorBase,
     sample_rate: f32,
-    work_buffer: Vec<f32>,
 }
 
 impl CorrelationBearingCalculator {
@@ -37,17 +33,8 @@ impl CorrelationBearingCalculator {
         smoothing: usize,
     ) -> Result<Self> {
         Ok(Self {
-            agc: AutomaticGainControl::new(agc_config, sample_rate as u32),
-            bandpass: BandpassFilter::new(
-                doppler_config.bandpass_low,
-                doppler_config.bandpass_high,
-                sample_rate,
-                doppler_config.filter_order,
-            )?,
-            sample_counter: 0,
-            bearing_smoother: MovingAverage::new(smoothing),
+            base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
             sample_rate,
-            work_buffer: Vec::new(),
         })
     }
 
@@ -67,13 +54,16 @@ impl CorrelationBearingCalculator {
         doppler_buffer: &[f32],
         north_tick: &NorthTick,
     ) -> Option<BearingMeasurement> {
-        // Apply AGC to normalize signal amplitude
-        self.work_buffer.clear();
-        self.work_buffer.extend_from_slice(doppler_buffer);
-        self.agc.process_buffer(&mut self.work_buffer);
+        self.base.preprocess(doppler_buffer);
 
-        // Filter doppler tone
-        self.bandpass.process_buffer(&mut self.work_buffer);
+        // Calculate base offset from north tick
+        let base_offset = match self.base.offset_from_north_tick(north_tick) {
+            Some(offset) => offset,
+            None => {
+                self.base.advance_counter(doppler_buffer.len());
+                return None;
+            }
+        };
 
         // Get rotation period and frequency
         let samples_per_rotation = north_tick.period?;
@@ -81,20 +71,11 @@ impl CorrelationBearingCalculator {
         let omega = 2.0 * PI * rotation_freq / self.sample_rate;
 
         // I/Q demodulation: correlate with cos and sin referenced to north tick
-        // Reference time is the north tick (phase = 0 at north tick)
         let mut i_sum = 0.0;
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
 
-        // Calculate base offset once
-        let base_offset = if self.sample_counter >= north_tick.sample_index {
-            self.sample_counter - north_tick.sample_index
-        } else {
-            self.sample_counter += doppler_buffer.len();
-            return None;
-        };
-
-        for (idx, &sample) in self.work_buffer.iter().enumerate() {
+        for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
             let samples_from_tick = (base_offset + idx) as f32;
             let phase = omega * samples_from_tick;
 
@@ -104,7 +85,7 @@ impl CorrelationBearingCalculator {
         }
 
         // Normalize by buffer length
-        let n = self.work_buffer.len() as f32;
+        let n = self.base.work_buffer.len() as f32;
         let i = i_sum / n;
         let q = q_sum / n;
 
@@ -131,16 +112,15 @@ impl CorrelationBearingCalculator {
         let raw_bearing = phase_to_bearing(normalized_phase);
 
         // Apply smoothing
-        let smoothed_bearing = self.bearing_smoother.add(raw_bearing);
+        let smoothed_bearing = self.base.smooth_bearing(raw_bearing);
 
-        self.sample_counter += doppler_buffer.len();
+        self.base.advance_counter(doppler_buffer.len());
 
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
             confidence: metrics.combined_score(),
             metrics,
-            timestamp_samples: self.sample_counter,
         })
     }
 
@@ -151,15 +131,13 @@ impl CorrelationBearingCalculator {
         signal_power: f32,
         correlation_magnitude: f32,
     ) -> ConfidenceMetrics {
-        let n = self.work_buffer.len();
+        let n = self.base.work_buffer.len();
         if n < 4 || signal_power < 1e-10 {
             return ConfidenceMetrics::default();
         }
 
         // --- SNR Estimation ---
-        // Correlated signal power is the magnitude squared of the I/Q correlation
         let correlated_power = correlation_magnitude * correlation_magnitude;
-        // Noise power is the residual (total power minus correlated component)
         let noise_power = (signal_power - correlated_power).max(1e-10);
         let snr_db = 10.0 * (correlated_power / noise_power).log10();
 
@@ -175,7 +153,7 @@ impl CorrelationBearingCalculator {
             let mut i_win = 0.0;
             let mut q_win = 0.0;
 
-            for (idx, &sample) in self.work_buffer[start..end].iter().enumerate() {
+            for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
                 let samples_from_tick = (base_offset + start + idx) as f32;
                 let p = omega * samples_from_tick;
                 i_win += sample * p.cos();
@@ -197,12 +175,10 @@ impl CorrelationBearingCalculator {
             .sum::<f32>()
             / 4.0;
 
-        // Max expected variance for random phases is ~PI^2/3
         let max_variance = PI * PI / 3.0;
         let coherence = (1.0 - phase_variance / max_variance).clamp(0.0, 1.0);
 
         // --- Signal Strength ---
-        // Normalize correlation magnitude relative to signal power
         let signal_strength = if signal_power > 0.01 {
             (correlation_magnitude / signal_power.sqrt()).clamp(0.0, 1.0)
         } else {
@@ -214,13 +190,6 @@ impl CorrelationBearingCalculator {
             coherence,
             signal_strength,
         }
-    }
-
-    /// Reset calculator state
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.sample_counter = 0;
-        self.bearing_smoother.reset();
     }
 }
 

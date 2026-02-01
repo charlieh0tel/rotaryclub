@@ -1,11 +1,11 @@
 use crate::config::NorthTickConfig;
 use crate::error::Result;
 use crate::rdf::NorthTick;
-use crate::signal_processing::{HighpassFilter, PeakDetector};
+use crate::signal_processing::{IirButterworthHighpass, PeakDetector};
 use std::f32::consts::PI;
 
 pub struct DpllNorthTracker {
-    highpass: HighpassFilter,
+    highpass: IirButterworthHighpass,
     peak_detector: PeakDetector,
 
     // PLL state
@@ -19,7 +19,6 @@ pub struct DpllNorthTracker {
     // Frequency limits (radians/sample)
     min_omega: f32,
     max_omega: f32,
-    initial_omega: f32, // Initial frequency for reset
 
     sample_counter: usize,
     sample_rate: f32,
@@ -44,7 +43,7 @@ impl DpllNorthTracker {
         let max_omega = 2.0 * PI * config.dpll.frequency_max_hz / sample_rate;
 
         Ok(Self {
-            highpass: HighpassFilter::new(
+            highpass: IirButterworthHighpass::new(
                 config.highpass_cutoff,
                 sample_rate,
                 config.filter_order,
@@ -56,7 +55,6 @@ impl DpllNorthTracker {
             ki,
             min_omega,
             max_omega,
-            initial_omega: omega,
             sample_counter: 0,
             sample_rate,
         })
@@ -121,29 +119,12 @@ impl DpllNorthTracker {
         ticks
     }
 
-    #[allow(dead_code)]
-    pub fn rotation_period(&self) -> Option<f32> {
-        if self.frequency > 0.0 {
-            Some(2.0 * PI / self.frequency)
-        } else {
-            None
-        }
-    }
-
     pub fn rotation_frequency(&self) -> Option<f32> {
         if self.frequency > 0.0 {
             Some(self.frequency * self.sample_rate / (2.0 * PI))
         } else {
             None
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.phase = 0.0;
-        self.frequency = self.initial_omega;
-        self.sample_counter = 0;
-        self.peak_detector.reset();
     }
 }
 

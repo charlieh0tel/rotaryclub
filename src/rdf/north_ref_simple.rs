@@ -1,10 +1,10 @@
 use crate::config::NorthTickConfig;
 use crate::error::Result;
 use crate::rdf::NorthTick;
-use crate::signal_processing::{HighpassFilter, PeakDetector};
+use crate::signal_processing::{IirButterworthHighpass, PeakDetector};
 
 pub struct SimpleNorthTracker {
-    highpass: HighpassFilter,
+    highpass: IirButterworthHighpass,
     peak_detector: PeakDetector,
     last_tick_sample: Option<usize>,
     samples_per_rotation: Option<f32>,
@@ -17,7 +17,7 @@ impl SimpleNorthTracker {
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
 
         Ok(Self {
-            highpass: HighpassFilter::new(
+            highpass: IirButterworthHighpass::new(
                 config.highpass_cutoff,
                 sample_rate,
                 config.filter_order,
@@ -64,22 +64,9 @@ impl SimpleNorthTracker {
         ticks
     }
 
-    #[allow(dead_code)]
-    pub fn rotation_period(&self) -> Option<f32> {
-        self.samples_per_rotation
-    }
-
     pub fn rotation_frequency(&self) -> Option<f32> {
         self.samples_per_rotation
             .map(|period| self.sample_rate / period)
-    }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.last_tick_sample = None;
-        self.samples_per_rotation = None;
-        self.sample_counter = 0;
-        self.peak_detector.reset();
     }
 }
 

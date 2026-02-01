@@ -1,3 +1,23 @@
+/// Convert phase angle to bearing in degrees
+///
+/// Converts a phase angle in radians to a bearing angle in degrees,
+/// normalized to the range 0-360°.
+///
+/// # Arguments
+/// * `phase_radians` - Phase angle in radians
+///
+/// # Returns
+/// Bearing angle in degrees (0-360)
+pub fn phase_to_bearing(phase_radians: f32) -> f32 {
+    let degrees = phase_radians.to_degrees();
+    // Normalize to 0-360
+    if degrees < 0.0 {
+        degrees + 360.0
+    } else {
+        degrees % 360.0
+    }
+}
+
 /// Detailed confidence metrics for bearing measurements
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ConfidenceMetrics {
@@ -30,14 +50,20 @@ pub struct BearingMeasurement {
     pub confidence: f32,
     /// Detailed confidence metrics breakdown
     pub metrics: ConfidenceMetrics,
-    /// Sample timestamp
-    #[allow(dead_code)]
-    pub timestamp_samples: usize,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::PI;
+
+    #[test]
+    fn test_phase_to_bearing() {
+        assert!((phase_to_bearing(0.0) - 0.0).abs() < 0.01);
+        assert!((phase_to_bearing(PI / 2.0) - 90.0).abs() < 0.01);
+        assert!((phase_to_bearing(PI) - 180.0).abs() < 0.01);
+        assert!((phase_to_bearing(3.0 * PI / 2.0) - 270.0).abs() < 0.01);
+    }
 
     #[test]
     fn test_confidence_metrics_default() {
