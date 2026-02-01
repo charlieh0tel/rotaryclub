@@ -1,7 +1,11 @@
 pub mod bearing;
+mod bearing_correlation;
+mod bearing_zero_crossing;
 pub mod north_ref;
 mod north_ref_dpll;
 mod north_ref_simple;
 
-pub use bearing::{BearingMeasurement, CorrelationBearingCalculator, ZeroCrossingBearingCalculator};
+pub use bearing::BearingMeasurement;
+pub use bearing_correlation::CorrelationBearingCalculator;
+pub use bearing_zero_crossing::ZeroCrossingBearingCalculator;
 pub use north_ref::{NorthReferenceTracker, NorthTick};
