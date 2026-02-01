@@ -7,22 +7,14 @@ Rust implementation of a pseudo doppler RDF system that calculates bearing angle
 ### From Debian Package
 
 ```bash
-# Install the .deb package
-sudo dpkg -i rotaryclub_0.1.0-1_amd64.deb
-
-# Or if you need to install dependencies
-sudo apt install -f
-sudo dpkg -i rotaryclub_0.1.0-1_amd64.deb
-
-# Run the installed binary
-rotaryclub --help
+sudo apt install ./rotaryclub_1.3.0-1_amd64.deb
 ```
 
 ### From Source
 
 ```bash
 # Clone and build
-git clone https://github.com/yourusername/rotaryclub.git
+git clone https://github.com/charlieh0tel/rotaryclub.git
 cd rotaryclub
 cargo build --release
 
@@ -97,6 +89,11 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 -o, --north-offset <DEGREES>     North reference offset in degrees [default: 0.0]
                                  Added to all bearings for calibration
 
+-f, --format <FORMAT>            Output format [default: text]
+                                 [text | kn5r | json | csv]
+
+-i, --input <INPUT>              Input WAV file (default: live device capture)
+
 -v, --verbose                    Increase logging (-v=debug, -vv=trace)
 
 -h, --help                       Print help
@@ -111,6 +108,23 @@ cargo run --example synthetic_rdf       # Test with generated signals
 cargo run --example compute_rotation    # Measure rotation frequency
 cargo run --example analyze_channels    # Identify which channel is which
 ```
+
+## Plotting
+
+The `scripts/plot_bearings.py` script visualizes bearing data from CSV output.
+
+```bash
+# Generate CSV from a WAV file
+rotaryclub -i recording.wav -f csv > recording.csv
+
+# Plot with default thresholds (confidence >= 0.5, coherence >= 0.5)
+python3 scripts/plot_bearings.py recording.csv
+
+# Custom thresholds
+python3 scripts/plot_bearings.py recording.csv --min-confidence 0.7 --min-coherence 0.6
+```
+
+Requires `pandas` and `matplotlib`.
 
 ## Configuration
 
@@ -128,7 +142,7 @@ cargo test
 # Build Debian package (requires cargo-deb)
 cargo install cargo-deb
 cargo deb
-# Creates target/debian/rotaryclub_0.1.0-1_amd64.deb
+# Creates target/debian/rotaryclub_1.3.0-1_amd64.deb
 ```
 
 **Requirements:**
