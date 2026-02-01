@@ -1,6 +1,6 @@
 use clap::Parser;
 use crossbeam_channel::bounded;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod audio;
 mod config;
@@ -42,6 +42,17 @@ struct Args {
     /// Increase output verbosity (-v for debug, -vv for trace)
     #[arg(short = 'v', long, action = clap::ArgAction::Count)]
     verbose: u8,
+
+    /// Output format
+    #[arg(short = 'f', long, value_enum, default_value = "text")]
+    format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
+    Csv,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -88,6 +99,99 @@ impl BearingCalculator {
     }
 }
 
+fn iso8601_timestamp() -> String {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let secs = duration.as_secs();
+    let millis = duration.subsec_millis();
+
+    let days_since_epoch = secs / 86400;
+    let secs_today = secs % 86400;
+
+    let hours = secs_today / 3600;
+    let mins = (secs_today % 3600) / 60;
+    let secs_remaining = secs_today % 60;
+
+    let (year, month, day) = days_to_ymd(days_since_epoch as i64);
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year, month, day, hours, mins, secs_remaining, millis
+    )
+}
+
+fn days_to_ymd(days: i64) -> (i32, u32, u32) {
+    let days = days + 719468;
+    let era = days / 146097;
+    let doe = days - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+struct BearingOutput {
+    bearing: f32,
+    raw: f32,
+    confidence: f32,
+    snr_db: f32,
+    coherence: f32,
+    signal_strength: f32,
+}
+
+fn format_text(output: &BearingOutput, verbose: bool) -> String {
+    if verbose {
+        format!(
+            "Bearing: {:>6.1}° (raw: {:>6.1}°) conf: {:.2} [SNR: {:>5.1} dB, coh: {:.2}, str: {:.2}]",
+            output.bearing,
+            output.raw,
+            output.confidence,
+            output.snr_db,
+            output.coherence,
+            output.signal_strength
+        )
+    } else {
+        format!(
+            "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
+            output.bearing, output.raw, output.confidence
+        )
+    }
+}
+
+fn format_json(output: &BearingOutput) -> String {
+    format!(
+        r#"{{"ts":"{}","bearing":{:.1},"raw":{:.1},"confidence":{:.2},"snr_db":{:.1},"coherence":{:.2},"signal_strength":{:.2}}}"#,
+        iso8601_timestamp(),
+        output.bearing,
+        output.raw,
+        output.confidence,
+        output.snr_db,
+        output.coherence,
+        output.signal_strength
+    )
+}
+
+fn format_csv(output: &BearingOutput) -> String {
+    format!(
+        "{},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2}",
+        iso8601_timestamp(),
+        output.bearing,
+        output.raw,
+        output.confidence,
+        output.snr_db,
+        output.coherence,
+        output.signal_strength
+    )
+}
+
+fn csv_header() -> &'static str {
+    "ts,bearing,raw,confidence,snr_db,coherence,signal_strength"
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -113,31 +217,52 @@ fn main() -> anyhow::Result<()> {
         config.audio.north_tick_channel = ChannelRole::Left;
     }
 
-    println!("=== Rotary Club - Pseudo Doppler RDF ===");
-    println!("Sample rate: {} Hz", config.audio.sample_rate);
-    println!("Expected rotation: {} Hz", config.doppler.expected_freq);
-    println!(
+    let use_stderr_banner = matches!(args.format, OutputFormat::Json | OutputFormat::Csv);
+
+    macro_rules! banner {
+        ($($arg:tt)*) => {
+            if use_stderr_banner {
+                eprintln!($($arg)*);
+            } else {
+                println!($($arg)*);
+            }
+        };
+    }
+
+    banner!("=== Rotary Club - Pseudo Doppler RDF ===");
+    banner!("Sample rate: {} Hz", config.audio.sample_rate);
+    banner!("Expected rotation: {} Hz", config.doppler.expected_freq);
+    banner!(
         "Doppler bandpass: {}-{} Hz",
-        config.doppler.bandpass_low, config.doppler.bandpass_high
+        config.doppler.bandpass_low,
+        config.doppler.bandpass_high
     );
-    println!("North tick threshold: {}", config.north_tick.threshold);
-    println!("North tick tracking: {:?}", config.north_tick.mode);
-    println!("Bearing method: {:?}", config.doppler.method);
-    println!("Output rate: {} Hz", config.bearing.output_rate_hz);
-    println!(
+    banner!("North tick threshold: {}", config.north_tick.threshold);
+    banner!("North tick tracking: {:?}", config.north_tick.mode);
+    banner!("Bearing method: {:?}", config.doppler.method);
+    banner!("Output rate: {} Hz", config.bearing.output_rate_hz);
+    banner!(
         "Channel assignment: Doppler={:?}, North tick={:?}",
-        config.audio.doppler_channel, config.audio.north_tick_channel
+        config.audio.doppler_channel,
+        config.audio.north_tick_channel
     );
-    println!();
+    banner!("");
 
     let (audio_tx, audio_rx) = bounded(10);
 
-    println!("Starting audio capture...");
+    banner!("Starting audio capture...");
     let _capture = AudioCapture::new(&config.audio, audio_tx)?;
 
-    println!("Audio capture started. Processing...\n");
+    banner!("Audio capture started. Processing...");
+    if !use_stderr_banner {
+        println!();
+    }
 
-    run_processing_loop(audio_rx, config, args.verbose)?;
+    if matches!(args.format, OutputFormat::Csv) {
+        println!("{}", csv_header());
+    }
+
+    run_processing_loop(audio_rx, config, args.verbose, args.format)?;
 
     Ok(())
 }
@@ -146,6 +271,7 @@ fn run_processing_loop(
     audio_rx: crossbeam_channel::Receiver<Vec<f32>>,
     config: RdfConfig,
     verbose: u8,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     let sample_rate = config.audio.sample_rate as f32;
 
@@ -217,22 +343,21 @@ fn run_processing_loop(
                     adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
                     adjusted_raw = adjusted_raw.rem_euclid(360.0);
 
-                    if verbose >= 1 {
-                        println!(
-                            "Bearing: {:>6.1}° (raw: {:>6.1}°) conf: {:.2} [SNR: {:>5.1} dB, coh: {:.2}, str: {:.2}]",
-                            adjusted_bearing,
-                            adjusted_raw,
-                            bearing.confidence,
-                            bearing.metrics.snr_db,
-                            bearing.metrics.coherence,
-                            bearing.metrics.signal_strength
-                        );
-                    } else {
-                        println!(
-                            "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
-                            adjusted_bearing, adjusted_raw, bearing.confidence
-                        );
-                    }
+                    let output = BearingOutput {
+                        bearing: adjusted_bearing,
+                        raw: adjusted_raw,
+                        confidence: bearing.confidence,
+                        snr_db: bearing.metrics.snr_db,
+                        coherence: bearing.metrics.coherence,
+                        signal_strength: bearing.metrics.signal_strength,
+                    };
+
+                    let line = match format {
+                        OutputFormat::Text => format_text(&output, verbose >= 1),
+                        OutputFormat::Json => format_json(&output),
+                        OutputFormat::Csv => format_csv(&output),
+                    };
+                    println!("{}", line);
                     last_output = Instant::now();
                 }
             }
