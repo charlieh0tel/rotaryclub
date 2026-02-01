@@ -1,8 +1,14 @@
 # Contributing to Rotary Club
 
-Welcome to the Rotary Club project! We're excited that you're interested in contributing to this pseudo-Doppler radio direction finding system. Whether you're a seasoned ham radio operator, a software developer, or both, we welcome your contributions.
+Welcome to the Rotary Club project! We're excited that you're
+interested in contributing to this pseudo-Doppler radio direction
+finding system. Whether you're a seasoned ham radio operator, a
+software developer, or both, we welcome your contributions.
 
-Like the amateur radio community itself, this project thrives on collaboration, experimentation, and shared knowledge. We aim to build a high-quality, reliable RDF system that serves the ham radio community well.
+Like the amateur radio community itself, this project thrives on
+collaboration, experimentation, and shared knowledge. We aim to build
+a high-quality, reliable RDF system that serves the ham radio
+community well.
 
 ## Table of Contents
 
@@ -20,7 +26,10 @@ Like the amateur radio community itself, this project thrives on collaboration, 
 
 ### Our Pledge
 
-In the spirit of amateur radio's tradition of mutual assistance and friendly collaboration, we pledge to make participation in this project a welcoming and respectful experience for everyone, regardless of:
+In the spirit of amateur radio's tradition of mutual assistance and
+friendly collaboration, we pledge to make participation in this
+project a welcoming and respectful experience for everyone, regardless
+of:
 
 - Experience level (Technician to Extra, beginner programmer to expert)
 - Background, nationality, or native language
@@ -40,9 +49,11 @@ In the spirit of amateur radio's tradition of mutual assistance and friendly col
 - Harassment, insults, or discriminatory language
 - Trolling, inflammatory comments, or personal attacks
 - Publishing others' private information without permission
-- Any conduct that would be inappropriate in a professional or amateur radio setting
+- Any conduct that would be inappropriate in a professional or amateur
+  radio setting
 
-If you experience or witness unacceptable behavior, please report it to the project maintainers.
+If you experience or witness unacceptable behavior, please report it
+to the project maintainers.
 
 ## How to Report Bugs
 
@@ -94,7 +105,9 @@ We welcome suggestions for new features and improvements! Before submitting:
 ### Enhancement Proposal Template
 
 **Use Case:**
-Describe the problem or scenario this enhancement addresses. Include amateur radio context if relevant (e.g., "During fox hunts, operators need...")
+Describe the problem or scenario this enhancement addresses. Include
+amateur radio context if relevant (e.g., "During fox hunts, operators
+need...")
 
 **Proposed Solution:**
 Describe your suggested implementation. Be as specific as possible.
@@ -146,24 +159,6 @@ cargo test
 cargo run --example synthetic_rdf
 ```
 
-### Project Structure
-
-```
-rotaryclub/
-├── src/
-│   ├── main.rs              # CLI entry point
-│   ├── config.rs            # Configuration and constants
-│   ├── audio/               # Audio I/O and processing
-│   ├── bearing/             # Bearing calculation algorithms
-│   ├── dsp/                 # Digital signal processing
-│   └── north/               # North reference tracking
-├── examples/                # Example programs
-├── tests/                   # Integration tests
-├── data/                    # Sample audio files
-├── DESIGN.md                # System architecture documentation
-└── README.md                # User documentation
-```
-
 ### Development Workflow
 
 1. Create a feature branch: `git checkout -b feature/your-feature-name`
@@ -190,7 +185,8 @@ cargo fmt
 cargo fmt -- --check
 ```
 
-Configuration is in `rustfmt.toml` (or uses default settings). Do not commit unformatted code.
+Configuration is in `rustfmt.toml` (or uses default settings). Do not
+commit unformatted code.
 
 ### Linting
 
@@ -334,7 +330,8 @@ While we don't enforce a specific coverage percentage, aim to test:
 
 ## Commit Message Guidelines
 
-Write clear, descriptive commit messages that explain **why** a change was made.
+Write clear, descriptive commit messages that explain **why** a change
+was made.
 
 ### Format
 
@@ -491,15 +488,6 @@ Update relevant documentation when you make changes:
 - **Examples** - add example programs for new features
 - **CLI help** - keep `--help` output accurate
 
-### Amateur Radio Context
-
-When documenting RDF-specific features:
-
-- Explain amateur radio terminology for non-hams
-- Reference standard practices in the RDF community
-- Include typical use cases (fox hunting, direction finding, etc.)
-- Provide frequency ranges and power levels as examples
-
 ## Questions?
 
 If you have questions about contributing:
@@ -508,6 +496,8 @@ If you have questions about contributing:
 - Open a new issue with the "question" label
 - Reach out to maintainers
 
-We're here to help! Remember: every expert was once a beginner, and every contribution - no matter how small - helps improve this project for the entire ham radio community.
+We're here to help! Remember: every expert was once a beginner, and
+every contribution - no matter how small - helps improve this project
+for the entire ham radio community.
 
 **73 de Rotary Club team**
