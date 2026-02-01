@@ -3,6 +3,9 @@ name = "rotaryclub"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
+description = "Pseudo-Doppler Radio Direction Finding system"
+homepage = "https://github.com/yourusername/rotaryclub"
+repository = "https://github.com/yourusername/rotaryclub"
 
 [dependencies]
 # Audio I/O
@@ -40,3 +43,27 @@ codegen-units = 1
 
 [profile.release.package."*"]
 opt-level = 3
+
+[package.metadata.deb]
+maintainer = "Rotary Club Maintainers <maintainer@example.com>"
+copyright = "2024, Rotary Club Contributors"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+A pseudo-Doppler radio direction finding (RDF) system implementation in Rust.
+Processes stereo audio from a rotating antenna array to calculate radio signal
+bearings with high accuracy (~1-2° with correlation method).
+
+Features:
+- Two bearing calculation methods (zero-crossing and I/Q correlation)
+- Digital phase-locked loop (DPLL) for robust north reference tracking
+- Automatic gain control (AGC) for varying signal strengths
+- Real-time audio processing with low latency
+- CLI with configurable parameters"""
+section = "hamradio"
+priority = "optional"
+depends = "$auto, libasound2"
+assets = [
+    ["target/release/rotaryclub", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/rotaryclub/", "644"],
+    ["DESIGN.md", "usr/share/doc/rotaryclub/", "644"],
+]

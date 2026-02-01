@@ -2,33 +2,66 @@
 
 Rust implementation of a pseudo doppler RDF system that calculates bearing angles (0-360°) from stereo audio.
 
+## Installation
+
+### From Debian Package
+
+```bash
+# Install the .deb package
+sudo dpkg -i rotaryclub_0.1.0-1_amd64.deb
+
+# Or if you need to install dependencies
+sudo apt install -f
+sudo dpkg -i rotaryclub_0.1.0-1_amd64.deb
+
+# Run the installed binary
+rotaryclub --help
+```
+
+### From Source
+
+```bash
+# Clone and build
+git clone https://github.com/yourusername/rotaryclub.git
+cd rotaryclub
+cargo build --release
+
+# Run directly
+./target/release/rotaryclub
+```
+
 ## Quick Start
 
 ```bash
 # Run with default settings (correlation method, DPLL tracking)
-cargo run
+rotaryclub
+# Or from source: cargo run
 
 # Use zero-crossing method instead
-cargo run -- --method zero-crossing
+rotaryclub --method zero-crossing
 
 # Use simple north tracking mode
-cargo run -- --north-mode simple
+rotaryclub --north-mode simple
 
 # Swap left/right channels if wired differently
-cargo run -- --swap-channels
+rotaryclub --swap-channels
 
 # Increase output rate to 20 Hz
-cargo run -- --output-rate 20
+rotaryclub --output-rate 20
 
 # Apply north offset calibration (e.g., antenna rotated 45° from true north)
-cargo run -- --north-offset 45
+rotaryclub --north-offset 45
 
 # Enable debug logging
-cargo run -- -v
+rotaryclub -v
 
 # Combine options
-cargo run -- --method correlation --north-mode dpll --north-offset 45 -v
+rotaryclub --method correlation --north-mode dpll --north-offset 45 -v
+```
 
+### Testing (from source)
+
+```bash
 # Test with WAV file
 cargo run --example play_wav_file data/doppler-test-2023-04-10-ft-70d.wav
 
@@ -86,11 +119,22 @@ Channel assignment and signal processing parameters are in `src/config.rs`. See 
 ## Building
 
 ```bash
+# Build release binary
 cargo build --release
+
+# Run tests
 cargo test
+
+# Build Debian package (requires cargo-deb)
+cargo install cargo-deb
+cargo deb
+# Creates target/debian/rotaryclub_0.1.0-1_amd64.deb
 ```
 
-Requires Rust 1.70+ and Linux with ALSA support.
+**Requirements:**
+- Rust 1.70+
+- Linux with ALSA support
+- libasound2-dev (for building)
 
 ## Documentation
 
