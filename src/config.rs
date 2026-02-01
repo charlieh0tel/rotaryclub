@@ -104,6 +104,33 @@ pub enum NorthTrackingMode {
     Dpll,
 }
 
+/// Digital Phase-Locked Loop (DPLL) configuration
+#[derive(Debug, Clone)]
+pub struct DpllConfig {
+    /// Initial rotation frequency estimate in Hz
+    pub initial_frequency_hz: f32,
+    /// DPLL natural frequency in Hz (bandwidth)
+    pub natural_frequency_hz: f32,
+    /// DPLL damping ratio (0.707 for critical damping)
+    pub damping_ratio: f32,
+    /// Minimum allowed rotation frequency in Hz
+    pub frequency_min_hz: f32,
+    /// Maximum allowed rotation frequency in Hz
+    pub frequency_max_hz: f32,
+}
+
+impl Default for DpllConfig {
+    fn default() -> Self {
+        Self {
+            initial_frequency_hz: 1602.0,
+            natural_frequency_hz: 10.0,
+            damping_ratio: 0.707,
+            frequency_min_hz: 1400.0,
+            frequency_max_hz: 1800.0,
+        }
+    }
+}
+
 /// North reference pulse detection configuration
 ///
 /// Controls detection of the north timing reference pulses used to
@@ -120,6 +147,8 @@ pub struct NorthTickConfig {
     pub threshold: f32,
     /// Minimum interval between pulses in milliseconds
     pub min_interval_ms: f32,
+    /// DPLL configuration (only used when mode is Dpll)
+    pub dpll: DpllConfig,
 }
 
 /// Bearing output configuration
@@ -206,6 +235,7 @@ impl Default for NorthTickConfig {
             filter_order: 2,
             threshold: 0.15,
             min_interval_ms: 0.6,
+            dpll: DpllConfig::default(),
         }
     }
 }

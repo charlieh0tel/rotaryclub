@@ -16,6 +16,11 @@ pub struct DpllNorthTracker {
     kp: f32, // Proportional gain
     ki: f32, // Integral gain
 
+    // Frequency limits (radians/sample)
+    min_omega: f32,
+    max_omega: f32,
+    initial_omega: f32, // Initial frequency for reset
+
     sample_counter: usize,
     sample_rate: f32,
 }
@@ -24,16 +29,19 @@ impl DpllNorthTracker {
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
 
-        // Initial frequency estimate: assume 1602 Hz rotation
-        let initial_freq = 1602.0;
+        // Initial frequency estimate from config
+        let initial_freq = config.dpll.initial_frequency_hz;
         let omega = 2.0 * PI * initial_freq / sample_rate;
 
-        // PLL gains - tune these for tracking performance
-        // Natural frequency around 10 Hz, damping ratio 0.707
-        let wn = 2.0 * PI * 10.0 / sample_rate; // Natural frequency
-        let zeta = 0.707; // Damping ratio
+        // PLL gains - calculated from natural frequency and damping ratio
+        let wn = 2.0 * PI * config.dpll.natural_frequency_hz / sample_rate; // Natural frequency
+        let zeta = config.dpll.damping_ratio; // Damping ratio
         let kp = 2.0 * zeta * wn;
         let ki = wn * wn;
+
+        // Calculate frequency limits in radians/sample
+        let min_omega = 2.0 * PI * config.dpll.frequency_min_hz / sample_rate;
+        let max_omega = 2.0 * PI * config.dpll.frequency_max_hz / sample_rate;
 
         Ok(Self {
             highpass: HighpassFilter::new(
@@ -46,6 +54,9 @@ impl DpllNorthTracker {
             frequency: omega,
             kp,
             ki,
+            min_omega,
+            max_omega,
+            initial_omega: omega,
             sample_counter: 0,
             sample_rate,
         })
@@ -86,10 +97,8 @@ impl DpllNorthTracker {
                 self.frequency += self.ki * phase_error;
                 self.phase += self.kp * phase_error;
 
-                // Clamp frequency to reasonable range (1400-1800 Hz)
-                let min_omega = 2.0 * PI * 1400.0 / self.sample_rate;
-                let max_omega = 2.0 * PI * 1800.0 / self.sample_rate;
-                self.frequency = self.frequency.clamp(min_omega, max_omega);
+                // Clamp frequency to configured range
+                self.frequency = self.frequency.clamp(self.min_omega, self.max_omega);
 
                 // Wrap phase after correction
                 if self.phase >= 2.0 * PI {
@@ -132,8 +141,7 @@ impl DpllNorthTracker {
     #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.phase = 0.0;
-        let initial_freq = 1602.0;
-        self.frequency = 2.0 * PI * initial_freq / self.sample_rate;
+        self.frequency = self.initial_omega;
         self.sample_counter = 0;
         self.peak_detector.reset();
     }
