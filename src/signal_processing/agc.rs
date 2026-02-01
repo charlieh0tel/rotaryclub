@@ -1,5 +1,17 @@
 use crate::config::AgcConfig;
 
+/// Automatic Gain Control (AGC)
+///
+/// Dynamically adjusts signal amplitude to maintain a target RMS level,
+/// compensating for variations in input signal strength. Essential for
+/// consistent bearing calculations across varying signal conditions.
+///
+/// Uses separate attack and release time constants for smooth gain adjustment:
+/// - Attack: how quickly gain increases for weak signals
+/// - Release: how quickly gain decreases for strong signals
+///
+/// Gain is clamped to [0.1, 10.0] to prevent extreme amplification or
+/// attenuation.
 pub struct AutomaticGainControl {
     target_rms: f32,
     attack_coeff: f32,
@@ -11,6 +23,11 @@ pub struct AutomaticGainControl {
 }
 
 impl AutomaticGainControl {
+    /// Create a new AGC processor
+    ///
+    /// # Arguments
+    /// * `config` - AGC configuration parameters
+    /// * `sample_rate` - Audio sample rate in Hz
     pub fn new(config: &AgcConfig, sample_rate: u32) -> Self {
         let attack_coeff = Self::time_constant_to_coeff(config.attack_time_ms, sample_rate);
         let release_coeff = Self::time_constant_to_coeff(config.release_time_ms, sample_rate);
@@ -32,6 +49,15 @@ impl AutomaticGainControl {
         (-1.0 / time_samples).exp()
     }
 
+    /// Process a single audio sample through the AGC
+    ///
+    /// Accumulates RMS measurements over a window and adjusts gain as needed.
+    ///
+    /// # Arguments
+    /// * `sample` - Input audio sample
+    ///
+    /// # Returns
+    /// Gain-adjusted output sample
     pub fn process(&mut self, sample: f32) -> f32 {
         self.rms_accumulator += sample * sample;
         self.sample_count += 1;
@@ -57,12 +83,22 @@ impl AutomaticGainControl {
         sample * self.current_gain
     }
 
+    /// Process an entire buffer of audio samples in-place
+    ///
+    /// Applies AGC to each sample in the buffer, replacing the original
+    /// values with gain-adjusted output.
+    ///
+    /// # Arguments
+    /// * `buffer` - Audio samples to process
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         for sample in buffer.iter_mut() {
             *sample = self.process(*sample);
         }
     }
 
+    /// Get the current gain factor
+    ///
+    /// Returns the current gain multiplier (0.1 to 10.0 range).
     #[allow(dead_code)]
     pub fn current_gain(&self) -> f32 {
         self.current_gain

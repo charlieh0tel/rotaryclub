@@ -1,13 +1,31 @@
 use std::f32::consts::PI;
 
-/// Calculate instantaneous phase from zero-crossing
+/// Calculate instantaneous phase from a zero-crossing sample index
+///
+/// Converts a sample position within a rotation period to a phase angle.
+///
+/// # Arguments
+/// * `crossing_sample` - Sample index of the zero-crossing
+/// * `samples_per_rotation` - Number of samples in one complete rotation
+///
+/// # Returns
+/// Phase angle in radians (0 to 2π)
 #[allow(dead_code)]
 pub fn phase_from_crossing(crossing_sample: usize, samples_per_rotation: f32) -> f32 {
     let phase_radians = (crossing_sample as f32 / samples_per_rotation) * 2.0 * PI;
     phase_radians % (2.0 * PI)
 }
 
-/// Convert phase offset to bearing angle (0-360 degrees)
+/// Convert phase angle to bearing in degrees
+///
+/// Converts a phase angle in radians to a bearing angle in degrees,
+/// normalized to the range 0-360°.
+///
+/// # Arguments
+/// * `phase_radians` - Phase angle in radians
+///
+/// # Returns
+/// Bearing angle in degrees (0-360)
 pub fn phase_to_bearing(phase_radians: f32) -> f32 {
     let degrees = phase_radians.to_degrees();
     // Normalize to 0-360
@@ -18,7 +36,17 @@ pub fn phase_to_bearing(phase_radians: f32) -> f32 {
     }
 }
 
-/// Calculate phase difference with wrap-around handling
+/// Calculate the difference between two phase angles with wrap-around
+///
+/// Computes the shortest angular difference between two phase angles,
+/// handling wrap-around at 2π boundaries.
+///
+/// # Arguments
+/// * `phase1` - First phase angle in radians
+/// * `phase2` - Second phase angle in radians
+///
+/// # Returns
+/// Phase difference in radians, wrapped to [-π, π]
 #[allow(dead_code)]
 pub fn phase_difference(phase1: f32, phase2: f32) -> f32 {
     let diff = phase1 - phase2;

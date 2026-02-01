@@ -11,6 +11,8 @@
 //! ```
 
 /// Channel assignment for stereo input
+///
+/// Specifies which physical audio channel carries which signal type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChannelRole {
     /// Left channel (index 0 in interleaved stereo)
@@ -19,20 +21,43 @@ pub enum ChannelRole {
     Right,
 }
 
-/// System-wide configuration
+/// System-wide RDF configuration
+///
+/// Contains all configuration parameters for the pseudo-Doppler radio direction
+/// finding system. Use `RdfConfig::default()` for sensible defaults.
+///
+/// # Example
+/// ```
+/// use rotaryclub::config::RdfConfig;
+///
+/// let mut config = RdfConfig::default();
+/// // Customize as needed
+/// config.bearing.output_rate_hz = 20.0;
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct RdfConfig {
+    /// Audio input configuration
     pub audio: AudioConfig,
+    /// Doppler tone processing configuration
     pub doppler: DopplerConfig,
+    /// North reference pulse detection configuration
     pub north_tick: NorthTickConfig,
+    /// Bearing output configuration
     pub bearing: BearingConfig,
+    /// Automatic gain control configuration
     pub agc: AgcConfig,
 }
 
+/// Audio input configuration
+///
+/// Configures sample rate, buffer size, and channel assignment.
 #[derive(Debug, Clone)]
 pub struct AudioConfig {
+    /// Audio sample rate in Hz (typically 48000)
     pub sample_rate: u32,
+    /// Processing buffer size in samples
     pub buffer_size: usize,
+    /// Number of audio channels (must be 2 for stereo)
     pub channels: u16,
     /// Which channel contains the FM radio audio (Doppler tone)
     pub doppler_channel: ChannelRole,
@@ -40,50 +65,86 @@ pub struct AudioConfig {
     pub north_tick_channel: ChannelRole,
 }
 
+/// Bearing calculation method
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BearingMethod {
+    /// Simple zero-crossing detection (~7° accuracy, lower CPU)
     ZeroCrossing,
+    /// I/Q correlation demodulation (~1-2° accuracy, higher CPU)
     Correlation,
 }
 
+/// Doppler tone processing configuration
+///
+/// Controls how the Doppler-shifted carrier tone is extracted and processed
+/// to determine bearing angles.
 #[derive(Debug, Clone)]
 pub struct DopplerConfig {
+    /// Expected antenna rotation frequency in Hz (typically 1602 Hz)
     pub expected_freq: f32,
+    /// Bandpass filter lower cutoff in Hz
     pub bandpass_low: f32,
+    /// Bandpass filter upper cutoff in Hz
     pub bandpass_high: f32,
+    /// IIR filter order (higher = steeper rolloff)
     pub filter_order: usize,
+    /// Zero-crossing detection hysteresis to reject noise
     pub zero_cross_hysteresis: f32,
+    /// Bearing calculation method to use
     pub method: BearingMethod,
 }
 
+/// North reference tracking mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NorthTrackingMode {
+    /// Simple exponential smoothing of rotation period
     #[allow(dead_code)]
     Simple,
+    /// Digital phase-locked loop (DPLL) for robust tracking
     Dpll,
 }
 
+/// North reference pulse detection configuration
+///
+/// Controls detection of the north timing reference pulses used to
+/// establish bearing zero reference.
 #[derive(Debug, Clone)]
 pub struct NorthTickConfig {
+    /// Tracking mode (DPLL recommended)
     pub mode: NorthTrackingMode,
+    /// Highpass filter cutoff in Hz to isolate pulse transients
     pub highpass_cutoff: f32,
+    /// IIR filter order
     pub filter_order: usize,
+    /// Peak detection threshold (0-1 range)
     pub threshold: f32,
+    /// Minimum interval between pulses in milliseconds
     pub min_interval_ms: f32,
 }
 
+/// Bearing output configuration
 #[derive(Debug, Clone)]
 pub struct BearingConfig {
+    /// Moving average window size for smoothing
     pub smoothing_window: usize,
+    /// Bearing output rate in Hz
     pub output_rate_hz: f32,
+    /// North reference offset for calibration (degrees added to all bearings)
     pub north_offset_degrees: f32,
 }
 
+/// Automatic gain control configuration
+///
+/// Normalizes signal amplitude variations for consistent processing.
 #[derive(Debug, Clone)]
 pub struct AgcConfig {
+    /// Target RMS signal level (0-1 range, typically 0.5)
     pub target_rms: f32,
+    /// Attack time constant in milliseconds (how fast gain increases)
     pub attack_time_ms: f32,
+    /// Release time constant in milliseconds (how fast gain decreases)
     pub release_time_ms: f32,
+    /// Measurement window for RMS calculation in milliseconds
     pub measurement_window_ms: f32,
 }
 

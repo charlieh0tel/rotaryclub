@@ -1,10 +1,21 @@
 /// Zero-crossing detector with hysteresis
+///
+/// Detects rising-edge zero crossings (negative to positive transitions) in
+/// an audio signal with configurable hysteresis to reject noise.
+///
+/// The detector only triggers when the signal transitions from below
+/// `-hysteresis` to above `+hysteresis`, providing noise immunity for
+/// noisy signals near zero.
 pub struct ZeroCrossingDetector {
     last_sample: f32,
     hysteresis: f32,
 }
 
 impl ZeroCrossingDetector {
+    /// Create a new zero-crossing detector
+    ///
+    /// # Arguments
+    /// * `hysteresis` - Hysteresis threshold (typically 0.01-0.1)
     pub fn new(hysteresis: f32) -> Self {
         Self {
             last_sample: 0.0,
@@ -12,15 +23,26 @@ impl ZeroCrossingDetector {
         }
     }
 
-    /// Detect zero crossing, returns true if rising edge crossing detected
-    /// Crossing = transition from negative to positive (rising edge)
+    /// Detect a zero crossing in the next sample
+    ///
+    /// Returns `true` if a rising-edge crossing is detected (transition from
+    /// negative to positive). The crossing must exceed the hysteresis threshold
+    /// on both sides to trigger.
+    ///
+    /// # Arguments
+    /// * `sample` - The next audio sample to process
     pub fn detect_crossing(&mut self, sample: f32) -> bool {
         let crossing = self.last_sample < -self.hysteresis && sample > self.hysteresis;
         self.last_sample = sample;
         crossing
     }
 
-    /// Find all zero crossings in buffer, return sample indices
+    /// Find all zero crossings in a buffer
+    ///
+    /// Returns a vector of sample indices where rising-edge crossings occur.
+    ///
+    /// # Arguments
+    /// * `buffer` - Audio samples to process
     pub fn find_all_crossings(&mut self, buffer: &[f32]) -> Vec<usize> {
         buffer
             .iter()
@@ -42,7 +64,14 @@ impl ZeroCrossingDetector {
     }
 }
 
-/// Peak detector for north tick pulse
+/// Peak detector for north tick pulse detection
+///
+/// Detects peaks (rising-edge threshold crossings) in a signal with
+/// configurable threshold and minimum spacing between peaks.
+///
+/// The detector triggers when the signal rises above the threshold and
+/// enforces a minimum interval between detections to reject spurious
+/// triggers from noise or ringing.
 pub struct PeakDetector {
     threshold: f32,
     min_samples_between_peaks: usize,
@@ -52,6 +81,11 @@ pub struct PeakDetector {
 }
 
 impl PeakDetector {
+    /// Create a new peak detector
+    ///
+    /// # Arguments
+    /// * `threshold` - Amplitude threshold for peak detection (0-1 range)
+    /// * `min_interval_samples` - Minimum samples between detected peaks
     pub fn new(threshold: f32, min_interval_samples: usize) -> Self {
         Self {
             threshold,
@@ -62,7 +96,13 @@ impl PeakDetector {
         }
     }
 
-    /// Detect peak above threshold (rising edge detection)
+    /// Detect a peak in the next sample
+    ///
+    /// Returns `true` if a rising-edge threshold crossing is detected and
+    /// sufficient time has elapsed since the last peak.
+    ///
+    /// # Arguments
+    /// * `sample` - The next audio sample to process
     pub fn detect_peak(&mut self, sample: f32) -> bool {
         self.samples_since_peak += 1;
 
@@ -83,7 +123,12 @@ impl PeakDetector {
         crossed_threshold
     }
 
-    /// Find all peaks in buffer, return sample indices
+    /// Find all peaks in a buffer
+    ///
+    /// Returns a vector of sample indices where peaks are detected.
+    ///
+    /// # Arguments
+    /// * `buffer` - Audio samples to process
     pub fn find_all_peaks(&mut self, buffer: &[f32]) -> Vec<usize> {
         buffer
             .iter()

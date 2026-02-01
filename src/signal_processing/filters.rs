@@ -4,11 +4,29 @@ use iir_filters::filter_design::{FilterType, butter};
 use iir_filters::sos::zpk2sos;
 
 /// Butterworth bandpass filter for Doppler tone extraction
+///
+/// Implements a Butterworth bandpass filter using direct form II transposed
+/// structure for efficient filtering of the Doppler tone around the antenna
+/// rotation frequency (~1602 Hz).
+///
+/// The filter passes frequencies between `low_hz` and `high_hz` while
+/// attenuating frequencies outside this range. Higher filter orders provide
+/// steeper rolloff at the cost of slightly more processing.
 pub struct BandpassFilter {
     filter: DirectForm2Transposed,
 }
 
 impl BandpassFilter {
+    /// Create a new bandpass filter
+    ///
+    /// # Arguments
+    /// * `low_hz` - Lower cutoff frequency in Hz
+    /// * `high_hz` - Upper cutoff frequency in Hz
+    /// * `sample_rate` - Audio sample rate in Hz
+    /// * `order` - Filter order (higher = steeper rolloff, typically 4)
+    ///
+    /// # Errors
+    /// Returns `RdfError::FilterDesign` if filter parameters are invalid
     pub fn new(low_hz: f32, high_hz: f32, sample_rate: f32, order: usize) -> Result<Self> {
         // Design Butterworth bandpass
         let zpk = butter(
@@ -26,12 +44,17 @@ impl BandpassFilter {
         })
     }
 
-    /// Filter single sample
+    /// Process a single audio sample through the filter
+    ///
+    /// Returns the filtered sample value.
     pub fn process(&mut self, sample: f32) -> f32 {
         self.filter.filter(sample as f64) as f32
     }
 
-    /// Filter entire buffer in-place
+    /// Process an entire buffer of audio samples in-place
+    ///
+    /// Filters each sample in the buffer, replacing the original values
+    /// with the filtered output.
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         for sample in buffer.iter_mut() {
             *sample = self.process(*sample);
@@ -40,11 +63,27 @@ impl BandpassFilter {
 }
 
 /// Butterworth highpass filter for north tick extraction
+///
+/// Implements a Butterworth highpass filter to isolate the high-frequency
+/// transients of north timing reference pulses (~20 µs width).
+///
+/// The filter passes frequencies above `cutoff_hz` while attenuating lower
+/// frequencies. This is essential for detecting the sharp transients of
+/// north tick pulses against background signals.
 pub struct HighpassFilter {
     filter: DirectForm2Transposed,
 }
 
 impl HighpassFilter {
+    /// Create a new highpass filter
+    ///
+    /// # Arguments
+    /// * `cutoff_hz` - Cutoff frequency in Hz (typically 5000+ for north ticks)
+    /// * `sample_rate` - Audio sample rate in Hz
+    /// * `order` - Filter order (higher = steeper rolloff, typically 2)
+    ///
+    /// # Errors
+    /// Returns `RdfError::FilterDesign` if filter parameters are invalid
     pub fn new(cutoff_hz: f32, sample_rate: f32, order: usize) -> Result<Self> {
         let zpk = butter(
             order as u32,
@@ -60,10 +99,17 @@ impl HighpassFilter {
         })
     }
 
+    /// Process a single audio sample through the filter
+    ///
+    /// Returns the filtered sample value.
     pub fn process(&mut self, sample: f32) -> f32 {
         self.filter.filter(sample as f64) as f32
     }
 
+    /// Process an entire buffer of audio samples in-place
+    ///
+    /// Filters each sample in the buffer, replacing the original values
+    /// with the filtered output.
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         for sample in buffer.iter_mut() {
             *sample = self.process(*sample);

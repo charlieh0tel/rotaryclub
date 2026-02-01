@@ -6,6 +6,13 @@ use crate::signal_processing::{
 };
 use std::f32::consts::PI;
 
+/// Zero-crossing based bearing calculator
+///
+/// Calculates bearing by detecting zero-crossings in the filtered Doppler tone
+/// and measuring phase offset relative to north tick pulses.
+///
+/// This method is simple and fast (~7° accuracy) but less robust to noise than
+/// correlation-based methods.
 pub struct ZeroCrossingBearingCalculator {
     agc: AutomaticGainControl,
     bandpass: BandpassFilter,
@@ -15,6 +22,13 @@ pub struct ZeroCrossingBearingCalculator {
 }
 
 impl ZeroCrossingBearingCalculator {
+    /// Create a new zero-crossing bearing calculator
+    ///
+    /// # Arguments
+    /// * `doppler_config` - Doppler processing configuration
+    /// * `agc_config` - AGC configuration
+    /// * `sample_rate` - Audio sample rate in Hz
+    /// * `smoothing` - Moving average window size
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
@@ -35,7 +49,14 @@ impl ZeroCrossingBearingCalculator {
         })
     }
 
-    /// Process doppler channel and calculate bearing relative to north tick
+    /// Process Doppler channel and calculate bearing relative to north tick
+    ///
+    /// Returns a bearing measurement if successful, or `None` if no valid
+    /// bearing could be calculated (e.g., no zero-crossings detected).
+    ///
+    /// # Arguments
+    /// * `doppler_buffer` - Audio samples from Doppler channel
+    /// * `north_tick` - Most recent north reference tick
     pub fn process_buffer(
         &mut self,
         doppler_buffer: &[f32],

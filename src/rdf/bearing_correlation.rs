@@ -5,6 +5,12 @@ use crate::signal_processing::{AutomaticGainControl, BandpassFilter, MovingAvera
 use std::f32::consts::PI;
 
 /// Correlation-based bearing calculator using I/Q demodulation
+///
+/// Calculates bearing by correlating the filtered Doppler tone with sin/cos
+/// reference signals at the rotation frequency, extracting phase via atan2.
+///
+/// This method is more accurate (~1-2° accuracy) and robust to noise than
+/// zero-crossing detection, at the cost of slightly higher CPU usage.
 pub struct CorrelationBearingCalculator {
     agc: AutomaticGainControl,
     bandpass: BandpassFilter,
@@ -14,6 +20,13 @@ pub struct CorrelationBearingCalculator {
 }
 
 impl CorrelationBearingCalculator {
+    /// Create a new correlation-based bearing calculator
+    ///
+    /// # Arguments
+    /// * `doppler_config` - Doppler processing configuration
+    /// * `agc_config` - AGC configuration
+    /// * `sample_rate` - Audio sample rate in Hz
+    /// * `smoothing` - Moving average window size
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
@@ -34,7 +47,17 @@ impl CorrelationBearingCalculator {
         })
     }
 
-    /// Process doppler channel using I/Q correlation to extract phase
+    /// Process Doppler channel using I/Q correlation to extract phase
+    ///
+    /// Correlates the filtered Doppler signal with sin/cos at the rotation
+    /// frequency to extract bearing via I/Q demodulation.
+    ///
+    /// Returns a bearing measurement if successful, or `None` if no valid
+    /// bearing could be calculated.
+    ///
+    /// # Arguments
+    /// * `doppler_buffer` - Audio samples from Doppler channel
+    /// * `north_tick` - Most recent north reference tick
     pub fn process_buffer(
         &mut self,
         doppler_buffer: &[f32],
