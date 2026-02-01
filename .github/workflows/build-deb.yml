@@ -48,7 +48,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: target
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
     - name: Install build dependencies
       run: |
@@ -103,11 +103,21 @@ jobs:
         path: ${{ steps.package.outputs.path }}
         retention-days: 30
 
-    - name: Create Release and Upload Assets
-      if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-deb
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: debian-package-*
+
+    - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: ${{ steps.package.outputs.path }}
+        files: artifacts/**/*.deb
         draft: false
         prerelease: false
         generate_release_notes: true
