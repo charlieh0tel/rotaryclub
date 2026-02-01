@@ -54,6 +54,7 @@ fn run_processing_loop(
 
     let mut bearing_calc = BearingCalculator::new(
         &config.doppler,
+        &config.agc,
         sample_rate,
         config.bearing.smoothing_window,
     )?;

@@ -33,17 +33,21 @@ bearing = (phase_offset / 2π) × 360°
 3. Exponential smoothing to track rotation period
 
 ### Doppler Tone Extraction (Left Channel)
-1. Bandpass filter 1500-1700 Hz (extract Doppler tone)
-2. Zero-crossing detection with 0.01 hysteresis
-3. Calculate phase offset from north tick
-4. Convert to bearing: `(samples_since_tick / samples_per_rotation) × 360°`
-5. Moving average smoothing (window size: 5)
+1. AGC (Automatic Gain Control) normalizes signal amplitude to 0.5 RMS
+2. Bandpass filter 1500-1700 Hz (extract Doppler tone)
+3. Zero-crossing detection with 0.01 hysteresis
+4. Calculate phase offset from north tick
+5. Convert to bearing: `(samples_since_tick / samples_per_rotation) × 360°`
+6. Moving average smoothing (window size: 5)
 
 ## Configuration
 
 Key tunable parameters in `config.rs`:
 
 ```rust
+// AGC
+target_rms: 0.5, attack_time_ms: 10.0, release_time_ms: 100.0
+
 // Doppler processing
 expected_freq: 1602.0, bandpass: 1500-1700 Hz, filter_order: 4
 
@@ -73,25 +77,23 @@ Channel assignment is compile-time configurable via `ChannelRole` enum.
 Test file (11.6s, moving radio source):
 - **Rotation detection:** 1601.0 Hz (99.9% accurate)
 - **Measurement rate:** 265 bearings/sec
+- **Confidence:** 0.90-1.00
 - **Latency:** <100ms
 - **CPU usage:** <5%
 
 ## Known Limitations
 
-1. **No AGC**: FM amplitude variations affect zero-crossing
-   timing. Manual gain adjustment required.
-2. **North pulse subsampling**: 20µs pulse < 1 sample at 48kHz. Relies
+1. **North pulse subsampling**: 20µs pulse < 1 sample at 48kHz. Relies
    on high-frequency content.
-3. **Fixed thresholds**: No adaptive adjustment to signal levels.
-4. **No multipath handling**: Reflections can distort phase measurements.
+2. **Fixed thresholds**: No adaptive adjustment for north tick detection.
+3. **No multipath handling**: Reflections can distort phase measurements.
 
 ## Future Enhancements
 
-1. **AGC** (Priority 1): Automatic gain control for Doppler channel
-2. **Adaptive thresholding**: Calculate from signal statistics
-3. **Correlation-based phase detection**: More robust to noise
-4. **Better confidence metrics**: SNR estimation, coherence measurement
-5. **Calibration system**: Phase offsets, amplitude compensation,
+1. **Adaptive thresholding**: Calculate from signal statistics for north tick
+2. **Correlation-based phase detection**: More robust to noise
+3. **Better confidence metrics**: SNR estimation, coherence measurement
+4. **Calibration system**: Phase offsets, amplitude compensation,
    temperature drift
 
 ## References

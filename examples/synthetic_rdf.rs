@@ -1,4 +1,3 @@
-use rotaryclub::audio::StereoSample;
 use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{BearingCalculator, NorthReferenceTracker};
 use std::f32::consts::PI;
@@ -73,7 +72,7 @@ fn test_bearing(
 
     // Initialize trackers
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-    let mut bearing_calc = BearingCalculator::new(&config.doppler, sample_rate, 3)?;
+    let mut bearing_calc = BearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
 
     // Process signal in chunks
     let chunk_size = config.audio.buffer_size * 2; // stereo

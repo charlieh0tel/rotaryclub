@@ -93,7 +93,7 @@ fn calculate_bearing_from_synthetic(
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-    let mut bearing_calc = BearingCalculator::new(&config.doppler, sample_rate, 3)?;
+    let mut bearing_calc = BearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();

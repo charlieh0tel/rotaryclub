@@ -1,12 +1,13 @@
-use crate::config::DopplerConfig;
+use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{
-    phase_to_bearing, BandpassFilter, MovingAverage, ZeroCrossingDetector,
+    phase_to_bearing, AutomaticGainControl, BandpassFilter, MovingAverage, ZeroCrossingDetector,
 };
 use std::f32::consts::PI;
 
 pub struct BearingCalculator {
+    agc: AutomaticGainControl,
     bandpass: BandpassFilter,
     zero_detector: ZeroCrossingDetector,
     sample_counter: usize,
@@ -14,15 +15,21 @@ pub struct BearingCalculator {
 }
 
 impl BearingCalculator {
-    pub fn new(config: &DopplerConfig, sample_rate: f32, smoothing: usize) -> Result<Self> {
+    pub fn new(
+        doppler_config: &DopplerConfig,
+        agc_config: &AgcConfig,
+        sample_rate: f32,
+        smoothing: usize,
+    ) -> Result<Self> {
         Ok(Self {
+            agc: AutomaticGainControl::new(agc_config, sample_rate as u32),
             bandpass: BandpassFilter::new(
-                config.bandpass_low,
-                config.bandpass_high,
+                doppler_config.bandpass_low,
+                doppler_config.bandpass_high,
                 sample_rate,
-                config.filter_order,
+                doppler_config.filter_order,
             )?,
-            zero_detector: ZeroCrossingDetector::new(config.zero_cross_hysteresis),
+            zero_detector: ZeroCrossingDetector::new(doppler_config.zero_cross_hysteresis),
             sample_counter: 0,
             bearing_smoother: MovingAverage::new(smoothing),
         })
@@ -34,8 +41,12 @@ impl BearingCalculator {
         doppler_buffer: &[f32],
         north_tick: &NorthTick,
     ) -> Option<BearingMeasurement> {
+        // Apply AGC to normalize signal amplitude
+        let mut normalized = doppler_buffer.to_vec();
+        self.agc.process_buffer(&mut normalized);
+
         // Filter doppler tone
-        let mut filtered = doppler_buffer.to_vec();
+        let mut filtered = normalized;
         self.bandpass.process_buffer(&mut filtered);
 
         // Find zero crossings
@@ -118,10 +129,12 @@ mod tests {
 
     #[test]
     fn test_bearing_calculator_creation() {
-        // Just test that we can create a bearing calculator
-        let config = DopplerConfig::default();
+        use crate::config::AgcConfig;
+
+        let doppler_config = DopplerConfig::default();
+        let agc_config = AgcConfig::default();
         let sample_rate = 48000.0;
-        let calc = BearingCalculator::new(&config, sample_rate, 1);
+        let calc = BearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
         assert!(calc.is_ok(), "Should be able to create BearingCalculator");
     }
 }

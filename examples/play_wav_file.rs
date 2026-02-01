@@ -80,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
     let mut bearing_calc = BearingCalculator::new(
         &config.doppler,
+        &config.agc,
         sample_rate,
         config.bearing.smoothing_window,
     )?;

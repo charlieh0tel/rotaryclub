@@ -26,6 +26,7 @@ pub struct RdfConfig {
     pub doppler: DopplerConfig,
     pub north_tick: NorthTickConfig,
     pub bearing: BearingConfig,
+    pub agc: AgcConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +62,14 @@ pub struct BearingConfig {
     pub smoothing_window: usize,
     pub max_phase_jump: f32,
     pub output_rate_hz: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgcConfig {
+    pub target_rms: f32,
+    pub attack_time_ms: f32,
+    pub release_time_ms: f32,
+    pub measurement_window_ms: f32,
 }
 
 impl AudioConfig {
@@ -129,6 +138,17 @@ impl Default for BearingConfig {
             smoothing_window: 5,
             max_phase_jump: 45.0,
             output_rate_hz: 10.0,
+        }
+    }
+}
+
+impl Default for AgcConfig {
+    fn default() -> Self {
+        Self {
+            target_rms: 0.5,
+            attack_time_ms: 10.0,
+            release_time_ms: 100.0,
+            measurement_window_ms: 10.0,
         }
     }
 }
