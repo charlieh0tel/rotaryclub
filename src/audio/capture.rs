@@ -19,7 +19,10 @@ impl AudioCapture {
             .default_input_device()
             .ok_or_else(|| RdfError::AudioDevice("No input device found".into()))?;
 
-        println!("Input device: {:?}", device.description());
+        match device.description() {
+            Ok(desc) => log::info!("Input device: {:?}", desc),
+            Err(_) => log::info!("Input device: Unknown"),
+        }
 
         // Configure stereo input
         let stream_config = cpal::StreamConfig {
@@ -35,7 +38,7 @@ impl AudioCapture {
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     // Send audio data to processing thread
                     if tx.send(data.to_vec()).is_err() {
-                        eprintln!("Audio receiver dropped");
+                        log::warn!("Audio receiver dropped");
                     }
                 },
                 |err| eprintln!("Audio stream error: {}", err),
@@ -47,14 +50,15 @@ impl AudioCapture {
         let rt_handle = audio_thread_priority::promote_current_thread_to_real_time(
             config.buffer_size as u32,
             config.sample_rate,
-        )
-        .ok();
+        );
 
-        if rt_handle.is_none() {
-            eprintln!(
-                "Warning: Could not set real-time priority (run as root or configure rtprio?)"
-            );
-        }
+        let rt_handle = match rt_handle {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                log::warn!("Could not set real-time priority: {}", e);
+                None
+            }
+        };
 
         stream
             .play()

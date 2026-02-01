@@ -17,6 +17,7 @@ pub struct CorrelationBearingCalculator {
     sample_counter: usize,
     bearing_smoother: MovingAverage,
     sample_rate: f32,
+    work_buffer: Vec<f32>,
 }
 
 impl CorrelationBearingCalculator {
@@ -44,6 +45,7 @@ impl CorrelationBearingCalculator {
             sample_counter: 0,
             bearing_smoother: MovingAverage::new(smoothing),
             sample_rate,
+            work_buffer: Vec::new(),
         })
     }
 
@@ -64,12 +66,12 @@ impl CorrelationBearingCalculator {
         north_tick: &NorthTick,
     ) -> Option<BearingMeasurement> {
         // Apply AGC to normalize signal amplitude
-        let mut normalized = doppler_buffer.to_vec();
-        self.agc.process_buffer(&mut normalized);
+        self.work_buffer.clear();
+        self.work_buffer.extend_from_slice(doppler_buffer);
+        self.agc.process_buffer(&mut self.work_buffer);
 
         // Filter doppler tone
-        let mut filtered = normalized;
-        self.bandpass.process_buffer(&mut filtered);
+        self.bandpass.process_buffer(&mut self.work_buffer);
 
         // Get rotation period and frequency
         let samples_per_rotation = north_tick.period?;
@@ -82,7 +84,7 @@ impl CorrelationBearingCalculator {
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
 
-        for (idx, &sample) in filtered.iter().enumerate() {
+        for (idx, &sample) in self.work_buffer.iter().enumerate() {
             let global_idx = self.sample_counter + idx;
 
             // Calculate phase relative to north tick
@@ -102,7 +104,7 @@ impl CorrelationBearingCalculator {
         }
 
         // Normalize by buffer length
-        let n = filtered.len() as f32;
+        let n = self.work_buffer.len() as f32;
         let i = i_sum / n;
         let q = q_sum / n;
 
@@ -119,13 +121,7 @@ impl CorrelationBearingCalculator {
         let bearing_phase = -i.atan2(q);
 
         // Normalize phase to [0, 2π)
-        let mut normalized_phase = bearing_phase;
-        while normalized_phase < 0.0 {
-            normalized_phase += 2.0 * PI;
-        }
-        while normalized_phase >= 2.0 * PI {
-            normalized_phase -= 2.0 * PI;
-        }
+        let normalized_phase = bearing_phase.rem_euclid(2.0 * PI);
 
         // Convert to bearing (0-360 degrees)
         let raw_bearing = phase_to_bearing(normalized_phase);

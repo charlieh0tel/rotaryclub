@@ -208,18 +208,8 @@ fn run_processing_loop(
                     let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
 
                     // Normalize to [0, 360)
-                    while adjusted_bearing >= 360.0 {
-                        adjusted_bearing -= 360.0;
-                    }
-                    while adjusted_bearing < 0.0 {
-                        adjusted_bearing += 360.0;
-                    }
-                    while adjusted_raw >= 360.0 {
-                        adjusted_raw -= 360.0;
-                    }
-                    while adjusted_raw < 0.0 {
-                        adjusted_raw += 360.0;
-                    }
+                    adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
+                    adjusted_raw = adjusted_raw.rem_euclid(360.0);
 
                     println!(
                         "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
