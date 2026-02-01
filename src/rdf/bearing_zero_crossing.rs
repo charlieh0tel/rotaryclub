@@ -19,6 +19,7 @@ pub struct ZeroCrossingBearingCalculator {
     zero_detector: ZeroCrossingDetector,
     sample_counter: usize,
     bearing_smoother: MovingAverage,
+    work_buffer: Vec<f32>,
 }
 
 impl ZeroCrossingBearingCalculator {
@@ -46,6 +47,7 @@ impl ZeroCrossingBearingCalculator {
             zero_detector: ZeroCrossingDetector::new(doppler_config.zero_cross_hysteresis),
             sample_counter: 0,
             bearing_smoother: MovingAverage::new(smoothing),
+            work_buffer: Vec::new(),
         })
     }
 
@@ -63,15 +65,15 @@ impl ZeroCrossingBearingCalculator {
         north_tick: &NorthTick,
     ) -> Option<BearingMeasurement> {
         // Apply AGC to normalize signal amplitude
-        let mut normalized = doppler_buffer.to_vec();
-        self.agc.process_buffer(&mut normalized);
+        self.work_buffer.clear();
+        self.work_buffer.extend_from_slice(doppler_buffer);
+        self.agc.process_buffer(&mut self.work_buffer);
 
         // Filter doppler tone
-        let mut filtered = normalized;
-        self.bandpass.process_buffer(&mut filtered);
+        self.bandpass.process_buffer(&mut self.work_buffer);
 
         // Find zero crossings
-        let crossings = self.zero_detector.find_all_crossings(&filtered);
+        let crossings = self.zero_detector.find_all_crossings(&self.work_buffer);
 
         if crossings.is_empty() {
             self.sample_counter += doppler_buffer.len();
