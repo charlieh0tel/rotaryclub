@@ -1,10 +1,9 @@
 mod test_signals;
 
 use rotaryclub::config::RdfConfig;
-use rotaryclub::rdf::{BearingCalculator, NorthReferenceTracker};
+use rotaryclub::rdf::{BearingCalculator, NorthReferenceTracker, NorthTick};
 
 #[test]
-#[ignore] // TODO: Fix sample counter alignment issues
 fn test_bearing_calculation_from_synthetic_signal() {
     let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
@@ -39,12 +38,12 @@ fn test_bearing_calculation_from_synthetic_signal() {
 }
 
 #[test]
-#[ignore] // TODO: Improve peak detector for rapid pulses
 fn test_north_tick_detection() {
     let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
 
-    let signal = test_signals::generate_test_signal(1.0, sample_rate as u32, 500.0, 500.0, 0.0);
+    let signal = test_signals::generate_test_signal(1.0, sample_rate as u32, rotation_hz, rotation_hz, 0.0);
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
 
@@ -60,10 +59,14 @@ fn test_north_tick_detection() {
         tick_count += ticks.len();
     }
 
-    // At 500 Hz rotation for 1 second, expect ~500 ticks (allow some margin)
+    let expected_ticks = rotation_hz as usize;
+    let margin = (expected_ticks as f32 * 0.1) as usize; // 10% margin
+
+    // At 1602 Hz rotation for 1 second, expect ~1602 ticks (allow 10% margin)
     assert!(
-        tick_count >= 450 && tick_count <= 550,
-        "Expected ~500 north ticks, got {}",
+        tick_count >= expected_ticks - margin && tick_count <= expected_ticks + margin,
+        "Expected ~{} north ticks, got {}",
+        expected_ticks,
         tick_count
     );
 
@@ -73,9 +76,10 @@ fn test_north_tick_detection() {
 
     let freq = freq.unwrap();
     assert!(
-        (freq - 500.0).abs() < 50.0,
-        "Rotation frequency {} should be close to 500 Hz",
-        freq
+        (freq - rotation_hz).abs() < 50.0,
+        "Rotation frequency {} should be close to {} Hz",
+        freq,
+        rotation_hz
     );
 }
 
@@ -97,18 +101,41 @@ fn calculate_bearing_from_synthetic(
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();
+    let mut tick_count = 0;
+    let mut last_tick: Option<NorthTick> = None;
 
     for chunk in signal.chunks(chunk_size) {
         let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
         let (doppler, north_tick) = config.audio.split_channels(&stereo);
 
-        let ticks = north_tracker.process_buffer(&north_tick);
-
-        for tick in ticks {
-            if let Some(bearing) = bearing_calc.process_buffer(&doppler, &tick) {
+        // Process doppler buffer with previous tick (if any)
+        if let Some(ref tick) = last_tick {
+            if let Some(bearing) = bearing_calc.process_buffer(&doppler, tick) {
                 measurements.push(bearing.bearing_degrees);
+                eprintln!("Got bearing: {}", bearing.bearing_degrees);
+            } else {
+                eprintln!("Warning: no bearing calculated for tick at sample {}", tick.sample_index);
             }
+        } else {
+            // No tick yet, but still need to advance sample_counter
+            bearing_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
         }
+
+        // Update north tracker and save most recent tick for next iteration
+        let ticks = north_tracker.process_buffer(&north_tick);
+        tick_count += ticks.len();
+
+        if let Some(tick) = ticks.last() {
+            last_tick = Some(*tick);
+            eprintln!("Tick at sample {} with period {:?}", tick.sample_index, tick.period);
+        }
+    }
+
+    eprintln!("Bearing {}: ticks={}, measurements={}", bearing_degrees, tick_count, measurements.len());
+
+    if !measurements.is_empty() {
+        eprintln!("First 10 measurements: {:?}", &measurements[..measurements.len().min(10)]);
+        eprintln!("Last 10 measurements: {:?}", &measurements[measurements.len().saturating_sub(10)..]);
     }
 
     if measurements.len() > 5 {

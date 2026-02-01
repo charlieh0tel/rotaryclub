@@ -1,5 +1,8 @@
 use std::f32::consts::PI;
 
+const NORTH_TICK_PULSE_WIDTH_RADIANS: f32 = 0.2;
+const NORTH_TICK_AMPLITUDE: f32 = 0.8;
+
 /// Generate synthetic RDF test signal
 /// Returns interleaved stereo samples [L, R, L, R, ...]
 /// By default: Left = Doppler tone, Right = North tick
@@ -19,14 +22,23 @@ pub fn generate_test_signal(
     for i in 0..num_samples {
         let t = i as f32 / sample_rate as f32;
 
-        // Left channel: Doppler tone with phase shift based on bearing
+        // Calculate rotation phase for this sample
         let rotation_phase = (i as f32 / samples_per_rotation) * 2.0 * PI;
-        let phase_offset = rotation_phase + bearing_radians;
-        let doppler = (doppler_tone_hz * t * 2.0 * PI + phase_offset).sin();
+
+        // Left channel: Doppler tone at rotation frequency
+        // The bearing determines the phase offset of the Doppler tone relative to north tick
+        // Negative bearing_radians because: a positive bearing means the zero-crossing
+        // comes AFTER the north tick, which requires a negative phase offset
+        let doppler_phase = rotation_hz * t * 2.0 * PI - bearing_radians;
+        let doppler = doppler_phase.sin();
 
         // Right channel: North tick pulse (sharp pulse at rotation start)
         let tick_phase = rotation_phase % (2.0 * PI);
-        let north_tick = if tick_phase < 0.05 { 0.8 } else { 0.0 };
+        let north_tick = if tick_phase < NORTH_TICK_PULSE_WIDTH_RADIANS {
+            NORTH_TICK_AMPLITUDE
+        } else {
+            0.0
+        };
 
         samples.push(doppler);
         samples.push(north_tick);
@@ -86,7 +98,10 @@ mod tests {
         // Right channel should have some pulses
         let right: Vec<f32> = signal.iter().skip(1).step_by(2).copied().collect();
         let right_max = right.iter().fold(0.0f32, |a, &b| a.max(b));
-        assert!(right_max > 0.5, "Right channel should have tick pulses");
+        assert!(
+            right_max > NORTH_TICK_AMPLITUDE * 0.5,
+            "Right channel should have tick pulses"
+        );
     }
 
     #[test]

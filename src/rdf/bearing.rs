@@ -52,7 +52,11 @@ impl BearingCalculator {
         // Find zero crossings
         let crossings = self.zero_detector.find_all_crossings(&filtered);
 
+        eprintln!("BearingCalc: sample_counter={}, tick.sample_index={}, buffer_len={}, crossings={}",
+                  self.sample_counter, north_tick.sample_index, doppler_buffer.len(), crossings.len());
+
         if crossings.is_empty() {
+            eprintln!("BearingCalc: No zero crossings found");
             self.sample_counter += doppler_buffer.len();
             return None;
         }
@@ -64,11 +68,15 @@ impl BearingCalculator {
         let crossing_idx = crossings[0];
         let global_crossing = self.sample_counter + crossing_idx;
 
+        eprintln!("BearingCalc: crossing_idx={}, global_crossing={}, samples_per_rotation={}",
+                  crossing_idx, global_crossing, samples_per_rotation);
+
         // Calculate samples elapsed since north tick
         let samples_since_tick = if global_crossing >= north_tick.sample_index {
             (global_crossing - north_tick.sample_index) as f32
         } else {
             // Handle wrap-around (shouldn't normally happen)
+            eprintln!("BearingCalc: Wrap-around detected! global_crossing < tick.sample_index");
             self.sample_counter += doppler_buffer.len();
             return None;
         };
