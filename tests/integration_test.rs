@@ -241,3 +241,94 @@ fn test_correlation_vs_zero_crossing() {
         );
     }
 }
+
+#[test]
+fn test_real_wav_file() {
+    use hound::WavReader;
+
+    let wav_path = "data/doppler-test-2023-04-10-ft-70d.wav";
+
+    let mut reader = WavReader::open(wav_path).expect("Failed to open WAV file");
+    let spec = reader.spec();
+
+    assert_eq!(spec.channels, 2, "WAV file must be stereo");
+
+    // Read samples
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>().unwrap(),
+        hound::SampleFormat::Int => {
+            let max_val = 2_i32.pow(spec.bits_per_sample as u32 - 1) as f32;
+            reader
+                .samples::<i32>()
+                .map(|s| s.map(|v| v as f32 / max_val))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        }
+    };
+
+    let mut config = RdfConfig::default();
+    config.audio.sample_rate = spec.sample_rate;
+    let sample_rate = spec.sample_rate as f32;
+
+    let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+    let mut correlation_calc = CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+
+    let chunk_size = config.audio.buffer_size * 2;
+    let mut measurements = Vec::new();
+    let mut last_tick: Option<NorthTick> = None;
+    let mut tick_count = 0;
+
+    for chunk in samples.chunks(chunk_size) {
+        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let (doppler, north_tick) = config.audio.split_channels(&stereo);
+
+        // Process with correlation calculator
+        if let Some(ref tick) = last_tick {
+            if let Some(bearing) = correlation_calc.process_buffer(&doppler, tick) {
+                measurements.push(bearing.bearing_degrees);
+            }
+        } else {
+            // Advance counter
+            correlation_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
+        }
+
+        // Update north tracker
+        let ticks = north_tracker.process_buffer(&north_tick);
+        tick_count += ticks.len();
+        if let Some(tick) = ticks.last() {
+            last_tick = Some(*tick);
+        }
+    }
+
+    let duration = samples.len() as f32 / 2.0 / sample_rate;
+    eprintln!("Processed {:.2}s of audio", duration);
+    eprintln!("Detected {} north ticks", tick_count);
+    eprintln!("Got {} bearing measurements", measurements.len());
+
+    // Check rotation frequency
+    if let Some(freq) = north_tracker.rotation_frequency() {
+        eprintln!("Estimated rotation frequency: {:.1} Hz", freq);
+        assert!(
+            (freq - 1602.0).abs() < 100.0,
+            "Rotation frequency {} should be close to 1602 Hz",
+            freq
+        );
+    }
+
+    // We should get a lot of ticks
+    assert!(tick_count > 1000, "Should detect many north ticks, got {}", tick_count);
+
+    // We should get bearing measurements
+    assert!(measurements.len() > 100, "Should produce many bearing measurements, got {}", measurements.len());
+
+    // All bearings should be in valid range
+    for bearing in &measurements {
+        assert!(
+            *bearing >= 0.0 && *bearing < 360.0,
+            "Bearing {} should be in [0, 360)",
+            bearing
+        );
+    }
+
+    eprintln!("Test passed: Real WAV file processed successfully");
+}
