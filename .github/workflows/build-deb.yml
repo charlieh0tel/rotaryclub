@@ -13,12 +13,23 @@ env:
 jobs:
   build-deb:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: amd64
+            linker: gcc
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+            linker: aarch64-linux-gnu-gcc
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -36,36 +47,49 @@ jobs:
       uses: actions/cache@v4
       with:
         path: target
-        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ $(lsb_release -cs) main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ $(lsb_release -cs)-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libasound2-dev:arm64 libdbus-1-dev:arm64
+        fi
 
     - name: Install cargo-deb
       run: cargo install cargo-deb
 
     - name: Build release binary
-      run: cargo build --release --verbose
+      run: cargo build --release --target ${{ matrix.target }} --verbose
+      env:
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+        PKG_CONFIG_SYSROOT_DIR: ${{ matrix.arch == 'arm64' && '/usr/aarch64-linux-gnu' || '' }}
+        PKG_CONFIG_PATH: ${{ matrix.arch == 'arm64' && '/usr/lib/aarch64-linux-gnu/pkgconfig' || '' }}
 
     - name: Run tests
+      if: matrix.arch == 'amd64'
       run: cargo test --verbose
 
     - name: Build Debian package
-      run: cargo deb
+      run: cargo deb --no-build --target ${{ matrix.target }}
 
     - name: Get package filename
       id: package
       run: |
-        PACKAGE=$(ls target/debian/*.deb | head -n 1)
+        PACKAGE=$(ls target/${{ matrix.target }}/debian/*.deb | head -n 1)
         echo "path=$PACKAGE" >> $GITHUB_OUTPUT
         echo "name=$(basename $PACKAGE)" >> $GITHUB_OUTPUT
 
     - name: Upload Debian package as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: debian-package
+        name: debian-package-${{ matrix.arch }}
         path: ${{ steps.package.outputs.path }}
         retention-days: 30
 
