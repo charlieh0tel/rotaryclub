@@ -5,8 +5,26 @@ Rust implementation of a pseudo doppler RDF system that calculates bearing angle
 ## Quick Start
 
 ```bash
-# Run with live audio input
+# Run with default settings (correlation method, DPLL tracking)
 cargo run
+
+# Use zero-crossing method instead
+cargo run -- --method zero-crossing
+
+# Use simple north tracking mode
+cargo run -- --north-mode simple
+
+# Swap left/right channels if wired differently
+cargo run -- --swap-channels
+
+# Increase output rate to 20 Hz
+cargo run -- --output-rate 20
+
+# Enable debug logging
+cargo run -- -v
+
+# Combine options
+cargo run -- --method correlation --north-mode dpll -v
 
 # Test with WAV file
 cargo run --example play_wav_file data/doppler-test-2023-04-10-ft-70d.wav
@@ -25,6 +43,24 @@ The program reads stereo audio:
 Output:
 ```
 Bearing: 137.5° (raw: 136.8°) confidence: 0.95
+```
+
+### CLI Options
+
+```
+-m, --method <METHOD>            Bearing calculation method
+                                 [correlation (default) | zero-crossing]
+
+-n, --north-mode <NORTH_MODE>    North tick tracking mode
+                                 [dpll (default) | simple]
+
+-s, --swap-channels              Swap left/right channels
+
+-r, --output-rate <OUTPUT_RATE>  Output rate in Hz [default: 10.0]
+
+-v, --verbose                    Increase logging (-v=debug, -vv=trace)
+
+-h, --help                       Print help
 ```
 
 ## Examples

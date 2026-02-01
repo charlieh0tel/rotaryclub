@@ -1,3 +1,4 @@
+use clap::Parser;
 use crossbeam_channel::bounded;
 use std::time::{Duration, Instant};
 
@@ -8,8 +9,63 @@ mod rdf;
 mod signal_processing;
 
 use audio::{AudioCapture, AudioRingBuffer};
-use config::{BearingMethod, RdfConfig};
+use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig};
 use rdf::{BearingMeasurement, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator};
+
+#[derive(Parser, Debug)]
+#[command(name = "rotaryclub")]
+#[command(about = "Pseudo Doppler Radio Direction Finding", long_about = None)]
+struct Args {
+    /// Bearing calculation method
+    #[arg(short = 'm', long, value_enum, default_value = "correlation")]
+    method: BearingMethodArg,
+
+    /// North tick tracking mode
+    #[arg(short = 'n', long, value_enum, default_value = "dpll")]
+    north_mode: NorthModeArg,
+
+    /// Swap left/right channels
+    #[arg(short = 's', long)]
+    swap_channels: bool,
+
+    /// Output rate in Hz
+    #[arg(short = 'r', long, default_value = "10.0")]
+    output_rate: f32,
+
+    /// Increase output verbosity (-v for debug, -vv for trace)
+    #[arg(short = 'v', long, action = clap::ArgAction::Count)]
+    verbose: u8,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum BearingMethodArg {
+    Correlation,
+    ZeroCrossing,
+}
+
+impl From<BearingMethodArg> for BearingMethod {
+    fn from(arg: BearingMethodArg) -> Self {
+        match arg {
+            BearingMethodArg::Correlation => BearingMethod::Correlation,
+            BearingMethodArg::ZeroCrossing => BearingMethod::ZeroCrossing,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum NorthModeArg {
+    Dpll,
+    Simple,
+}
+
+impl From<NorthModeArg> for NorthTrackingMode {
+    fn from(arg: NorthModeArg) -> Self {
+        match arg {
+            NorthModeArg::Dpll => NorthTrackingMode::Dpll,
+            NorthModeArg::Simple => NorthTrackingMode::Simple,
+        }
+    }
+}
 
 enum BearingCalculator {
     ZeroCrossing(ZeroCrossingBearingCalculator),
@@ -26,9 +82,28 @@ impl BearingCalculator {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    let args = Args::parse();
 
-    let config = RdfConfig::default();
+    // Configure logging based on verbosity
+    let log_level = match args.verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
+
+    // Apply CLI arguments to config
+    let mut config = RdfConfig::default();
+    config.doppler.method = args.method.into();
+    config.north_tick.mode = args.north_mode.into();
+    config.bearing.output_rate_hz = args.output_rate;
+
+    if args.swap_channels {
+        // Swap the channels
+        config.audio.doppler_channel = ChannelRole::Right;
+        config.audio.north_tick_channel = ChannelRole::Left;
+    }
 
     println!("=== Rotary Club - Pseudo Doppler RDF ===");
     println!("Sample rate: {} Hz", config.audio.sample_rate);
