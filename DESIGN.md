@@ -86,17 +86,19 @@ Test file (11.6s, moving radio source):
 ## Known Limitations
 
 1. **North pulse subsampling**: 20µs pulse < 1 sample at 48kHz. Relies
-   on high-frequency content.
-2. **Fixed thresholds**: No adaptive adjustment for north tick detection.
-3. **No multipath handling**: Reflections can distort phase measurements.
+   on high-frequency content (mitigated by DPLL tracking).
+2. **No multipath handling**: Reflections can distort phase measurements.
 
 ## Future Enhancements
 
-1. **Adaptive thresholding**: Calculate from signal statistics for north tick
-2. **Correlation-based phase detection**: More robust to noise
-3. **Better confidence metrics**: SNR estimation, coherence measurement
-4. **Calibration system**: Phase offsets, amplitude compensation,
+1. **Correlation-based phase detection**: More robust to noise than zero-crossing
+2. **Better confidence metrics**: SNR estimation, coherence measurement
+3. **Calibration system**: Phase offsets, amplitude compensation,
    temperature drift
+
+Note: Adaptive thresholding for north tick detection is not a priority since
+the north reference is a controlled signal with predictable amplitude, and
+the DPLL provides robust tracking even with occasional missed pulses.
 
 ## References
 
