@@ -1,5 +1,5 @@
 use clap::Parser;
-use crossbeam_channel::bounded;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod audio;
@@ -9,7 +9,7 @@ mod output;
 mod rdf;
 mod signal_processing;
 
-use audio::{AudioCapture, AudioRingBuffer};
+use audio::{AudioRingBuffer, AudioSource, DeviceSource, WavFileSource};
 use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig};
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
 use rdf::{
@@ -47,6 +47,10 @@ struct Args {
     /// Output format
     #[arg(short = 'f', long, value_enum, default_value = "text")]
     format: OutputFormat,
+
+    /// Input WAV file (default: live device capture)
+    #[arg(short = 'i', long)]
+    input: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -153,12 +157,19 @@ fn main() -> anyhow::Result<()> {
     );
     banner!("");
 
-    let (audio_tx, audio_rx) = bounded(10);
+    let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
+        Some(path) => {
+            banner!("Loading WAV file: {}", path.display());
+            let chunk_size = config.audio.buffer_size * 2;
+            (Box::new(WavFileSource::new(path, chunk_size)?), false)
+        }
+        None => {
+            banner!("Starting audio capture...");
+            (Box::new(DeviceSource::new(&config.audio)?), true)
+        }
+    };
 
-    banner!("Starting audio capture...");
-    let _capture = AudioCapture::new(&config.audio, audio_tx)?;
-
-    banner!("Audio capture started. Processing...");
+    banner!("Processing...");
     if !use_stderr_banner {
         println!();
     }
@@ -168,19 +179,19 @@ fn main() -> anyhow::Result<()> {
         println!("{}", header);
     }
 
-    run_processing_loop(audio_rx, config, formatter)?;
+    run_processing_loop(source, config, formatter, throttle_output)?;
 
     Ok(())
 }
 
 fn run_processing_loop(
-    audio_rx: crossbeam_channel::Receiver<Vec<f32>>,
+    mut source: Box<dyn AudioSource>,
     config: RdfConfig,
     formatter: Box<dyn Formatter>,
+    throttle_output: bool,
 ) -> anyhow::Result<()> {
     let sample_rate = config.audio.sample_rate as f32;
 
-    // Initialize processing components
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
 
     let mut bearing_calc = match config.doppler.method {
@@ -209,13 +220,8 @@ fn run_processing_loop(
     let mut last_north_tick: Option<rdf::NorthTick> = None;
 
     loop {
-        // Receive audio data (blocking)
-        let audio_data = match audio_rx.recv() {
-            Ok(data) => data,
-            Err(_) => {
-                eprintln!("Audio stream closed");
-                break;
-            }
+        let Some(audio_data) = source.next_buffer()? else {
+            break;
         };
 
         ring_buffer.push_interleaved(&audio_data);
@@ -234,39 +240,43 @@ fn run_processing_loop(
             }
         }
 
-        if let Some(ref tick) = last_north_tick {
-            if let Some(bearing) = bearing_calc.process_buffer(&doppler, tick) {
-                // Throttle output
-                if last_output.elapsed() >= output_interval {
-                    // Apply north offset
-                    let mut adjusted_bearing =
-                        bearing.bearing_degrees + config.bearing.north_offset_degrees;
-                    let mut adjusted_raw =
-                        bearing.raw_bearing + config.bearing.north_offset_degrees;
-
-                    // Normalize to [0, 360)
-                    adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
-                    adjusted_raw = adjusted_raw.rem_euclid(360.0);
-
-                    let output = BearingOutput {
-                        bearing: adjusted_bearing,
-                        raw: adjusted_raw,
-                        confidence: bearing.confidence,
-                        snr_db: bearing.metrics.snr_db,
-                        coherence: bearing.metrics.coherence,
-                        signal_strength: bearing.metrics.signal_strength,
-                    };
-
-                    println!("{}", formatter.format(&output));
-                    last_output = Instant::now();
-                }
-            }
+        let ticks_to_process: Vec<_> = if throttle_output {
+            last_north_tick.iter().copied().collect()
         } else {
-            // Only print warning occasionally to avoid spam
-            if last_output.elapsed() >= Duration::from_secs(2) {
-                log::warn!("Waiting for north tick...");
+            north_ticks
+        };
+
+        for tick in &ticks_to_process {
+            if let Some(bearing) = bearing_calc.process_buffer(&doppler, tick)
+                && (!throttle_output || last_output.elapsed() >= output_interval)
+            {
+                let mut adjusted_bearing =
+                    bearing.bearing_degrees + config.bearing.north_offset_degrees;
+                let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
+
+                adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
+                adjusted_raw = adjusted_raw.rem_euclid(360.0);
+
+                let output = BearingOutput {
+                    bearing: adjusted_bearing,
+                    raw: adjusted_raw,
+                    confidence: bearing.confidence,
+                    snr_db: bearing.metrics.snr_db,
+                    coherence: bearing.metrics.coherence,
+                    signal_strength: bearing.metrics.signal_strength,
+                };
+
+                println!("{}", formatter.format(&output));
                 last_output = Instant::now();
             }
+        }
+
+        if last_north_tick.is_none()
+            && throttle_output
+            && last_output.elapsed() >= Duration::from_secs(2)
+        {
+            log::warn!("Waiting for north tick...");
+            last_output = Instant::now();
         }
     }
 
