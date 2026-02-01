@@ -2,10 +2,11 @@
 name = "rotaryclub"
 version = "1.0.0"
 edition = "2024"
+authors = ["Christopher Hoover <ch@murgatroid.com>"]
 license = "Apache-2.0"
 description = "Pseudo-Doppler Radio Direction Finding system"
-homepage = "https://github.com/yourusername/rotaryclub"
-repository = "https://github.com/yourusername/rotaryclub"
+homepage = "https://github.com/charlieh0tel/rotaryclub"
+repository = "https://github.com/charlieh0tel/rotaryclub"
 
 [dependencies]
 # Audio I/O
@@ -46,8 +47,8 @@ codegen-units = 1
 opt-level = 3
 
 [package.metadata.deb]
-maintainer = "Rotary Club Maintainers <maintainer@example.com>"
-copyright = "2024, Rotary Club Contributors"
+maintainer = "Christopher Hoover <ch@murgatroid.com>"
+copyright = "2024-2026, Christopher Hoover"
 license-file = ["LICENSE", "4"]
 extended-description = """\
 A pseudo-Doppler radio direction finding (RDF) system implementation in Rust.
