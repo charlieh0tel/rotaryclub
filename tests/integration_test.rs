@@ -1,7 +1,7 @@
 mod test_signals;
 
 use rotaryclub::config::RdfConfig;
-use rotaryclub::rdf::{BearingCalculator, NorthReferenceTracker, NorthTick};
+use rotaryclub::rdf::{CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator};
 
 #[test]
 fn test_bearing_calculation_from_synthetic_signal() {
@@ -97,7 +97,7 @@ fn calculate_bearing_from_synthetic(
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-    let mut bearing_calc = BearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
+    let mut bearing_calc = ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();
@@ -147,5 +147,97 @@ fn calculate_bearing_from_synthetic(
         ))
     } else {
         Ok(None)
+    }
+}
+
+#[test]
+fn test_correlation_vs_zero_crossing() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+
+    // Test a single bearing with both methods
+    let test_bearing = 90.0;
+
+    let signal = test_signals::generate_test_signal(
+        0.5,
+        sample_rate as u32,
+        config.doppler.expected_freq,
+        config.doppler.expected_freq,
+        test_bearing,
+    );
+
+    let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+    let mut zero_crossing_calc = ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+    let mut correlation_calc = CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+
+    let chunk_size = config.audio.buffer_size * 2;
+    let mut zc_measurements = Vec::new();
+    let mut corr_measurements = Vec::new();
+    let mut last_tick: Option<NorthTick> = None;
+
+    for chunk in signal.chunks(chunk_size) {
+        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let (doppler, north_tick) = config.audio.split_channels(&stereo);
+
+        // Process with both calculators
+        if let Some(ref tick) = last_tick {
+            if let Some(bearing) = zero_crossing_calc.process_buffer(&doppler, tick) {
+                zc_measurements.push(bearing.bearing_degrees);
+            }
+            if let Some(bearing) = correlation_calc.process_buffer(&doppler, tick) {
+                corr_measurements.push(bearing.bearing_degrees);
+            }
+        } else {
+            // Advance counters
+            zero_crossing_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
+            correlation_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
+        }
+
+        // Update north tracker
+        let ticks = north_tracker.process_buffer(&north_tick);
+        if let Some(tick) = ticks.last() {
+            last_tick = Some(*tick);
+        }
+    }
+
+    eprintln!("Zero-crossing measurements: {}", zc_measurements.len());
+    eprintln!("Correlation measurements: {}", corr_measurements.len());
+
+    // Both should produce measurements
+    assert!(!zc_measurements.is_empty(), "Zero-crossing should produce measurements");
+    assert!(!corr_measurements.is_empty(), "Correlation should produce measurements");
+
+    // Calculate averages (skip first few for settling)
+    let skip = 3;
+    if zc_measurements.len() > skip {
+        let zc_avg = zc_measurements.iter().skip(skip).sum::<f32>() / (zc_measurements.len() - skip) as f32;
+        eprintln!("Zero-crossing average: {:.1}°", zc_avg);
+
+        let mut zc_error = (zc_avg - test_bearing).abs();
+        if zc_error > 180.0 {
+            zc_error = 360.0 - zc_error;
+        }
+
+        assert!(
+            zc_error < 15.0,
+            "Zero-crossing bearing error too large: expected {}, got {}, error {}",
+            test_bearing, zc_avg, zc_error
+        );
+    }
+
+    if corr_measurements.len() > skip {
+        let corr_avg = corr_measurements.iter().skip(skip).sum::<f32>() / (corr_measurements.len() - skip) as f32;
+        eprintln!("Correlation average: {:.1}°", corr_avg);
+
+        let mut corr_error = (corr_avg - test_bearing).abs();
+        if corr_error > 180.0 {
+            corr_error = 360.0 - corr_error;
+        }
+
+        assert!(
+            corr_error < 15.0,
+            "Correlation bearing error too large: expected {}, got {}, error {}",
+            test_bearing, corr_avg, corr_error
+        );
     }
 }

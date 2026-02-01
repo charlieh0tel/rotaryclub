@@ -8,8 +8,22 @@ mod rdf;
 mod signal_processing;
 
 use audio::{AudioCapture, AudioRingBuffer};
-use config::RdfConfig;
-use rdf::{BearingCalculator, NorthReferenceTracker};
+use config::{BearingMethod, RdfConfig};
+use rdf::{BearingMeasurement, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator};
+
+enum BearingCalculator {
+    ZeroCrossing(ZeroCrossingBearingCalculator),
+    Correlation(CorrelationBearingCalculator),
+}
+
+impl BearingCalculator {
+    fn process_buffer(&mut self, buffer: &[f32], tick: &NorthTick) -> Option<BearingMeasurement> {
+        match self {
+            BearingCalculator::ZeroCrossing(calc) => calc.process_buffer(buffer, tick),
+            BearingCalculator::Correlation(calc) => calc.process_buffer(buffer, tick),
+        }
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -25,6 +39,7 @@ fn main() -> anyhow::Result<()> {
     );
     println!("North tick threshold: {}", config.north_tick.threshold);
     println!("North tick tracking: {:?}", config.north_tick.mode);
+    println!("Bearing method: {:?}", config.doppler.method);
     println!("Output rate: {} Hz", config.bearing.output_rate_hz);
     println!(
         "Channel assignment: Doppler={:?}, North tick={:?}",
@@ -53,12 +68,24 @@ fn run_processing_loop(
     // Initialize processing components
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
 
-    let mut bearing_calc = BearingCalculator::new(
-        &config.doppler,
-        &config.agc,
-        sample_rate,
-        config.bearing.smoothing_window,
-    )?;
+    let mut bearing_calc = match config.doppler.method {
+        BearingMethod::ZeroCrossing => BearingCalculator::ZeroCrossing(
+            ZeroCrossingBearingCalculator::new(
+                &config.doppler,
+                &config.agc,
+                sample_rate,
+                config.bearing.smoothing_window,
+            )?
+        ),
+        BearingMethod::Correlation => BearingCalculator::Correlation(
+            CorrelationBearingCalculator::new(
+                &config.doppler,
+                &config.agc,
+                sample_rate,
+                config.bearing.smoothing_window,
+            )?
+        ),
+    };
 
     let mut ring_buffer = AudioRingBuffer::new();
     let mut last_output = Instant::now();

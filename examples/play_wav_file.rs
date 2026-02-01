@@ -1,6 +1,6 @@
 use hound::WavReader;
 use rotaryclub::config::RdfConfig;
-use rotaryclub::rdf::{BearingCalculator, NorthReferenceTracker};
+use rotaryclub::rdf::{ZeroCrossingBearingCalculator, NorthReferenceTracker};
 use std::env;
 use std::time::{Duration, Instant};
 
@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sample_rate = spec.sample_rate as f32;
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-    let mut bearing_calc = BearingCalculator::new(
+    let mut bearing_calc = ZeroCrossingBearingCalculator::new(
         &config.doppler,
         &config.agc,
         sample_rate,

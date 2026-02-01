@@ -37,9 +37,11 @@ bearing = (phase_offset / 2π) × 360°
 ### Doppler Tone Extraction (Left Channel)
 1. AGC (Automatic Gain Control) normalizes signal amplitude to 0.5 RMS
 2. Bandpass filter 1500-1700 Hz (extract Doppler tone)
-3. Zero-crossing detection with 0.01 hysteresis
+3. Phase extraction (configurable method):
+   - **Correlation mode** (default): I/Q demodulation via correlation with sin/cos at rotation frequency. More accurate and robust to noise.
+   - **Zero-crossing mode**: Zero-crossing detection with 0.01 hysteresis. Simpler but less accurate.
 4. Calculate phase offset from north tick
-5. Convert to bearing: `(samples_since_tick / samples_per_rotation) × 360°`
+5. Convert to bearing: `(phase_offset / 2π) × 360°`
 6. Moving average smoothing (window size: 5)
 
 ## Configuration
@@ -52,22 +54,27 @@ target_rms: 0.5, attack_time_ms: 10.0, release_time_ms: 100.0
 
 // Doppler processing
 expected_freq: 1602.0, bandpass: 1500-1700 Hz, filter_order: 4
+method: Correlation  // or ZeroCrossing
 
 // North tick detection
 highpass_cutoff: 5000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
+mode: Dpll  // or Simple
 
 // Output
 smoothing_window: 5, output_rate_hz: 10.0
 ```
 
-Channel assignment is compile-time configurable via `ChannelRole` enum.
+Channel assignment is configurable via `ChannelRole` enum.
 
 ## Design Decisions
 
 - **IIR filters**: Lower latency and fewer coefficients than
   FIR. Butterworth provides flat passband.
-- **Zero-crossing detection**: Simple and fast. Alternative:
-  Correlation would be more robust but costs more CPU.
+- **Bearing extraction methods**: Two options available:
+  - **Correlation (default)**: I/Q demodulation more robust to noise, ~1-2° accuracy on test signals
+  - **Zero-crossing**: Simple and fast, ~7° accuracy, lower CPU usage
+- **DPLL for north tracking**: Locks onto rotation frequency, tolerates missed pulses,
+  provides smooth frequency estimates
 - **48 kHz sample rate**: Standard audio hardware
   support. Alternative: 96/192 kHz would better capture 20µs pulse but
   increases CPU load.

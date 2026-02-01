@@ -40,6 +40,12 @@ pub struct AudioConfig {
     pub north_tick_channel: ChannelRole,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BearingMethod {
+    ZeroCrossing,
+    Correlation,
+}
+
 #[derive(Debug, Clone)]
 pub struct DopplerConfig {
     pub expected_freq: f32,
@@ -47,6 +53,7 @@ pub struct DopplerConfig {
     pub bandpass_high: f32,
     pub filter_order: usize,
     pub zero_cross_hysteresis: f32,
+    pub method: BearingMethod,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +131,7 @@ impl Default for DopplerConfig {
             bandpass_high: 1700.0,
             filter_order: 4,
             zero_cross_hysteresis: 0.01,
+            method: BearingMethod::Correlation,
         }
     }
 }
