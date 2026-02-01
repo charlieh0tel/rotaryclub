@@ -1,4 +1,3 @@
-use chrono::Utc;
 use clap::Parser;
 use crossbeam_channel::bounded;
 use std::time::{Duration, Instant};
@@ -6,14 +5,15 @@ use std::time::{Duration, Instant};
 mod audio;
 mod config;
 mod error;
+mod output;
 mod rdf;
 mod signal_processing;
 
 use audio::{AudioCapture, AudioRingBuffer};
 use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig};
+use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
 use rdf::{
-    BearingMeasurement, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
-    ZeroCrossingBearingCalculator,
+    CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator,
 };
 
 #[derive(Parser, Debug)]
@@ -47,13 +47,6 @@ struct Args {
     /// Output format
     #[arg(short = 'f', long, value_enum, default_value = "text")]
     format: OutputFormat,
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-enum OutputFormat {
-    Text,
-    Json,
-    Csv,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -92,74 +85,16 @@ enum BearingCalculator {
 }
 
 impl BearingCalculator {
-    fn process_buffer(&mut self, buffer: &[f32], tick: &NorthTick) -> Option<BearingMeasurement> {
+    fn process_buffer(
+        &mut self,
+        buffer: &[f32],
+        tick: &NorthTick,
+    ) -> Option<rdf::BearingMeasurement> {
         match self {
             BearingCalculator::ZeroCrossing(calc) => calc.process_buffer(buffer, tick),
             BearingCalculator::Correlation(calc) => calc.process_buffer(buffer, tick),
         }
     }
-}
-
-fn iso8601_timestamp() -> String {
-    Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
-}
-
-struct BearingOutput {
-    bearing: f32,
-    raw: f32,
-    confidence: f32,
-    snr_db: f32,
-    coherence: f32,
-    signal_strength: f32,
-}
-
-fn format_text(output: &BearingOutput, verbose: bool) -> String {
-    if verbose {
-        format!(
-            "Bearing: {:>6.1}° (raw: {:>6.1}°) conf: {:.2} [SNR: {:>5.1} dB, coh: {:.2}, str: {:.2}]",
-            output.bearing,
-            output.raw,
-            output.confidence,
-            output.snr_db,
-            output.coherence,
-            output.signal_strength
-        )
-    } else {
-        format!(
-            "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
-            output.bearing, output.raw, output.confidence
-        )
-    }
-}
-
-fn format_json(output: &BearingOutput) -> String {
-    format!(
-        r#"{{"ts":"{}","bearing":{:.1},"raw":{:.1},"confidence":{:.2},"snr_db":{:.1},"coherence":{:.2},"signal_strength":{:.2}}}"#,
-        iso8601_timestamp(),
-        output.bearing,
-        output.raw,
-        output.confidence,
-        output.snr_db,
-        output.coherence,
-        output.signal_strength
-    )
-}
-
-fn format_csv(output: &BearingOutput) -> String {
-    format!(
-        "{},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2}",
-        iso8601_timestamp(),
-        output.bearing,
-        output.raw,
-        output.confidence,
-        output.snr_db,
-        output.coherence,
-        output.signal_strength
-    )
-}
-
-fn csv_header() -> &'static str {
-    "ts,bearing,raw,confidence,snr_db,coherence,signal_strength"
 }
 
 fn main() -> anyhow::Result<()> {
@@ -187,7 +122,7 @@ fn main() -> anyhow::Result<()> {
         config.audio.north_tick_channel = ChannelRole::Left;
     }
 
-    let use_stderr_banner = matches!(args.format, OutputFormat::Json | OutputFormat::Csv);
+    let use_stderr_banner = !matches!(args.format, OutputFormat::Text);
 
     macro_rules! banner {
         ($($arg:tt)*) => {
@@ -228,11 +163,12 @@ fn main() -> anyhow::Result<()> {
         println!();
     }
 
-    if matches!(args.format, OutputFormat::Csv) {
-        println!("{}", csv_header());
+    let formatter = create_formatter(args.format, args.verbose >= 1);
+    if let Some(header) = formatter.header() {
+        println!("{}", header);
     }
 
-    run_processing_loop(audio_rx, config, args.verbose, args.format)?;
+    run_processing_loop(audio_rx, config, formatter)?;
 
     Ok(())
 }
@@ -240,8 +176,7 @@ fn main() -> anyhow::Result<()> {
 fn run_processing_loop(
     audio_rx: crossbeam_channel::Receiver<Vec<f32>>,
     config: RdfConfig,
-    verbose: u8,
-    format: OutputFormat,
+    formatter: Box<dyn Formatter>,
 ) -> anyhow::Result<()> {
     let sample_rate = config.audio.sample_rate as f32;
 
@@ -322,12 +257,7 @@ fn run_processing_loop(
                         signal_strength: bearing.metrics.signal_strength,
                     };
 
-                    let line = match format {
-                        OutputFormat::Text => format_text(&output, verbose >= 1),
-                        OutputFormat::Json => format_json(&output),
-                        OutputFormat::Csv => format_csv(&output),
-                    };
-                    println!("{}", line);
+                    println!("{}", formatter.format(&output));
                     last_output = Instant::now();
                 }
             }
