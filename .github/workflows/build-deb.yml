@@ -14,6 +14,7 @@ jobs:
   build-deb:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -55,6 +56,8 @@ jobs:
         sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
         if [ "${{ matrix.arch }}" = "arm64" ]; then
           sudo dpkg --add-architecture arm64
+          # Disable all existing sources (including DEB822 format)
+          sudo rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
           # Configure multiarch sources - arm64 packages come from ports.ubuntu.com
           CODENAME=$(lsb_release -cs)
           sudo tee /etc/apt/sources.list << EOF
@@ -65,7 +68,6 @@ jobs:
         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-updates main restricted universe multiverse
         deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-security main restricted universe multiverse
         EOF
-          sudo rm -f /etc/apt/sources.list.d/*.list
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu libasound2-dev:arm64 libdbus-1-dev:arm64
         fi
