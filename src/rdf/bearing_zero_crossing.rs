@@ -1,6 +1,6 @@
 use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
-use crate::rdf::{BearingMeasurement, NorthTick};
+use crate::rdf::{BearingMeasurement, ConfidenceMetrics, NorthTick};
 use crate::signal_processing::{
     AutomaticGainControl, BandpassFilter, MovingAverage, ZeroCrossingDetector, phase_to_bearing,
 };
@@ -107,23 +107,68 @@ impl ZeroCrossingBearingCalculator {
 
         self.sample_counter += doppler_buffer.len();
 
+        let metrics = self.calculate_metrics(&crossings, samples_per_rotation);
+
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
-            confidence: self.calculate_confidence(&crossings),
+            confidence: metrics.combined_score(),
+            metrics,
             timestamp_samples: global_crossing,
         })
     }
 
-    /// Calculate confidence metric based on signal quality
-    fn calculate_confidence(&self, crossings: &[usize]) -> f32 {
-        // Simple confidence: more crossings = better signal
-        // In a real implementation, could use SNR, coherence, etc.
-        let crossing_rate = crossings.len() as f32;
-        if crossing_rate > 0.0 {
-            (crossing_rate / 10.0).min(1.0)
+    fn calculate_metrics(
+        &self,
+        crossings: &[usize],
+        samples_per_rotation: f32,
+    ) -> ConfidenceMetrics {
+        if crossings.is_empty() {
+            return ConfidenceMetrics::default();
+        }
+
+        // --- Signal Strength ---
+        // Based on crossing count - more crossings indicates stronger signal
+        let expected_crossings = (self.work_buffer.len() as f32 / samples_per_rotation) * 2.0;
+        let signal_strength = if expected_crossings > 0.0 {
+            (crossings.len() as f32 / expected_crossings).clamp(0.0, 1.0)
         } else {
             0.0
+        };
+
+        // --- Coherence from crossing regularity ---
+        // Measure how regular the crossing intervals are
+        let coherence = if crossings.len() >= 2 {
+            let expected_interval = samples_per_rotation / 2.0;
+            let mut interval_errors = Vec::with_capacity(crossings.len() - 1);
+
+            for window in crossings.windows(2) {
+                let interval = (window[1] - window[0]) as f32;
+                let error = ((interval - expected_interval) / expected_interval).abs();
+                interval_errors.push(error);
+            }
+
+            let mean_error: f32 =
+                interval_errors.iter().sum::<f32>() / interval_errors.len() as f32;
+            (1.0 - mean_error.min(1.0)).clamp(0.0, 1.0)
+        } else {
+            0.5
+        };
+
+        // --- SNR Estimation from signal amplitude ---
+        // Use signal power from the work buffer
+        let signal_power: f32 =
+            self.work_buffer.iter().map(|s| s * s).sum::<f32>() / self.work_buffer.len() as f32;
+        let snr_db = if signal_power > 1e-10 {
+            10.0 * signal_power.log10() + 40.0
+        } else {
+            0.0
+        };
+
+        ConfidenceMetrics {
+            snr_db: snr_db.clamp(0.0, 40.0),
+            coherence,
+            signal_strength,
         }
     }
 
@@ -147,6 +192,9 @@ mod tests {
         let agc_config = AgcConfig::default();
         let sample_rate = 48000.0;
         let calc = ZeroCrossingBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
-        assert!(calc.is_ok(), "Should be able to create ZeroCrossingBearingCalculator");
+        assert!(
+            calc.is_ok(),
+            "Should be able to create ZeroCrossingBearingCalculator"
+        );
     }
 }

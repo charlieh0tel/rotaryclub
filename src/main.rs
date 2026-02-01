@@ -10,7 +10,10 @@ mod signal_processing;
 
 use audio::{AudioCapture, AudioRingBuffer};
 use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig};
-use rdf::{BearingMeasurement, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator};
+use rdf::{
+    BearingMeasurement, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
+    ZeroCrossingBearingCalculator,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "rotaryclub")]
@@ -134,7 +137,7 @@ fn main() -> anyhow::Result<()> {
 
     println!("Audio capture started. Processing...\n");
 
-    run_processing_loop(audio_rx, config)?;
+    run_processing_loop(audio_rx, config, args.verbose)?;
 
     Ok(())
 }
@@ -142,6 +145,7 @@ fn main() -> anyhow::Result<()> {
 fn run_processing_loop(
     audio_rx: crossbeam_channel::Receiver<Vec<f32>>,
     config: RdfConfig,
+    verbose: u8,
 ) -> anyhow::Result<()> {
     let sample_rate = config.audio.sample_rate as f32;
 
@@ -149,22 +153,22 @@ fn run_processing_loop(
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
 
     let mut bearing_calc = match config.doppler.method {
-        BearingMethod::ZeroCrossing => BearingCalculator::ZeroCrossing(
-            ZeroCrossingBearingCalculator::new(
+        BearingMethod::ZeroCrossing => {
+            BearingCalculator::ZeroCrossing(ZeroCrossingBearingCalculator::new(
                 &config.doppler,
                 &config.agc,
                 sample_rate,
                 config.bearing.smoothing_window,
-            )?
-        ),
-        BearingMethod::Correlation => BearingCalculator::Correlation(
-            CorrelationBearingCalculator::new(
+            )?)
+        }
+        BearingMethod::Correlation => {
+            BearingCalculator::Correlation(CorrelationBearingCalculator::new(
                 &config.doppler,
                 &config.agc,
                 sample_rate,
                 config.bearing.smoothing_window,
-            )?
-        ),
+            )?)
+        }
     };
 
     let mut ring_buffer = AudioRingBuffer::new();
@@ -204,17 +208,31 @@ fn run_processing_loop(
                 // Throttle output
                 if last_output.elapsed() >= output_interval {
                     // Apply north offset
-                    let mut adjusted_bearing = bearing.bearing_degrees + config.bearing.north_offset_degrees;
-                    let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
+                    let mut adjusted_bearing =
+                        bearing.bearing_degrees + config.bearing.north_offset_degrees;
+                    let mut adjusted_raw =
+                        bearing.raw_bearing + config.bearing.north_offset_degrees;
 
                     // Normalize to [0, 360)
                     adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
                     adjusted_raw = adjusted_raw.rem_euclid(360.0);
 
-                    println!(
-                        "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
-                        adjusted_bearing, adjusted_raw, bearing.confidence
-                    );
+                    if verbose >= 1 {
+                        println!(
+                            "Bearing: {:>6.1}° (raw: {:>6.1}°) conf: {:.2} [SNR: {:>5.1} dB, coh: {:.2}, str: {:.2}]",
+                            adjusted_bearing,
+                            adjusted_raw,
+                            bearing.confidence,
+                            bearing.metrics.snr_db,
+                            bearing.metrics.coherence,
+                            bearing.metrics.signal_strength
+                        );
+                    } else {
+                        println!(
+                            "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
+                            adjusted_bearing, adjusted_raw, bearing.confidence
+                        );
+                    }
                     last_output = Instant::now();
                 }
             }

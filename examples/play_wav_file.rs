@@ -1,6 +1,6 @@
 use hound::WavReader;
 use rotaryclub::config::RdfConfig;
-use rotaryclub::rdf::{ZeroCrossingBearingCalculator, NorthReferenceTracker};
+use rotaryclub::rdf::{NorthReferenceTracker, ZeroCrossingBearingCalculator};
 use std::env;
 use std::time::{Duration, Instant};
 

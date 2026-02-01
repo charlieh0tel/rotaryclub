@@ -1,7 +1,9 @@
 use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
-use crate::rdf::{BearingMeasurement, NorthTick};
-use crate::signal_processing::{AutomaticGainControl, BandpassFilter, MovingAverage, phase_to_bearing};
+use crate::rdf::{BearingMeasurement, ConfidenceMetrics, NorthTick};
+use crate::signal_processing::{
+    AutomaticGainControl, BandpassFilter, MovingAverage, phase_to_bearing,
+};
 use std::f32::consts::PI;
 
 /// Correlation-based bearing calculator using I/Q demodulation
@@ -84,18 +86,16 @@ impl CorrelationBearingCalculator {
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
 
+        // Calculate base offset once
+        let base_offset = if self.sample_counter >= north_tick.sample_index {
+            self.sample_counter - north_tick.sample_index
+        } else {
+            self.sample_counter += doppler_buffer.len();
+            return None;
+        };
+
         for (idx, &sample) in self.work_buffer.iter().enumerate() {
-            let global_idx = self.sample_counter + idx;
-
-            // Calculate phase relative to north tick
-            let samples_from_tick = if global_idx >= north_tick.sample_index {
-                (global_idx - north_tick.sample_index) as f32
-            } else {
-                // Skip buffers before the first tick
-                self.sample_counter += doppler_buffer.len();
-                return None;
-            };
-
+            let samples_from_tick = (base_offset + idx) as f32;
             let phase = omega * samples_from_tick;
 
             i_sum += sample * phase.cos();
@@ -111,6 +111,10 @@ impl CorrelationBearingCalculator {
         // Calculate signal power for confidence metric
         let signal_power = power_sum / n;
         let correlation_magnitude = (i * i + q * q).sqrt();
+
+        // Calculate confidence metrics
+        let metrics =
+            self.calculate_metrics(omega, base_offset, signal_power, correlation_magnitude);
 
         // Extract bearing directly from I/Q
         // Our signal is: A * sin(ω*t - φ) where φ is the bearing (note the minus!)
@@ -129,21 +133,87 @@ impl CorrelationBearingCalculator {
         // Apply smoothing
         let smoothed_bearing = self.bearing_smoother.add(raw_bearing);
 
-        // Calculate confidence based on correlation magnitude and signal power
-        let confidence = if signal_power > 0.01 {
-            (correlation_magnitude / signal_power.sqrt()).min(1.0)
-        } else {
-            0.0
-        };
-
         self.sample_counter += doppler_buffer.len();
 
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
-            confidence,
+            confidence: metrics.combined_score(),
+            metrics,
             timestamp_samples: self.sample_counter,
         })
+    }
+
+    fn calculate_metrics(
+        &self,
+        omega: f32,
+        base_offset: usize,
+        signal_power: f32,
+        correlation_magnitude: f32,
+    ) -> ConfidenceMetrics {
+        let n = self.work_buffer.len();
+        if n < 4 || signal_power < 1e-10 {
+            return ConfidenceMetrics::default();
+        }
+
+        // --- SNR Estimation ---
+        // Correlated signal power is the magnitude squared of the I/Q correlation
+        let correlated_power = correlation_magnitude * correlation_magnitude;
+        // Noise power is the residual (total power minus correlated component)
+        let noise_power = (signal_power - correlated_power).max(1e-10);
+        let snr_db = 10.0 * (correlated_power / noise_power).log10();
+
+        // --- Coherence Estimation ---
+        // Split buffer into 4 sub-windows and compute phase in each
+        let window_size = n / 4;
+        let mut phases = [0.0f32; 4];
+
+        for (win_idx, phase) in phases.iter_mut().enumerate() {
+            let start = win_idx * window_size;
+            let end = start + window_size;
+
+            let mut i_win = 0.0;
+            let mut q_win = 0.0;
+
+            for (idx, &sample) in self.work_buffer[start..end].iter().enumerate() {
+                let samples_from_tick = (base_offset + start + idx) as f32;
+                let p = omega * samples_from_tick;
+                i_win += sample * p.cos();
+                q_win += sample * p.sin();
+            }
+
+            *phase = (-i_win).atan2(q_win);
+        }
+
+        // Calculate phase variance (circular variance)
+        let mean_phase = phases.iter().sum::<f32>() / 4.0;
+        let phase_variance: f32 = phases
+            .iter()
+            .map(|p| {
+                let diff = (p - mean_phase).rem_euclid(2.0 * PI);
+                let wrapped = if diff > PI { diff - 2.0 * PI } else { diff };
+                wrapped * wrapped
+            })
+            .sum::<f32>()
+            / 4.0;
+
+        // Max expected variance for random phases is ~PI^2/3
+        let max_variance = PI * PI / 3.0;
+        let coherence = (1.0 - phase_variance / max_variance).clamp(0.0, 1.0);
+
+        // --- Signal Strength ---
+        // Normalize correlation magnitude relative to signal power
+        let signal_strength = if signal_power > 0.01 {
+            (correlation_magnitude / signal_power.sqrt()).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        ConfidenceMetrics {
+            snr_db,
+            coherence,
+            signal_strength,
+        }
     }
 
     /// Reset calculator state
@@ -165,6 +235,9 @@ mod tests {
         let agc_config = AgcConfig::default();
         let sample_rate = 48000.0;
         let calc = CorrelationBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
-        assert!(calc.is_ok(), "Should be able to create CorrelationBearingCalculator");
+        assert!(
+            calc.is_ok(),
+            "Should be able to create CorrelationBearingCalculator"
+        );
     }
 }

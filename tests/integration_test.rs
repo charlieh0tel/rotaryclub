@@ -1,7 +1,9 @@
 mod test_signals;
 
 use rotaryclub::config::RdfConfig;
-use rotaryclub::rdf::{CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator};
+use rotaryclub::rdf::{
+    CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator,
+};
 
 #[test]
 fn test_bearing_calculation_from_synthetic_signal() {
@@ -43,7 +45,8 @@ fn test_north_tick_detection() {
     let sample_rate = config.audio.sample_rate as f32;
     let rotation_hz = config.doppler.expected_freq;
 
-    let signal = test_signals::generate_test_signal(1.0, sample_rate as u32, rotation_hz, rotation_hz, 0.0);
+    let signal =
+        test_signals::generate_test_signal(1.0, sample_rate as u32, rotation_hz, rotation_hz, 0.0);
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
 
@@ -97,7 +100,8 @@ fn calculate_bearing_from_synthetic(
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-    let mut bearing_calc = ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
+    let mut bearing_calc =
+        ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();
@@ -115,7 +119,13 @@ fn calculate_bearing_from_synthetic(
             }
         } else {
             // No tick yet, but still need to advance sample_counter
-            bearing_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
+            bearing_calc.process_buffer(
+                &doppler,
+                &NorthTick {
+                    sample_index: 0,
+                    period: Some(30.0),
+                },
+            );
         }
 
         // Update north tracker and save most recent tick for next iteration
@@ -156,8 +166,10 @@ fn test_correlation_vs_zero_crossing() {
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-    let mut zero_crossing_calc = ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
-    let mut correlation_calc = CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+    let mut zero_crossing_calc =
+        ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+    let mut correlation_calc =
+        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut zc_measurements = Vec::new();
@@ -178,8 +190,20 @@ fn test_correlation_vs_zero_crossing() {
             }
         } else {
             // Advance counters
-            zero_crossing_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
-            correlation_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
+            zero_crossing_calc.process_buffer(
+                &doppler,
+                &NorthTick {
+                    sample_index: 0,
+                    period: Some(30.0),
+                },
+            );
+            correlation_calc.process_buffer(
+                &doppler,
+                &NorthTick {
+                    sample_index: 0,
+                    period: Some(30.0),
+                },
+            );
         }
 
         // Update north tracker
@@ -193,13 +217,20 @@ fn test_correlation_vs_zero_crossing() {
     eprintln!("Correlation measurements: {}", corr_measurements.len());
 
     // Both should produce measurements
-    assert!(!zc_measurements.is_empty(), "Zero-crossing should produce measurements");
-    assert!(!corr_measurements.is_empty(), "Correlation should produce measurements");
+    assert!(
+        !zc_measurements.is_empty(),
+        "Zero-crossing should produce measurements"
+    );
+    assert!(
+        !corr_measurements.is_empty(),
+        "Correlation should produce measurements"
+    );
 
     // Calculate averages (skip first few for settling)
     let skip = 3;
     if zc_measurements.len() > skip {
-        let zc_avg = zc_measurements.iter().skip(skip).sum::<f32>() / (zc_measurements.len() - skip) as f32;
+        let zc_avg =
+            zc_measurements.iter().skip(skip).sum::<f32>() / (zc_measurements.len() - skip) as f32;
         eprintln!("Zero-crossing average: {:.1}°", zc_avg);
 
         let mut zc_error = (zc_avg - test_bearing).abs();
@@ -210,12 +241,15 @@ fn test_correlation_vs_zero_crossing() {
         assert!(
             zc_error < 15.0,
             "Zero-crossing bearing error too large: expected {}, got {}, error {}",
-            test_bearing, zc_avg, zc_error
+            test_bearing,
+            zc_avg,
+            zc_error
         );
     }
 
     if corr_measurements.len() > skip {
-        let corr_avg = corr_measurements.iter().skip(skip).sum::<f32>() / (corr_measurements.len() - skip) as f32;
+        let corr_avg = corr_measurements.iter().skip(skip).sum::<f32>()
+            / (corr_measurements.len() - skip) as f32;
         eprintln!("Correlation average: {:.1}°", corr_avg);
 
         let mut corr_error = (corr_avg - test_bearing).abs();
@@ -226,7 +260,9 @@ fn test_correlation_vs_zero_crossing() {
         assert!(
             corr_error < 15.0,
             "Correlation bearing error too large: expected {}, got {}, error {}",
-            test_bearing, corr_avg, corr_error
+            test_bearing,
+            corr_avg,
+            corr_error
         );
     }
 }
@@ -244,7 +280,10 @@ fn test_real_wav_file() {
 
     // Read samples
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>().unwrap(),
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap(),
         hound::SampleFormat::Int => {
             let max_val = 2_i32.pow(spec.bits_per_sample as u32 - 1) as f32;
             reader
@@ -260,7 +299,8 @@ fn test_real_wav_file() {
     let sample_rate = spec.sample_rate as f32;
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-    let mut correlation_calc = CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+    let mut correlation_calc =
+        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();
@@ -278,7 +318,13 @@ fn test_real_wav_file() {
             }
         } else {
             // Advance counter
-            correlation_calc.process_buffer(&doppler, &NorthTick { sample_index: 0, period: Some(30.0) });
+            correlation_calc.process_buffer(
+                &doppler,
+                &NorthTick {
+                    sample_index: 0,
+                    period: Some(30.0),
+                },
+            );
         }
 
         // Update north tracker
@@ -305,10 +351,18 @@ fn test_real_wav_file() {
     }
 
     // We should get a lot of ticks
-    assert!(tick_count > 1000, "Should detect many north ticks, got {}", tick_count);
+    assert!(
+        tick_count > 1000,
+        "Should detect many north ticks, got {}",
+        tick_count
+    );
 
     // We should get bearing measurements
-    assert!(measurements.len() > 100, "Should produce many bearing measurements, got {}", measurements.len());
+    assert!(
+        measurements.len() > 100,
+        "Should produce many bearing measurements, got {}",
+        measurements.len()
+    );
 
     // All bearings should be in valid range
     for bearing in &measurements {
