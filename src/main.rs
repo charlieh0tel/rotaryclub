@@ -1,4 +1,5 @@
 use clap::Parser;
+use rolling_stats::Stats;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -179,9 +180,42 @@ fn main() -> anyhow::Result<()> {
         println!("{}", header);
     }
 
-    run_processing_loop(source, config, formatter, throttle_output)?;
+    let stats = run_processing_loop(source, config, formatter, throttle_output)?;
+
+    if args.input.is_some() && stats.bearing_stats.count > 0 {
+        banner!("");
+        banner!("Bearing statistics:");
+        banner!("  Measurements: {}", stats.bearing_stats.count);
+        banner!("  Mean: {:.1}°", stats.bearing_stats.mean);
+        banner!("  Std dev: {:.1}°", stats.bearing_stats.std_dev);
+        banner!("  Min: {:.1}°", stats.bearing_stats.min);
+        banner!("  Max: {:.1}°", stats.bearing_stats.max);
+        banner!(
+            "  Range: {:.1}°",
+            stats.bearing_stats.max - stats.bearing_stats.min
+        );
+    }
+
+    if args.input.is_some() && stats.rotation_stats.count > 0 {
+        banner!("");
+        banner!("Rotation statistics:");
+        banner!("  Measurements: {}", stats.rotation_stats.count);
+        banner!("  Mean: {:.1} Hz", stats.rotation_stats.mean);
+        banner!("  Std dev: {:.3} Hz", stats.rotation_stats.std_dev);
+        banner!("  Min: {:.1} Hz", stats.rotation_stats.min);
+        banner!("  Max: {:.1} Hz", stats.rotation_stats.max);
+        banner!(
+            "  Range: {:.3} Hz",
+            stats.rotation_stats.max - stats.rotation_stats.min
+        );
+    }
 
     Ok(())
+}
+
+struct ProcessingStats {
+    bearing_stats: Stats<f32>,
+    rotation_stats: Stats<f32>,
 }
 
 fn run_processing_loop(
@@ -189,7 +223,7 @@ fn run_processing_loop(
     config: RdfConfig,
     formatter: Box<dyn Formatter>,
     throttle_output: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ProcessingStats> {
     let sample_rate = config.audio.sample_rate as f32;
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
@@ -218,6 +252,8 @@ fn run_processing_loop(
     let output_interval = Duration::from_secs_f32(1.0 / config.bearing.output_rate_hz);
 
     let mut last_north_tick: Option<rdf::NorthTick> = None;
+    let mut bearing_stats: Stats<f32> = Stats::new();
+    let mut rotation_stats: Stats<f32> = Stats::new();
 
     loop {
         let Some(audio_data) = source.next_buffer()? else {
@@ -237,6 +273,7 @@ fn run_processing_loop(
 
             if let Some(freq) = north_tracker.rotation_frequency() {
                 log::debug!("Rotation detected: {:.1} Hz", freq);
+                rotation_stats.update(freq);
             }
         }
 
@@ -266,6 +303,7 @@ fn run_processing_loop(
                     signal_strength: bearing.metrics.signal_strength,
                 };
 
+                bearing_stats.update(adjusted_bearing);
                 println!("{}", formatter.format(&output));
                 last_output = Instant::now();
             }
@@ -280,5 +318,8 @@ fn run_processing_loop(
         }
     }
 
-    Ok(())
+    Ok(ProcessingStats {
+        bearing_stats,
+        rotation_stats,
+    })
 }

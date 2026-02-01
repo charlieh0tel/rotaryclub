@@ -843,6 +843,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
+name = "rolling-stats"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "548420834cbf6a7be78ead10195421c82a62b82432d9a0248486b137266e833f"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "rotaryclub"
 version = "1.3.0"
 dependencies = [
@@ -857,6 +866,7 @@ dependencies = [
  "hound",
  "iir_filters",
  "log",
+ "rolling-stats",
  "thiserror 2.0.18",
 ]
 

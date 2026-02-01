@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\nGenerated {} test files.", test_bearings.len());
-    println!("You can now test with: cargo run --example play_wav_file <filename>");
+    println!("You can now test with: rotaryclub -i <filename>");
 
     Ok(())
 }

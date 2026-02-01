@@ -2,6 +2,7 @@
 """Plot bearings over time from CSV data."""
 
 import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -10,14 +11,17 @@ import matplotlib.pyplot as plt
 
 def main():
     parser = argparse.ArgumentParser(description='Plot bearings over time from CSV data.')
-    parser.add_argument('csv_file', help='Path to the CSV file')
+    parser.add_argument('csv_file', nargs='?', help='Path to the CSV file (default: stdin)')
     parser.add_argument('--min-confidence', type=float, default=0.5,
                         help='Minimum confidence threshold (0.0-1.0, default: 0.5)')
     parser.add_argument('--min-coherence', type=float, default=0.5,
                         help='Minimum coherence threshold (0.0-1.0, default: 0.5)')
     args = parser.parse_args()
 
-    df = pd.read_csv(args.csv_file)
+    if args.csv_file:
+        df = pd.read_csv(args.csv_file)
+    else:
+        df = pd.read_csv(sys.stdin)
 
     # Handle both old (time_s) and new (ts) column formats
     if 'ts' in df.columns:
@@ -55,8 +59,11 @@ def main():
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    input_path = Path(args.csv_file)
-    output_path = input_path.parent / f"{input_path.stem}_plot.png"
+    if args.csv_file:
+        input_path = Path(args.csv_file)
+        output_path = input_path.parent / f"{input_path.stem}_plot.png"
+    else:
+        output_path = Path("/tmp/bearings_plot.png")
     plt.savefig(output_path, dpi=150)
     print(f"Saved plot to {output_path}")
     plt.show()

@@ -55,11 +55,11 @@ rotaryclub --method correlation --north-mode dpll --north-offset 45 -v
 
 ```bash
 # Test with WAV file
-cargo run --example play_wav_file data/doppler-test-2023-04-10-ft-70d.wav
+rotaryclub -i data/doppler-test-2023-04-10-ft-70d.wav
 
 # Generate synthetic test signals
 cargo run --example generate_test_wav
-cargo run --example play_wav_file test_bearing_090.wav
+rotaryclub -i test_bearing_090.wav
 ```
 
 ## Usage
