@@ -32,6 +32,10 @@ struct Args {
     #[arg(short = 'r', long, default_value = "10.0")]
     output_rate: f32,
 
+    /// North reference offset in degrees (added to all bearings)
+    #[arg(short = 'o', long, default_value = "0.0")]
+    north_offset: f32,
+
     /// Increase output verbosity (-v for debug, -vv for trace)
     #[arg(short = 'v', long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -98,6 +102,7 @@ fn main() -> anyhow::Result<()> {
     config.doppler.method = args.method.into();
     config.north_tick.mode = args.north_mode.into();
     config.bearing.output_rate_hz = args.output_rate;
+    config.bearing.north_offset_degrees = args.north_offset;
 
     if args.swap_channels {
         // Swap the channels
@@ -198,9 +203,27 @@ fn run_processing_loop(
             if let Some(bearing) = bearing_calc.process_buffer(&doppler, tick) {
                 // Throttle output
                 if last_output.elapsed() >= output_interval {
+                    // Apply north offset
+                    let mut adjusted_bearing = bearing.bearing_degrees + config.bearing.north_offset_degrees;
+                    let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
+
+                    // Normalize to [0, 360)
+                    while adjusted_bearing >= 360.0 {
+                        adjusted_bearing -= 360.0;
+                    }
+                    while adjusted_bearing < 0.0 {
+                        adjusted_bearing += 360.0;
+                    }
+                    while adjusted_raw >= 360.0 {
+                        adjusted_raw -= 360.0;
+                    }
+                    while adjusted_raw < 0.0 {
+                        adjusted_raw += 360.0;
+                    }
+
                     println!(
                         "Bearing: {:>6.1}° (raw: {:>6.1}°) confidence: {:.2}",
-                        bearing.bearing_degrees, bearing.raw_bearing, bearing.confidence
+                        adjusted_bearing, adjusted_raw, bearing.confidence
                     );
                     last_output = Instant::now();
                 }

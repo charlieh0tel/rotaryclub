@@ -20,11 +20,14 @@ cargo run -- --swap-channels
 # Increase output rate to 20 Hz
 cargo run -- --output-rate 20
 
+# Apply north offset calibration (e.g., antenna rotated 45° from true north)
+cargo run -- --north-offset 45
+
 # Enable debug logging
 cargo run -- -v
 
 # Combine options
-cargo run -- --method correlation --north-mode dpll -v
+cargo run -- --method correlation --north-mode dpll --north-offset 45 -v
 
 # Test with WAV file
 cargo run --example play_wav_file data/doppler-test-2023-04-10-ft-70d.wav
@@ -57,6 +60,9 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 -s, --swap-channels              Swap left/right channels
 
 -r, --output-rate <OUTPUT_RATE>  Output rate in Hz [default: 10.0]
+
+-o, --north-offset <DEGREES>     North reference offset in degrees [default: 0.0]
+                                 Added to all bearings for calibration
 
 -v, --verbose                    Increase logging (-v=debug, -vv=trace)
 

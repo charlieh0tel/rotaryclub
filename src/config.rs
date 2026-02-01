@@ -76,6 +76,7 @@ pub struct NorthTickConfig {
 pub struct BearingConfig {
     pub smoothing_window: usize,
     pub output_rate_hz: f32,
+    pub north_offset_degrees: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -153,6 +154,7 @@ impl Default for BearingConfig {
         Self {
             smoothing_window: 5,
             output_rate_hz: 10.0,
+            north_offset_degrees: 0.0,
         }
     }
 }
