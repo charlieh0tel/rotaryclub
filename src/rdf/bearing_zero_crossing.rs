@@ -81,17 +81,23 @@ impl ZeroCrossingBearingCalculator {
         // Get rotation period
         let samples_per_rotation = north_tick.period?;
 
-        // Use the first crossing in the buffer
-        let crossing_idx = crossings[0];
+        // To robustly calculate the bearing, we average the phase of all detected
+        // crossings. This is done by converting each phase angle to a vector,
+        // summing the vectors, and finding the angle of the resultant vector.
+        let (sum_x, sum_y) = crossings
+            .iter()
+            .map(|&crossing_idx| {
+                let samples_since_tick = (base_offset + crossing_idx) as f32;
+                let phase_fraction = samples_since_tick / samples_per_rotation;
+                let angle = phase_fraction * 2.0 * PI;
+                (angle.cos(), angle.sin())
+            })
+            .fold((0.0, 0.0), |(acc_x, acc_y), (x, y)| (acc_x + x, acc_y + y));
 
-        // Calculate samples elapsed since north tick
-        let samples_since_tick = (base_offset + crossing_idx) as f32;
-
-        // Calculate phase in radians
-        let phase = (samples_since_tick / samples_per_rotation) * 2.0 * PI;
+        let avg_phase = sum_y.atan2(sum_x);
 
         // Convert to bearing (0-360 degrees)
-        let raw_bearing = phase_to_bearing(phase);
+        let raw_bearing = phase_to_bearing(avg_phase);
 
         // Apply smoothing
         let smoothed_bearing = self.base.smooth_bearing(raw_bearing);
@@ -118,7 +124,8 @@ impl ZeroCrossingBearingCalculator {
         }
 
         // --- Signal Strength ---
-        let expected_crossings = (self.base.work_buffer.len() as f32 / samples_per_rotation) * 2.0;
+        // A rising-edge detector should find one crossing per rotation.
+        let expected_crossings = self.base.work_buffer.len() as f32 / samples_per_rotation;
         let signal_strength = if expected_crossings > 0.0 {
             (crossings.len() as f32 / expected_crossings).clamp(0.0, 1.0)
         } else {
@@ -127,7 +134,8 @@ impl ZeroCrossingBearingCalculator {
 
         // --- Coherence from crossing regularity ---
         let coherence = if crossings.len() >= 2 {
-            let expected_interval = samples_per_rotation / 2.0;
+            // The interval between rising-edge crossings should be one full period.
+            let expected_interval = samples_per_rotation;
             let mut interval_errors = Vec::with_capacity(crossings.len() - 1);
 
             for window in crossings.windows(2) {
@@ -161,19 +169,35 @@ impl ZeroCrossingBearingCalculator {
 }
 
 #[cfg(test)]
+
 mod tests {
+
     use super::*;
+
     use crate::config::AgcConfig;
 
+
+
     #[test]
+
     fn test_zero_crossing_bearing_calculator_creation() {
+
         let doppler_config = DopplerConfig::default();
+
         let agc_config = AgcConfig::default();
+
         let sample_rate = 48000.0;
+
         let calc = ZeroCrossingBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
+
         assert!(
+
             calc.is_ok(),
+
             "Should be able to create ZeroCrossingBearingCalculator"
+
         );
+
     }
+
 }
