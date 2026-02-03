@@ -1,5 +1,6 @@
 use crate::error::{RdfError, Result};
-use iir_filters::filter::{DirectForm2Transposed, Filter};
+use crate::signal_processing::Filter;
+use iir_filters::filter::{DirectForm2Transposed, Filter as IirFilter};
 use iir_filters::filter_design::{FilterType, butter};
 use iir_filters::sos::zpk2sos;
 
@@ -12,10 +13,15 @@ use iir_filters::sos::zpk2sos;
 /// The filter passes frequencies between `low_hz` and `high_hz` while
 /// attenuating frequencies outside this range. Higher filter orders provide
 /// steeper rolloff at the cost of slightly more processing.
+///
+/// Note: FirBandpass is preferred for linear phase response in bearing calculation,
+/// but this IIR filter is available for lower latency applications.
+#[allow(dead_code)]
 pub struct IirButterworthBandpass {
     filter: DirectForm2Transposed,
 }
 
+#[allow(dead_code)]
 impl IirButterworthBandpass {
     /// Create a new Butterworth bandpass filter
     ///
@@ -50,13 +56,16 @@ impl IirButterworthBandpass {
     }
 
     /// Process an entire buffer of audio samples in-place
-    ///
-    /// Filters each sample in the buffer, replacing the original values
-    /// with the filtered output.
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         for sample in buffer.iter_mut() {
             *sample = self.process(*sample);
         }
+    }
+}
+
+impl Filter for IirButterworthBandpass {
+    fn process(&mut self, sample: f32) -> f32 {
+        IirButterworthBandpass::process(self, sample)
     }
 }
 

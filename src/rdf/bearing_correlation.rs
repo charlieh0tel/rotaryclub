@@ -76,12 +76,15 @@ impl CorrelationBearingCalculator {
         let omega = 2.0 * PI * rotation_freq / self.sample_rate;
 
         // I/Q demodulation: correlate with cos and sin referenced to north tick
+        // Account for FIR filter group delay: filtered output at idx corresponds to
+        // input sample at (base_offset + idx - group_delay)
         let mut i_sum = 0.0;
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
+        let group_delay = self.base.filter_group_delay() as f32;
 
         for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
-            let samples_from_tick = (base_offset + idx) as f32;
+            let samples_from_tick = (base_offset + idx) as f32 - group_delay;
             let phase = omega * samples_from_tick;
 
             i_sum += sample * phase.cos();
@@ -150,6 +153,7 @@ impl CorrelationBearingCalculator {
         // Split buffer into sub-windows and compute phase in each
         let window_size = n / COHERENCE_WINDOW_COUNT;
         let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
+        let group_delay = self.base.filter_group_delay() as f32;
 
         for (win_idx, phase) in phases.iter_mut().enumerate() {
             let start = win_idx * window_size;
@@ -159,7 +163,7 @@ impl CorrelationBearingCalculator {
             let mut q_win = 0.0;
 
             for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
-                let samples_from_tick = (base_offset + start + idx) as f32;
+                let samples_from_tick = (base_offset + start + idx) as f32 - group_delay;
                 let p = omega * samples_from_tick;
                 i_win += sample * p.cos();
                 q_win += sample * p.sin();
@@ -202,6 +206,7 @@ impl CorrelationBearingCalculator {
 mod tests {
     use super::*;
     use crate::config::AgcConfig;
+    use std::f32::consts::PI;
 
     #[test]
     fn test_correlation_bearing_calculator_creation() {
@@ -212,6 +217,48 @@ mod tests {
         assert!(
             calc.is_ok(),
             "Should be able to create CorrelationBearingCalculator"
+        );
+    }
+
+    #[test]
+    fn test_bearing_from_known_phase() {
+        let sample_rate = 48000.0;
+        let mut doppler_config = DopplerConfig::default();
+        doppler_config.expected_freq = 480.0;
+        doppler_config.bandpass_low = 400.0;
+        doppler_config.bandpass_high = 560.0;
+
+        let agc_config = AgcConfig::default();
+        let mut calc =
+            CorrelationBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1)
+                .unwrap();
+
+        let samples_per_rotation = sample_rate / doppler_config.expected_freq; // 100.0
+        let north_tick = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+        };
+
+        let omega = 2.0 * PI * doppler_config.expected_freq / sample_rate;
+        let bearing_radians = 45.0f32.to_radians(); // Target bearing is 45 degrees
+
+        // Generate a signal A*sin(ωt - φ)
+        let buffer: Vec<f32> = (0..300)
+            .map(|i| (omega * i as f32 - bearing_radians).sin())
+            .collect();
+
+        // Assume base_offset inside process_buffer will be 0
+        let measurement = calc.process_buffer(&buffer, &north_tick);
+
+        assert!(measurement.is_some(), "Should produce a measurement");
+        let bearing = measurement.unwrap().raw_bearing;
+
+        // The calculated bearing should be close to the known phase
+        // Allow some tolerance for filter effects and processing
+        assert!(
+            (bearing - 45.0).abs() < 5.0,
+            "Bearing calculation was incorrect. Got {}, expected 45.0",
+            bearing
         );
     }
 }

@@ -86,7 +86,8 @@ pub struct DopplerConfig {
     pub bandpass_low: f32,
     /// Bandpass filter upper cutoff in Hz
     pub bandpass_high: f32,
-    /// IIR filter order (higher = steeper rolloff)
+    /// Filter order (unused with FIR bandpass, kept for compatibility)
+    #[allow(dead_code)]
     pub filter_order: usize,
     /// Zero-crossing detection hysteresis to reject noise
     pub zero_cross_hysteresis: f32,

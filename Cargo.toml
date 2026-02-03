@@ -14,6 +14,7 @@ cpal = "0.17"
 
 # Signal Processing
 iir_filters = "0.1"
+pm-remez = "0.2"
 
 # Concurrency and Real-time
 crossbeam-channel = "0.5"
@@ -30,6 +31,7 @@ hound = "3.5"  # WAV file I/O
 rolling-stats = "0.5"
 clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4"
+num-complex = "0.4"
 
 [dev-dependencies]
 # Testing utilities

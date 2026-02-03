@@ -84,10 +84,12 @@ impl ZeroCrossingBearingCalculator {
         // To robustly calculate the bearing, we average the phase of all detected
         // crossings. This is done by converting each phase angle to a vector,
         // summing the vectors, and finding the angle of the resultant vector.
+        // Account for FIR filter group delay in timing calculation.
+        let group_delay = self.base.filter_group_delay() as f32;
         let (sum_x, sum_y) = crossings
             .iter()
             .map(|&crossing_idx| {
-                let samples_since_tick = (base_offset + crossing_idx) as f32;
+                let samples_since_tick = (base_offset + crossing_idx) as f32 - group_delay;
                 let phase_fraction = samples_since_tick / samples_per_rotation;
                 let angle = phase_fraction * 2.0 * PI;
                 (angle.cos(), angle.sin())
@@ -176,12 +178,9 @@ mod tests {
 
     use crate::config::AgcConfig;
 
-
-
     #[test]
 
     fn test_zero_crossing_bearing_calculator_creation() {
-
         let doppler_config = DopplerConfig::default();
 
         let agc_config = AgcConfig::default();
@@ -191,13 +190,8 @@ mod tests {
         let calc = ZeroCrossingBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
 
         assert!(
-
             calc.is_ok(),
-
             "Should be able to create ZeroCrossingBearingCalculator"
-
         );
-
     }
-
 }

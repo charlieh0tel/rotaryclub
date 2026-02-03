@@ -1,5 +1,6 @@
 use crate::error::{RdfError, Result};
-use iir_filters::filter::{DirectForm2Transposed, Filter};
+use crate::signal_processing::Filter;
+use iir_filters::filter::{DirectForm2Transposed, Filter as IirFilter};
 use iir_filters::filter_design::{FilterType, butter};
 use iir_filters::sos::zpk2sos;
 
@@ -48,13 +49,16 @@ impl IirButterworthHighpass {
     }
 
     /// Process an entire buffer of audio samples in-place
-    ///
-    /// Filters each sample in the buffer, replacing the original values
-    /// with the filtered output.
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         for sample in buffer.iter_mut() {
             *sample = self.process(*sample);
         }
+    }
+}
+
+impl Filter for IirButterworthHighpass {
+    fn process(&mut self, sample: f32) -> f32 {
+        IirButterworthHighpass::process(self, sample)
     }
 }
 

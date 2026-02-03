@@ -1,6 +1,6 @@
 use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
-use crate::signal_processing::{AutomaticGainControl, IirButterworthBandpass, MovingAverage};
+use crate::signal_processing::{AutomaticGainControl, FirBandpass, MovingAverage};
 
 use super::NorthTick;
 
@@ -10,7 +10,8 @@ use super::NorthTick;
 /// used by all bearing calculator implementations.
 pub struct BearingCalculatorBase {
     agc: AutomaticGainControl,
-    bandpass: IirButterworthBandpass,
+    bandpass: FirBandpass,
+    filter_group_delay: usize,
     pub sample_counter: usize,
     bearing_smoother: MovingAverage,
     pub work_buffer: Vec<f32>,
@@ -24,14 +25,17 @@ impl BearingCalculatorBase {
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
+        let bandpass = FirBandpass::new_default(
+            doppler_config.bandpass_low,
+            doppler_config.bandpass_high,
+            sample_rate,
+        )?;
+        let filter_group_delay = bandpass.group_delay_samples();
+
         Ok(Self {
             agc: AutomaticGainControl::new(agc_config, sample_rate as u32),
-            bandpass: IirButterworthBandpass::new(
-                doppler_config.bandpass_low,
-                doppler_config.bandpass_high,
-                sample_rate,
-                doppler_config.filter_order,
-            )?,
+            bandpass,
+            filter_group_delay,
             sample_counter: 0,
             bearing_smoother: MovingAverage::new(smoothing),
             work_buffer: Vec::new(),
@@ -50,11 +54,16 @@ impl BearingCalculatorBase {
     ///
     /// Returns `None` if the north tick is in the future (invalid state).
     pub fn offset_from_north_tick(&self, north_tick: &NorthTick) -> Option<usize> {
-        if self.sample_counter >= north_tick.sample_index {
-            Some(self.sample_counter - north_tick.sample_index)
-        } else {
-            None
-        }
+        self.sample_counter.checked_sub(north_tick.sample_index)
+    }
+
+    /// Get the filter group delay in samples
+    ///
+    /// The FIR bandpass filter introduces a group delay. When calculating phase,
+    /// the filtered output at buffer index `idx` corresponds to input sample
+    /// `(base_offset + idx - filter_group_delay)` relative to the north tick.
+    pub fn filter_group_delay(&self) -> usize {
+        self.filter_group_delay
     }
 
     /// Apply smoothing to a raw bearing value
