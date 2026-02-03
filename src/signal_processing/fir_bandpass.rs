@@ -28,7 +28,7 @@ impl FirBandpass {
     /// # Errors
     /// Returns `RdfError::FilterDesign` if filter parameters are invalid
     pub fn new(low_hz: f32, high_hz: f32, sample_rate: f32, num_taps: usize) -> Result<Self> {
-        let num_taps = if num_taps % 2 == 0 {
+        let num_taps = if num_taps.is_multiple_of(2) {
             num_taps + 1
         } else {
             num_taps
