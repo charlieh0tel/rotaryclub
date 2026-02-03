@@ -7,8 +7,8 @@
 /// `-hysteresis` to above `+hysteresis`, providing noise immunity for
 /// noisy signals near zero.
 pub struct ZeroCrossingDetector {
-    last_sample: f32,
     hysteresis: f32,
+    armed: bool,
 }
 
 impl ZeroCrossingDetector {
@@ -18,8 +18,8 @@ impl ZeroCrossingDetector {
     /// * `hysteresis` - Hysteresis threshold (typically 0.01-0.1)
     pub fn new(hysteresis: f32) -> Self {
         Self {
-            last_sample: 0.0,
             hysteresis,
+            armed: false,
         }
     }
 
@@ -32,9 +32,14 @@ impl ZeroCrossingDetector {
     /// # Arguments
     /// * `sample` - The next audio sample to process
     pub fn detect_crossing(&mut self, sample: f32) -> bool {
-        let crossing = self.last_sample < -self.hysteresis && sample > self.hysteresis;
-        self.last_sample = sample;
-        crossing
+        if sample < -self.hysteresis {
+            self.armed = true;
+        }
+        if self.armed && sample > self.hysteresis {
+            self.armed = false;
+            return true;
+        }
+        false
     }
 
     /// Find all zero crossings in a buffer
