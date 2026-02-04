@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 const NORTH_TICK_PULSE_WIDTH_RADIANS: f32 = 0.2;
 const NORTH_TICK_AMPLITUDE: f32 = 0.8;
 
-/// Generate synthetic RDF test signal
+/// Generate synthetic RDF test signal with fixed bearing
 /// Returns interleaved stereo samples [L, R, L, R, ...]
 /// By default: Left = Doppler tone, Right = North tick
 pub fn generate_test_signal(
@@ -13,22 +13,38 @@ pub fn generate_test_signal(
     _doppler_tone_hz: f32,
     bearing_degrees: f32,
 ) -> Vec<f32> {
+    generate_test_signal_with_bearing_fn(duration_secs, sample_rate, rotation_hz, |_| {
+        bearing_degrees
+    })
+}
+
+/// Generate synthetic RDF test signal with time-varying bearing
+/// The bearing_fn takes time in seconds and returns bearing in degrees
+pub fn generate_test_signal_with_bearing_fn<F>(
+    duration_secs: f32,
+    sample_rate: u32,
+    rotation_hz: f32,
+    bearing_fn: F,
+) -> Vec<f32>
+where
+    F: Fn(f32) -> f32,
+{
     let num_samples = (duration_secs * sample_rate as f32) as usize;
     let mut samples = Vec::with_capacity(num_samples * 2);
 
-    let bearing_radians = bearing_degrees.to_radians();
     let samples_per_rotation = sample_rate as f32 / rotation_hz;
 
     for i in 0..num_samples {
         let t = i as f32 / sample_rate as f32;
+
+        // Get bearing at this time
+        let bearing_radians = bearing_fn(t).to_radians();
 
         // Calculate rotation phase for this sample
         let rotation_phase = (i as f32 / samples_per_rotation) * 2.0 * PI;
 
         // Left channel: Doppler tone at rotation frequency
         // The bearing determines the phase offset of the Doppler tone relative to north tick
-        // Negative bearing_radians because: a positive bearing means the zero-crossing
-        // comes AFTER the north tick, which requires a negative phase offset
         let doppler_phase = rotation_hz * t * 2.0 * PI - bearing_radians;
         let doppler = doppler_phase.sin();
 

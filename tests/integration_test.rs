@@ -341,6 +341,102 @@ fn test_methods_agree() {
     );
 }
 
+/// Test bearing tracking as signal rotates through 0°/360° wraparound.
+/// Simulates a transmitter circling the RDF array: 270° → 0° → 90° → 0° → 270°
+#[test]
+fn test_rotating_bearing_through_zero() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+
+    // Generate 2 seconds of signal with bearing rotating:
+    // t=0.0s: 270°
+    // t=0.5s: 0° (360°)
+    // t=1.0s: 90°
+    // t=1.5s: 0° (360°)
+    // t=2.0s: 270°
+    // This covers both forward and backward crossing through 0°/360°
+    let bearing_fn = |t: f32| {
+        let phase = t * 2.0; // 2 full cycles in 2 seconds
+        if phase < 0.5 {
+            // 270° → 360° (going up through zero)
+            270.0 + phase * 180.0
+        } else if phase < 1.0 {
+            // 360° → 90° (continuing past zero)
+            (phase - 0.5) * 180.0
+        } else if phase < 1.5 {
+            // 90° → 0° (going back down)
+            90.0 - (phase - 1.0) * 180.0
+        } else {
+            // 0° → 270° (continuing back through zero)
+            360.0 - (phase - 1.5) * 180.0
+        }
+    };
+
+    let signal = test_signals::generate_test_signal_with_bearing_fn(
+        2.0,
+        sample_rate as u32,
+        rotation_hz,
+        bearing_fn,
+    );
+
+    let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+    let mut corr_calc =
+        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 1).unwrap();
+
+    let chunk_size = config.audio.buffer_size * 2;
+    let mut measurements: Vec<(f32, f32)> = Vec::new(); // (time, bearing)
+    let mut last_tick: Option<NorthTick> = None;
+    let mut sample_idx = 0usize;
+
+    for chunk in signal.chunks(chunk_size) {
+        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let (doppler, north_tick) = config.audio.split_channels(&stereo);
+
+        if let Some(ref tick) = last_tick {
+            if let Some(bearing) = corr_calc.process_buffer(&doppler, tick) {
+                let t = sample_idx as f32 / sample_rate;
+                measurements.push((t, bearing.bearing_degrees));
+            }
+        } else {
+            corr_calc.process_buffer(
+                &doppler,
+                &NorthTick {
+                    sample_index: 0,
+                    period: Some(30.0),
+                },
+            );
+        }
+
+        let ticks = north_tracker.process_buffer(&north_tick);
+        if let Some(tick) = ticks.last() {
+            last_tick = Some(*tick);
+        }
+
+        sample_idx += chunk.len() / 2;
+    }
+
+    assert!(
+        measurements.len() > 50,
+        "Should have many measurements, got {}",
+        measurements.len()
+    );
+
+    // Skip first 0.1s for filter warmup, then verify tracking
+    let mut max_error = 0.0f32;
+    for &(t, measured) in measurements.iter().filter(|(t, _)| *t > 0.1) {
+        let expected = bearing_fn(t) % 360.0;
+        let error = angle_error(measured, expected).abs();
+        max_error = max_error.max(error);
+    }
+
+    assert!(
+        max_error < 10.0,
+        "Max tracking error {:.1}° exceeds 10° threshold",
+        max_error
+    );
+}
+
 /// Test that FIR highpass delay compensation works correctly for north tick detection.
 #[test]
 fn test_north_tick_fir_delay_compensation() {
