@@ -78,13 +78,15 @@ impl CorrelationBearingCalculator {
         // I/Q demodulation: correlate with cos and sin referenced to north tick
         // Account for FIR filter group delay: filtered output at idx corresponds to
         // input sample at (base_offset + idx - group_delay)
+        // Also adjust for north tick timing offset from FIR highpass filter.
         let mut i_sum = 0.0;
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
         let group_delay = self.base.filter_group_delay() as f32;
+        let tick_adjustment = self.base.north_tick_timing_adjustment();
 
         for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
-            let samples_from_tick = (base_offset + idx) as f32 - group_delay;
+            let samples_from_tick = (base_offset + idx) as f32 - group_delay + tick_adjustment;
             let phase = omega * samples_from_tick;
 
             i_sum += sample * phase.cos();
@@ -155,6 +157,7 @@ impl CorrelationBearingCalculator {
         let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
         let group_delay = self.base.filter_group_delay() as f32;
 
+        let tick_adjustment = self.base.north_tick_timing_adjustment();
         for (win_idx, phase) in phases.iter_mut().enumerate() {
             let start = win_idx * window_size;
             let end = start + window_size;
@@ -163,7 +166,8 @@ impl CorrelationBearingCalculator {
             let mut q_win = 0.0;
 
             for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
-                let samples_from_tick = (base_offset + start + idx) as f32 - group_delay;
+                let samples_from_tick =
+                    (base_offset + start + idx) as f32 - group_delay + tick_adjustment;
                 let p = omega * samples_from_tick;
                 i_win += sample * p.cos();
                 q_win += sample * p.sin();

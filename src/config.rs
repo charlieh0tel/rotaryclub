@@ -142,10 +142,13 @@ pub struct NorthTickConfig {
     pub mode: NorthTrackingMode,
     /// Highpass filter cutoff in Hz to isolate pulse transients
     pub highpass_cutoff: f32,
-    /// IIR filter order
-    pub filter_order: usize,
+    /// Number of taps for FIR highpass filter (must be odd, default 63)
+    pub fir_highpass_taps: usize,
     /// Peak detection threshold (0-1 range)
     pub threshold: f32,
+    /// Expected pulse amplitude for timing compensation (0-1 range)
+    /// Used to compute threshold crossing offset on FIR impulse response
+    pub expected_pulse_amplitude: f32,
     /// Minimum interval between pulses in milliseconds
     pub min_interval_ms: f32,
     /// DPLL configuration (only used when mode is Dpll)
@@ -233,8 +236,9 @@ impl Default for NorthTickConfig {
         Self {
             mode: NorthTrackingMode::Dpll,
             highpass_cutoff: 5000.0,
-            filter_order: 2,
+            fir_highpass_taps: 63,
             threshold: 0.15,
+            expected_pulse_amplitude: 0.8,
             min_interval_ms: 0.6,
             dpll: DpllConfig::default(),
         }

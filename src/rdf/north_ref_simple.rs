@@ -1,13 +1,14 @@
 use crate::config::NorthTickConfig;
 use crate::error::Result;
 use crate::rdf::NorthTick;
-use crate::signal_processing::{IirButterworthHighpass, PeakDetector};
+use crate::signal_processing::{FirHighpass, PeakDetector};
 
 const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
 
 pub struct SimpleNorthTracker {
-    highpass: IirButterworthHighpass,
+    highpass: FirHighpass,
     peak_detector: PeakDetector,
+    threshold_crossing_offset: f32,
     last_tick_sample: Option<usize>,
     samples_per_rotation: Option<f32>,
     sample_counter: usize,
@@ -18,13 +19,19 @@ impl SimpleNorthTracker {
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
 
+        let highpass = FirHighpass::new(
+            config.highpass_cutoff,
+            sample_rate,
+            config.fir_highpass_taps,
+        )?;
+
+        let threshold_crossing_offset =
+            highpass.threshold_crossing_offset(config.threshold, config.expected_pulse_amplitude);
+
         Ok(Self {
-            highpass: IirButterworthHighpass::new(
-                config.highpass_cutoff,
-                sample_rate,
-                config.filter_order,
-            )?,
+            highpass,
             peak_detector: PeakDetector::new(config.threshold, min_samples),
+            threshold_crossing_offset,
             last_tick_sample: None,
             samples_per_rotation: None,
             sample_counter: 0,
@@ -38,10 +45,19 @@ impl SimpleNorthTracker {
 
         let peaks = self.peak_detector.find_all_peaks(&filtered);
 
+        // Total delay compensation: group_delay + threshold_crossing_offset
+        let group_delay = self.highpass.group_delay_samples() as f32;
+        let total_delay = (group_delay + self.threshold_crossing_offset).round() as usize;
+
         let mut ticks = Vec::new();
 
         for peak_idx in peaks {
-            let global_sample = self.sample_counter + peak_idx;
+            // Compensate for FIR filter delay: the filtered output at peak_idx
+            // corresponds to an input pulse that occurred total_delay samples earlier.
+            let global_sample = self
+                .sample_counter
+                .saturating_add(peak_idx)
+                .saturating_sub(total_delay);
 
             // Update rotation period estimate with exponential averaging
             if let Some(last) = self.last_tick_sample {
@@ -86,10 +102,12 @@ mod tests {
         let sample_rate = 48000.0;
         let mut tracker = SimpleNorthTracker::new(&config, sample_rate).unwrap();
 
-        let mut signal = vec![0.0; 500];
-        signal[50] = 0.8;
-        signal[146] = 0.8;
-        signal[242] = 0.8;
+        // Generate signal with pulses - need longer buffer for FIR transient
+        let mut signal = vec![0.0; 1000];
+        signal[100] = 0.8;
+        signal[196] = 0.8;
+        signal[292] = 0.8;
+        signal[388] = 0.8;
 
         let ticks = tracker.process_buffer(&signal);
 

@@ -57,6 +57,18 @@ impl BearingCalculatorBase {
         self.sample_counter.checked_sub(north_tick.sample_index)
     }
 
+    /// Get the fractional north tick timing adjustment in samples
+    ///
+    /// The north tick detector triggers when `sample > threshold`, which occurs
+    /// at the first integer sample above threshold. The actual threshold crossing
+    /// (the conceptual "tick" moment) happens somewhere in the previous inter-sample
+    /// interval. On average, this is 0.5 samples before the detection point.
+    ///
+    /// This adjustment compensates for that discrete-sampling effect.
+    pub fn north_tick_timing_adjustment(&self) -> f32 {
+        0.5
+    }
+
     /// Get the filter group delay in samples
     ///
     /// The FIR bandpass filter introduces a group delay. When calculating phase,

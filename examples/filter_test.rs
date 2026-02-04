@@ -1,6 +1,4 @@
-use rotaryclub::signal_processing::{
-    Filter, FirBandpass, IirButterworthBandpass, IirButterworthHighpass,
-};
+use rotaryclub::signal_processing::{Filter, FirBandpass, FirHighpass};
 use std::f32::consts::PI;
 
 fn main() -> anyhow::Result<()> {
@@ -13,14 +11,9 @@ fn main() -> anyhow::Result<()> {
     let mut fir_bandpass = FirBandpass::new(400.0, 600.0, sample_rate, 127)?;
     test_bandpass(&mut fir_bandpass, sample_rate);
 
-    // Test IIR bandpass filter
-    println!("\nIIR Bandpass Filter (400-600 Hz, Order 4):");
-    let mut iir_bandpass = IirButterworthBandpass::new(400.0, 600.0, sample_rate, 4)?;
-    test_bandpass(&mut iir_bandpass, sample_rate);
-
-    // Test highpass filter
-    println!("\nIIR Highpass Filter (2000 Hz, Order 2):");
-    let mut highpass = IirButterworthHighpass::new(2000.0, sample_rate, 2)?;
+    // Test FIR highpass filter
+    println!("\nFIR Highpass Filter (2000 Hz, 63 taps):");
+    let mut highpass = FirHighpass::new(2000.0, sample_rate, 63)?;
     test_highpass(&mut highpass, sample_rate);
 
     println!("\nFilter test complete.");

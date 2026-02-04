@@ -85,11 +85,17 @@ impl ZeroCrossingBearingCalculator {
         // crossings. This is done by converting each phase angle to a vector,
         // summing the vectors, and finding the angle of the resultant vector.
         // Account for FIR filter group delay in timing calculation.
+        // Also subtract 0.5 for zero-crossing timing: the detector triggers when
+        // sample > threshold, but the true zero crossing occurred between the
+        // previous sample and current sample (on average 0.5 samples earlier).
+        // Add the north tick timing adjustment for FIR highpass filter effects.
         let group_delay = self.base.filter_group_delay() as f32;
+        let tick_adjustment = self.base.north_tick_timing_adjustment();
         let (sum_x, sum_y) = crossings
             .iter()
             .map(|&crossing_idx| {
-                let samples_since_tick = (base_offset + crossing_idx) as f32 - group_delay;
+                let samples_since_tick =
+                    (base_offset + crossing_idx) as f32 - group_delay - 0.5 + tick_adjustment;
                 let phase_fraction = samples_since_tick / samples_per_rotation;
                 let angle = phase_fraction * 2.0 * PI;
                 (angle.cos(), angle.sin())

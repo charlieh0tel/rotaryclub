@@ -1,6 +1,6 @@
 /// Common trait for audio filters
 ///
-/// Implemented by FirBandpass, IirButterworthBandpass, and IirButterworthHighpass.
+/// Implemented by FirBandpass and FirHighpass.
 #[allow(dead_code)]
 pub trait Filter {
     /// Process a single sample through the filter
