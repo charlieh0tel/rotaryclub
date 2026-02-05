@@ -36,6 +36,9 @@ num-complex = "0.4"
 [dev-dependencies]
 # Testing utilities
 approx = "0.5"
+rand = "0.8"
+rand_distr = "0.4"
+rand_chacha = "0.3"
 
 [features]
 # Optional feature for WAV file export in tests
