@@ -6,13 +6,13 @@ import glob
 import sys
 
 import numpy as np
-import scipy.io.wavfile as wav
+import soundfile as sf
 from scipy.signal import butter, filtfilt, find_peaks
 
 
 def find_peak_frequency(filepath, bandpass_low=1400, bandpass_high=1800):
     """Find the dominant frequency in a WAV file's left channel."""
-    rate, data = wav.read(filepath)
+    data, rate = sf.read(filepath)
     if len(data.shape) > 1:
         left = data[:, 0].astype(float)
     else:
@@ -35,7 +35,7 @@ def find_peak_frequency(filepath, bandpass_low=1400, bandpass_high=1800):
 
 def analyze_north_tick(filepath, highpass_cutoff=5000.0):
     """Analyze north tick channel for rotation rate and lock quality."""
-    rate, data = wav.read(filepath)
+    data, rate = sf.read(filepath)
     if len(data.shape) < 2:
         return None, None, None
 

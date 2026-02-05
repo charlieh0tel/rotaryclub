@@ -6,7 +6,7 @@ import glob
 import sys
 
 import numpy as np
-import scipy.io.wavfile as wav
+import soundfile as sf
 from scipy.signal import butter, filtfilt, find_peaks
 
 
@@ -78,7 +78,7 @@ def find_tick_rate(signal, rate, doppler_freq, hp_cutoffs=[3000, 5000, 8000], th
 
 def analyze_file(filepath, bandpass_low=1300, bandpass_high=1900):
     """Analyze a single WAV file for doppler and tick signals."""
-    rate, data = wav.read(filepath)
+    data, rate = sf.read(filepath)
 
     if len(data.shape) < 2:
         return None
