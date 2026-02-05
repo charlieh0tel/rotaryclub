@@ -408,6 +408,7 @@ fn test_rotating_bearing_through_zero() {
                 &NorthTick {
                     sample_index: 0,
                     period: Some(30.0),
+                    lock_quality: None,
                 },
             );
         }
