@@ -4,7 +4,7 @@ use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, NorthTracker,
 };
-use test_signals::noise::{
+use test_signals::{
     AdditiveNoiseConfig, DoublingConfig, FadingConfig, FadingType, FrequencyDriftConfig,
     ImpulseNoiseConfig, MultipathComponent, MultipathConfig, NoiseConfig,
 };

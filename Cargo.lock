@@ -1180,6 +1180,7 @@ dependencies = [
  "rand_chacha",
  "rand_distr",
  "rolling-stats",
+ "rotaryclub",
  "thiserror 2.0.18",
 ]
 

@@ -15,6 +15,60 @@ pub struct NoiseConfig {
     pub frequency_drift: Option<FrequencyDriftConfig>,
 }
 
+impl NoiseConfig {
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    pub fn with_awgn(mut self, snr_db: f32) -> Self {
+        self.additive = Some(AdditiveNoiseConfig { snr_db });
+        self
+    }
+
+    pub fn with_fading(mut self, fading_type: FadingType, doppler_spread_hz: f32) -> Self {
+        self.fading = Some(FadingConfig {
+            fading_type,
+            doppler_spread_hz,
+        });
+        self
+    }
+
+    pub fn with_multipath(mut self, components: Vec<MultipathComponent>) -> Self {
+        self.multipath = Some(MultipathConfig { components });
+        self
+    }
+
+    pub fn with_impulse(mut self, rate_hz: f32, amplitude: f32, duration_samples: usize) -> Self {
+        self.impulse = Some(ImpulseNoiseConfig {
+            rate_hz,
+            amplitude,
+            duration_samples,
+        });
+        self
+    }
+
+    pub fn with_doubling(mut self, second_bearing_degrees: f32, amplitude_ratio: f32) -> Self {
+        self.doubling = Some(DoublingConfig {
+            second_bearing_degrees,
+            amplitude_ratio,
+        });
+        self
+    }
+
+    pub fn with_frequency_drift(
+        mut self,
+        max_deviation_hz: f32,
+        drift_rate_hz_per_sec: f32,
+    ) -> Self {
+        self.frequency_drift = Some(FrequencyDriftConfig {
+            max_deviation_hz,
+            drift_rate_hz_per_sec,
+        });
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AdditiveNoiseConfig {
     pub snr_db: f32,
@@ -70,7 +124,7 @@ fn create_rng(seed: Option<u64>) -> ChaCha8Rng {
     }
 }
 
-fn signal_power(signal: &[f32]) -> f32 {
+pub fn signal_power(signal: &[f32]) -> f32 {
     if signal.is_empty() {
         return 0.0;
     }
@@ -505,5 +559,23 @@ mod tests {
 
         assert_eq!(clean.len(), noisy.len());
         assert_ne!(clean, noisy);
+    }
+
+    #[test]
+    fn test_builder_pattern() {
+        let config = NoiseConfig::default()
+            .with_seed(42)
+            .with_awgn(20.0)
+            .with_fading(FadingType::Rayleigh, 5.0)
+            .with_multipath(vec![MultipathComponent {
+                delay_samples: 10,
+                amplitude: 0.3,
+                phase_offset: 0.5,
+            }]);
+
+        assert_eq!(config.seed, Some(42));
+        assert!(config.additive.is_some());
+        assert!(config.fading.is_some());
+        assert!(config.multipath.is_some());
     }
 }

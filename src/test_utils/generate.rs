@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 
-const NORTH_TICK_PULSE_WIDTH_RADIANS: f32 = 0.2;
-const NORTH_TICK_AMPLITUDE: f32 = 0.8;
+pub const NORTH_TICK_PULSE_WIDTH_RADIANS: f32 = 0.2;
+pub const NORTH_TICK_AMPLITUDE: f32 = 0.8;
 
 /// Generate synthetic RDF test signal with fixed bearing
 /// Returns interleaved stereo samples [L, R, L, R, ...]
@@ -37,18 +37,13 @@ where
     for i in 0..num_samples {
         let t = i as f32 / sample_rate as f32;
 
-        // Get bearing at this time
         let bearing_radians = bearing_fn(t).to_radians();
 
-        // Calculate rotation phase for this sample
         let rotation_phase = (i as f32 / samples_per_rotation) * 2.0 * PI;
 
-        // Left channel: Doppler tone at rotation frequency
-        // The bearing determines the phase offset of the Doppler tone relative to north tick
         let doppler_phase = rotation_hz * t * 2.0 * PI - bearing_radians;
         let doppler = doppler_phase.sin();
 
-        // Right channel: North tick pulse (sharp pulse at rotation start)
         let tick_phase = rotation_phase % (2.0 * PI);
         let north_tick = if tick_phase < NORTH_TICK_PULSE_WIDTH_RADIANS {
             NORTH_TICK_AMPLITUDE
@@ -91,7 +86,6 @@ mod tests {
     #[test]
     fn test_generate_signal_length() {
         let signal = generate_test_signal(1.0, 48000, 500.0, 500.0, 0.0);
-        // Should be 1 second * 48000 samples * 2 channels
         assert_eq!(signal.len(), 48000 * 2);
     }
 
@@ -99,10 +93,8 @@ mod tests {
     fn test_generate_signal_interleaved() {
         let signal = generate_test_signal(0.01, 48000, 500.0, 500.0, 0.0);
 
-        // Check that we have interleaved stereo
         assert_eq!(signal.len() % 2, 0);
 
-        // Left channel should be mostly non-zero (doppler tone)
         let left: Vec<f32> = signal.iter().step_by(2).copied().collect();
         let left_rms: f32 = (left.iter().map(|x| x * x).sum::<f32>() / left.len() as f32).sqrt();
         assert!(
@@ -111,7 +103,6 @@ mod tests {
             left_rms
         );
 
-        // Right channel should have some pulses
         let right: Vec<f32> = signal.iter().skip(1).step_by(2).copied().collect();
         let right_max = right.iter().fold(0.0f32, |a, &b| a.max(b));
         assert!(
@@ -122,7 +113,6 @@ mod tests {
 
     #[test]
     fn test_generate_multiple_bearings() {
-        // Just verify no panics for various bearings
         for bearing in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
             let signal = generate_test_signal(0.1, 48000, 500.0, 500.0, bearing);
             assert_eq!(signal.len(), 4800 * 2);

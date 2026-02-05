@@ -34,15 +34,24 @@ chrono = "0.4"
 num-complex = "0.4"
 
 [dev-dependencies]
-# Testing utilities
 approx = "0.5"
-rand = "0.8"
-rand_distr = "0.4"
-rand_chacha = "0.3"
+rotaryclub = { path = ".", features = ["test-utils"] }
 
 [features]
-# Optional feature for WAV file export in tests
 wav-export = []
+test-utils = ["rand", "rand_distr", "rand_chacha"]
+
+[dependencies.rand]
+version = "0.8"
+optional = true
+
+[dependencies.rand_distr]
+version = "0.4"
+optional = true
+
+[dependencies.rand_chacha]
+version = "0.3"
+optional = true
 
 [profile.release]
 opt-level = 3
