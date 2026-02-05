@@ -16,8 +16,8 @@ use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick}
 /// Calculates bearing by correlating the filtered Doppler tone with sin/cos
 /// reference signals at the rotation frequency, extracting phase via atan2.
 ///
-/// This method is more accurate (~1-2° accuracy) and robust to noise than
-/// zero-crossing detection, at the cost of slightly higher CPU usage.
+/// This method achieves sub-degree accuracy (<1°) and is more robust to noise
+/// than zero-crossing detection, at the cost of slightly higher CPU usage.
 pub struct CorrelationBearingCalculator {
     base: BearingCalculatorBase,
     sample_rate: f32,

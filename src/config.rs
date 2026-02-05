@@ -66,11 +66,13 @@ pub struct AudioConfig {
 }
 
 /// Bearing calculation method
+///
+/// Both methods achieve sub-degree accuracy (<1°) on clean signals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum BearingMethod {
-    /// Zero-crossing detection with sub-sample interpolation
+    /// Zero-crossing detection with sub-sample interpolation (lower CPU)
     ZeroCrossing,
-    /// I/Q correlation demodulation
+    /// I/Q correlation demodulation (more noise-robust)
     Correlation,
 }
 

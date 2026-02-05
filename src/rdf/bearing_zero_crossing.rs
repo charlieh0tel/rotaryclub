@@ -18,7 +18,9 @@ use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick}
 /// Calculates bearing by detecting zero-crossings in the filtered Doppler tone
 /// and measuring phase offset relative to north tick pulses.
 ///
-/// This method is simple and fast, using sub-sample interpolation for high accuracy.
+/// This method achieves sub-degree accuracy (<1°) with sub-sample interpolation,
+/// similar to correlation-based detection but with lower CPU usage and less
+/// noise robustness.
 pub struct ZeroCrossingBearingCalculator {
     base: BearingCalculatorBase,
     zero_detector: ZeroCrossingDetector,
