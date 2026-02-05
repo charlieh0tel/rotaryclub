@@ -1,5 +1,7 @@
 mod test_signals;
 
+use std::f32::consts::PI;
+
 use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, NorthTracker,
@@ -58,6 +60,8 @@ fn measure_bearing_with_noise(
                     sample_index: 0,
                     period: Some(30.0),
                     lock_quality: None,
+                    phase: 0.0,
+                    frequency: 2.0 * PI / 30.0,
                 },
             );
         }

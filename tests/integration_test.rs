@@ -1,5 +1,7 @@
 mod test_signals;
 
+use std::f32::consts::PI;
+
 use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
@@ -90,6 +92,8 @@ fn calculate_bearing_from_synthetic(
                 sample_index: 0,
                 period: Some(30.0),
                 lock_quality: None,
+                phase: 0.0,
+                frequency: 2.0 * PI / 30.0,
             };
             zc_calc.process_buffer(&doppler, &dummy_tick);
             corr_calc.process_buffer(&doppler, &dummy_tick);
@@ -145,6 +149,8 @@ fn test_bearing_with_perfect_north_tick() {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase: 0.0,
+            frequency: 2.0 * PI / samples_per_rotation,
         };
 
         let mut zc_calc =
@@ -242,6 +248,8 @@ fn test_real_wav_file() {
                     sample_index: 0,
                     period: Some(30.0),
                     lock_quality: None,
+                    phase: 0.0,
+                    frequency: 2.0 * PI / 30.0,
                 },
             );
         }
@@ -409,6 +417,8 @@ fn test_rotating_bearing_through_zero() {
                     sample_index: 0,
                     period: Some(30.0),
                     lock_quality: None,
+                    phase: 0.0,
+                    frequency: 2.0 * PI / 30.0,
                 },
             );
         }

@@ -6,7 +6,8 @@ use crate::rdf::north_ref_simple::SimpleNorthTracker;
 /// North reference tick event
 ///
 /// Represents a detected north timing pulse with its sample position and
-/// estimated rotation period.
+/// estimated rotation period. Includes DPLL phase/frequency state for
+/// accurate reference signal generation.
 #[derive(Debug, Clone, Copy)]
 pub struct NorthTick {
     /// Global sample index where the tick was detected
@@ -15,6 +16,10 @@ pub struct NorthTick {
     pub period: Option<f32>,
     /// DPLL lock quality (0-1, higher is better lock)
     pub lock_quality: Option<f32>,
+    /// DPLL phase at sample_index (radians, 0 = north)
+    pub phase: f32,
+    /// DPLL frequency estimate (radians/sample)
+    pub frequency: f32,
 }
 
 pub trait NorthTracker {

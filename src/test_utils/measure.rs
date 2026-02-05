@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use crate::config::RdfConfig;
 use crate::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
@@ -62,6 +64,8 @@ pub fn measure_bearing(signal: &[f32], config: &RdfConfig) -> BearingMeasurement
                 sample_index: 0,
                 period: Some(30.0),
                 lock_quality: None,
+                phase: 0.0,
+                frequency: 2.0 * PI / 30.0,
             };
             zc_calc.process_buffer(&doppler, &dummy_tick);
             corr_calc.process_buffer(&doppler, &dummy_tick);

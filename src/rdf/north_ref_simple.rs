@@ -2,6 +2,7 @@ use crate::config::NorthTickConfig;
 use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{FirHighpass, PeakDetector};
+use std::f32::consts::PI;
 
 const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
 
@@ -73,10 +74,18 @@ impl SimpleNorthTracker {
                 );
             }
 
+            // Calculate frequency from period estimate
+            let frequency = self
+                .samples_per_rotation
+                .map(|p| 2.0 * PI / p)
+                .unwrap_or(0.0);
+
             ticks.push(NorthTick {
                 sample_index: global_sample,
                 period: self.samples_per_rotation,
                 lock_quality: None,
+                phase: 0.0, // By definition, tick = north = 0 radians
+                frequency,
             });
 
             self.last_tick_sample = Some(global_sample);

@@ -15,12 +15,12 @@ use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick}
 ///
 /// Calculates bearing by correlating the filtered Doppler tone with sin/cos
 /// reference signals at the rotation frequency, extracting phase via atan2.
+/// Uses DPLL phase/frequency from NorthTick for accurate reference generation.
 ///
 /// This method achieves sub-degree accuracy (<1°) and is more robust to noise
 /// than zero-crossing detection, at the cost of slightly higher CPU usage.
 pub struct CorrelationBearingCalculator {
     base: BearingCalculatorBase,
-    sample_rate: f32,
 }
 
 impl CorrelationBearingCalculator {
@@ -39,7 +39,6 @@ impl CorrelationBearingCalculator {
     ) -> Result<Self> {
         Ok(Self {
             base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
-            sample_rate,
         })
     }
 
@@ -59,15 +58,16 @@ impl CorrelationBearingCalculator {
             }
         };
 
-        // Get rotation period and frequency
-        let samples_per_rotation = north_tick.period?;
-        let rotation_freq = self.sample_rate / samples_per_rotation;
-        let omega = 2.0 * PI * rotation_freq / self.sample_rate;
+        // Use DPLL's tracked frequency directly
+        let omega = north_tick.frequency;
+        if omega <= 0.0 {
+            self.base.advance_counter(doppler_buffer.len());
+            return None;
+        }
 
-        // I/Q demodulation: correlate with cos and sin referenced to north tick
-        // Account for FIR filter group delay: filtered output at idx corresponds to
-        // input sample at (base_offset + idx - group_delay)
-        // Also adjust for north tick timing offset from FIR highpass filter.
+        // I/Q demodulation: correlate with cos and sin using DPLL's phase tracking
+        // base_offset is already (sample_counter - tick.sample_index), i.e., samples since tick.
+        // Account for FIR filter group delay in the doppler path.
         let mut i_sum = 0.0;
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
@@ -75,8 +75,10 @@ impl CorrelationBearingCalculator {
         let tick_adjustment = self.base.north_tick_timing_adjustment();
 
         for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
-            let samples_from_tick = (base_offset + idx) as f32 - group_delay + tick_adjustment;
-            let phase = omega * samples_from_tick;
+            // Samples since the north tick, compensated for filter delay
+            let samples_since_tick = (base_offset + idx) as f32 - group_delay + tick_adjustment;
+            // Phase from DPLL: start at tick phase, advance by omega per sample
+            let phase = north_tick.phase + samples_since_tick * omega;
 
             i_sum += sample * phase.cos();
             q_sum += sample * phase.sin();
@@ -94,7 +96,7 @@ impl CorrelationBearingCalculator {
 
         // Calculate confidence metrics
         let metrics =
-            self.calculate_metrics(omega, base_offset, signal_power, correlation_magnitude);
+            self.calculate_metrics(north_tick, base_offset, signal_power, correlation_magnitude);
 
         // Extract bearing directly from I/Q
         // Our signal is: A * sin(ω*t - φ) where φ is the bearing (note the minus!)
@@ -125,7 +127,7 @@ impl CorrelationBearingCalculator {
 
     fn calculate_metrics(
         &self,
-        omega: f32,
+        north_tick: &NorthTick,
         base_offset: usize,
         signal_power: f32,
         correlation_magnitude: f32,
@@ -145,6 +147,7 @@ impl CorrelationBearingCalculator {
         let window_size = n / COHERENCE_WINDOW_COUNT;
         let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
         let group_delay = self.base.filter_group_delay() as f32;
+        let omega = north_tick.frequency;
 
         let tick_adjustment = self.base.north_tick_timing_adjustment();
         for (win_idx, phase) in phases.iter_mut().enumerate() {
@@ -155,9 +158,9 @@ impl CorrelationBearingCalculator {
             let mut q_win = 0.0;
 
             for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
-                let samples_from_tick =
+                let samples_since_tick =
                     (base_offset + start + idx) as f32 - group_delay + tick_adjustment;
-                let p = omega * samples_from_tick;
+                let p = north_tick.phase + samples_since_tick * omega;
                 i_win += sample * p.cos();
                 q_win += sample * p.sin();
             }
@@ -237,10 +240,13 @@ mod tests {
                 .unwrap();
 
         let samples_per_rotation = sample_rate / doppler_config.expected_freq; // 100.0
+        let omega = 2.0 * PI / samples_per_rotation;
         let north_tick = NorthTick {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase: 0.0,
+            frequency: omega,
         };
 
         let omega = 2.0 * PI * doppler_config.expected_freq / sample_rate;

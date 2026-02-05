@@ -137,6 +137,8 @@ fn test_correlation_bearing_with_correct_signal() {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase: 0.0,
+            frequency: 2.0 * PI / samples_per_rotation,
         };
 
         let measurement = calc.process_buffer(&doppler, &north_tick);
@@ -200,6 +202,8 @@ fn test_zero_crossing_bearing_with_correct_signal() {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase: 0.0,
+            frequency: 2.0 * PI / samples_per_rotation,
         };
 
         let measurement = calc.process_buffer(&doppler, &north_tick);
@@ -266,10 +270,13 @@ fn test_full_pipeline_with_north_tracker() {
                 measurements.push(m.raw_bearing);
             }
         } else {
+            let period = sample_rate / rotation_freq;
             let dummy_tick = NorthTick {
                 sample_index: 0,
-                period: Some(sample_rate / rotation_freq),
+                period: Some(period),
                 lock_quality: None,
+                phase: 0.0,
+                frequency: 2.0 * PI / period,
             };
             let _ = bearing_calc.process_buffer(doppler_chunk, &dummy_tick);
         }

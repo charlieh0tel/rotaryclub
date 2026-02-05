@@ -134,10 +134,14 @@ impl DpllNorthTracker {
 
                 // Compensate for filter delay: the filtered output at this sample
                 // corresponds to an input pulse that occurred total_delay samples earlier.
+                // For bearing calculation, tick defines north (phase=0).
+                // The DPLL's internal phase tracks jitter, but the reference is the tick itself.
                 ticks.push(NorthTick {
                     sample_index: global_sample.saturating_sub(total_delay),
                     period: Some(period),
                     lock_quality: self.lock_quality(),
+                    phase: 0.0,
+                    frequency: self.frequency,
                 });
             }
         }
