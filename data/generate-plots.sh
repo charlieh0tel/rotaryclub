@@ -3,7 +3,11 @@
 set -o errexit
 set -o nounset
 
-PLOT_ARGS="--min-confidence 0.1 --min-coherence 0.1"
+# Filtering thresholds (0.0-1.0)
+MIN_CONFIDENCE=${MIN_CONFIDENCE:-0.1}
+MIN_COHERENCE=${MIN_COHERENCE:-0.1}
+
+PLOT_ARGS="--min-confidence $MIN_CONFIDENCE --min-coherence $MIN_COHERENCE"
 
 for f in ../data/*.wav; do
   name=$(basename "$f" .wav)
