@@ -13,11 +13,15 @@ pub struct NorthTick {
     pub sample_index: usize,
     /// Estimated rotation period in samples (None if not yet established)
     pub period: Option<f32>,
+    /// DPLL lock quality (0-1, higher is better lock)
+    pub lock_quality: Option<f32>,
 }
 
 pub trait NorthTracker {
     fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick>;
     fn rotation_frequency(&self) -> Option<f32>;
+    fn lock_quality(&self) -> Option<f32>;
+    fn phase_error_variance(&self) -> Option<f32>;
 }
 
 /// North reference tracker
@@ -77,6 +81,20 @@ impl NorthTracker for NorthReferenceTracker {
         match self {
             Self::Simple(tracker) => tracker.rotation_frequency(),
             Self::Dpll(tracker) => tracker.rotation_frequency(),
+        }
+    }
+
+    fn lock_quality(&self) -> Option<f32> {
+        match self {
+            Self::Simple(tracker) => tracker.lock_quality(),
+            Self::Dpll(tracker) => tracker.lock_quality(),
+        }
+    }
+
+    fn phase_error_variance(&self) -> Option<f32> {
+        match self {
+            Self::Simple(tracker) => tracker.phase_error_variance(),
+            Self::Dpll(tracker) => tracker.phase_error_variance(),
         }
     }
 }

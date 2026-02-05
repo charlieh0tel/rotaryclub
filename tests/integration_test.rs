@@ -89,6 +89,7 @@ fn calculate_bearing_from_synthetic(
             let dummy_tick = NorthTick {
                 sample_index: 0,
                 period: Some(30.0),
+                lock_quality: None,
             };
             zc_calc.process_buffer(&doppler, &dummy_tick);
             corr_calc.process_buffer(&doppler, &dummy_tick);
@@ -143,6 +144,7 @@ fn test_bearing_with_perfect_north_tick() {
         let perfect_tick = NorthTick {
             sample_index: 0,
             period: Some(samples_per_rotation),
+            lock_quality: None,
         };
 
         let mut zc_calc =
@@ -239,6 +241,7 @@ fn test_real_wav_file() {
                 &NorthTick {
                     sample_index: 0,
                     period: Some(30.0),
+                    lock_quality: None,
                 },
             );
         }

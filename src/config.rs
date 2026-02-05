@@ -80,7 +80,7 @@ pub enum BearingMethod {
 /// to determine bearing angles.
 #[derive(Debug, Clone)]
 pub struct DopplerConfig {
-    /// Expected antenna rotation frequency in Hz (typically 1602 Hz)
+    /// Initial/nominal rotation frequency in Hz (actual frequency tracked by DPLL)
     pub expected_freq: f32,
     /// Bandpass filter lower cutoff in Hz
     pub bandpass_low: f32,
@@ -221,8 +221,8 @@ impl Default for DopplerConfig {
     fn default() -> Self {
         Self {
             expected_freq: 1602.0,
-            bandpass_low: 1500.0,
-            bandpass_high: 1700.0,
+            bandpass_low: 1350.0,
+            bandpass_high: 1850.0,
             filter_order: 4,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,

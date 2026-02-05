@@ -2,6 +2,7 @@ use crate::config::NorthTickConfig;
 use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{FirHighpass, PeakDetector};
+use rolling_stats::Stats;
 use std::f32::consts::PI;
 
 pub struct DpllNorthTracker {
@@ -23,6 +24,10 @@ pub struct DpllNorthTracker {
 
     sample_counter: usize,
     sample_rate: f32,
+
+    // Statistics for lock quality
+    phase_error_stats: Stats<f32>,
+    freq_stats: Stats<f32>,
 }
 
 impl DpllNorthTracker {
@@ -64,6 +69,8 @@ impl DpllNorthTracker {
             max_omega,
             sample_counter: 0,
             sample_rate,
+            phase_error_stats: Stats::new(),
+            freq_stats: Stats::new(),
         })
     }
 
@@ -102,12 +109,18 @@ impl DpllNorthTracker {
                     phase_error += 2.0 * PI;
                 }
 
+                // Track phase error for variance calculation
+                self.phase_error_stats.update(phase_error);
+
                 // Update frequency and phase with PI controller
                 self.frequency += self.ki * phase_error;
                 self.phase += self.kp * phase_error;
 
                 // Clamp frequency to configured range
                 self.frequency = self.frequency.clamp(self.min_omega, self.max_omega);
+
+                // Track frequency for stability calculation
+                self.freq_stats.update(self.frequency);
 
                 // Wrap phase after correction
                 if self.phase >= 2.0 * PI {
@@ -124,6 +137,7 @@ impl DpllNorthTracker {
                 ticks.push(NorthTick {
                     sample_index: global_sample.saturating_sub(total_delay),
                     period: Some(period),
+                    lock_quality: self.lock_quality(),
                 });
             }
         }
@@ -138,6 +152,37 @@ impl DpllNorthTracker {
         } else {
             None
         }
+    }
+
+    pub fn phase_error_variance(&self) -> Option<f32> {
+        if self.phase_error_stats.count < 2 {
+            None
+        } else {
+            let std_dev = self.phase_error_stats.std_dev;
+            Some(std_dev * std_dev)
+        }
+    }
+
+    pub fn lock_quality(&self) -> Option<f32> {
+        if self.phase_error_stats.count < 2 || self.freq_stats.count < 2 {
+            return None;
+        }
+
+        // Phase error std dev in radians - lower is better
+        // A well-locked PLL should have phase error < 0.1 rad (~6 degrees)
+        let phase_std = self.phase_error_stats.std_dev.abs();
+        let phase_score = (1.0 - phase_std / PI).clamp(0.0, 1.0);
+
+        // Frequency stability - lower variance relative to mean is better
+        let freq_cv = if self.freq_stats.mean.abs() > 1e-10 {
+            (self.freq_stats.std_dev / self.freq_stats.mean).abs()
+        } else {
+            1.0
+        };
+        let freq_score = (1.0 - freq_cv * 100.0).clamp(0.0, 1.0);
+
+        // Combined score: weight phase error more heavily
+        Some(0.7 * phase_score + 0.3 * freq_score)
     }
 }
 

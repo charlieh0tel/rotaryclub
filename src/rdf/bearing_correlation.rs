@@ -240,6 +240,7 @@ mod tests {
         let north_tick = NorthTick {
             sample_index: 0,
             period: Some(samples_per_rotation),
+            lock_quality: None,
         };
 
         let omega = 2.0 * PI * doppler_config.expected_freq / sample_rate;

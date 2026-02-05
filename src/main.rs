@@ -82,7 +82,10 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("=== Rotary Club - Pseudo Doppler RDF ===");
     eprintln!("Sample rate: {} Hz", config.audio.sample_rate);
-    eprintln!("Expected rotation: {} Hz", config.doppler.expected_freq);
+    eprintln!(
+        "Nominal rotation: {} Hz (actual tracked by DPLL)",
+        config.doppler.expected_freq
+    );
     eprintln!(
         "Doppler bandpass: {}-{} Hz",
         config.doppler.bandpass_low, config.doppler.bandpass_high

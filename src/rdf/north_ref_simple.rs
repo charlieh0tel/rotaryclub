@@ -76,6 +76,7 @@ impl SimpleNorthTracker {
             ticks.push(NorthTick {
                 sample_index: global_sample,
                 period: self.samples_per_rotation,
+                lock_quality: None,
             });
 
             self.last_tick_sample = Some(global_sample);
@@ -88,6 +89,14 @@ impl SimpleNorthTracker {
     pub fn rotation_frequency(&self) -> Option<f32> {
         self.samples_per_rotation
             .map(|period| self.sample_rate / period)
+    }
+
+    pub fn lock_quality(&self) -> Option<f32> {
+        None
+    }
+
+    pub fn phase_error_variance(&self) -> Option<f32> {
+        None
     }
 }
 
