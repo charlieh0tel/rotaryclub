@@ -16,6 +16,10 @@ def load_and_prepare(source, min_confidence, min_coherence):
     else:
         df = pd.read_csv(source)
 
+    if len(df) == 0:
+        df['time_s'] = pd.Series(dtype=float)
+        return df, df
+
     if 'ts' in df.columns:
         df['ts'] = pd.to_datetime(df['ts'])
         df['time_s'] = (df['ts'] - df['ts'].iloc[0]).dt.total_seconds()
@@ -105,13 +109,19 @@ def plot_comparison(args):
         df_corr, df_corr_f = load_and_prepare(
             args.correlation, args.min_confidence, args.min_coherence)
         datasets.append(('Correlation', df_corr, df_corr_f, 'tab:blue'))
-        print(f"Correlation: {len(df_corr_f)}/{len(df_corr)} points after filtering")
+        if len(df_corr) == 0:
+            print("Correlation: no data")
+        else:
+            print(f"Correlation: {len(df_corr_f)}/{len(df_corr)} points after filtering")
 
     if args.zero_crossing:
         df_zc, df_zc_f = load_and_prepare(
             args.zero_crossing, args.min_confidence, args.min_coherence)
         datasets.append(('Zero-Crossing', df_zc, df_zc_f, 'tab:orange'))
-        print(f"Zero-crossing: {len(df_zc_f)}/{len(df_zc)} points after filtering")
+        if len(df_zc) == 0:
+            print("Zero-crossing: no data")
+        else:
+            print(f"Zero-crossing: {len(df_zc_f)}/{len(df_zc)} points after filtering")
 
     # Top left: Correlation bearing
     ax_corr = axes[0, 0]
