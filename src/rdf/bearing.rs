@@ -15,12 +15,8 @@ const SIGNAL_STRENGTH_WEIGHT: f32 = 0.2;
 /// Bearing angle in degrees (0-360)
 pub fn phase_to_bearing(phase_radians: f32) -> f32 {
     let degrees = phase_radians.to_degrees();
-    // Normalize to 0-360
-    if degrees < 0.0 {
-        degrees + 360.0
-    } else {
-        degrees % 360.0
-    }
+    // Normalize to 0-360 using rem_euclid for proper modular arithmetic
+    degrees.rem_euclid(360.0)
 }
 
 /// Detailed confidence metrics for bearing measurements

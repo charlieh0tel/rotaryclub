@@ -42,24 +42,34 @@ impl ZeroCrossingDetector {
         false
     }
 
-    /// Find all zero crossings in a buffer
+    /// Find all zero crossings in a buffer with sub-sample interpolation
     ///
-    /// Returns a vector of sample indices where rising-edge crossings occur.
+    /// Returns interpolated sample positions where rising-edge crossings occur.
     ///
     /// # Arguments
     /// * `buffer` - Audio samples to process
-    pub fn find_all_crossings(&mut self, buffer: &[f32]) -> Vec<usize> {
-        buffer
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &sample)| {
-                if self.detect_crossing(sample) {
-                    Some(i)
+    pub fn find_all_crossings(&mut self, buffer: &[f32]) -> Vec<f32> {
+        let mut crossings = Vec::new();
+        let mut prev_sample = if !buffer.is_empty() {
+            buffer[0]
+        } else {
+            return crossings;
+        };
+
+        for (i, &sample) in buffer.iter().enumerate().skip(1) {
+            if self.detect_crossing(sample) {
+                let denominator = sample - prev_sample;
+                if denominator.abs() > 1e-10 {
+                    let fraction = sample / denominator;
+                    crossings.push(i as f32 - fraction);
                 } else {
-                    None
+                    crossings.push(i as f32);
                 }
-            })
-            .collect()
+            }
+            prev_sample = sample;
+        }
+
+        crossings
     }
 }
 
@@ -88,13 +98,30 @@ mod tests {
     fn test_zero_crossing_hysteresis() {
         let mut detector = ZeroCrossingDetector::new(0.1);
 
-        // Small oscillations around zero should not trigger
         let signal = vec![-0.05, 0.05, -0.05, 0.05, -0.5, 0.5];
 
         let crossings = detector.find_all_crossings(&signal);
 
-        // Only the last crossing should be detected (exceeds hysteresis)
         assert_eq!(crossings.len(), 1);
-        assert_eq!(crossings[0], 5);
+        let expected = 5.0 - 0.5 / (0.5 - (-0.5));
+        assert!((crossings[0] - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_zero_crossing_interpolation() {
+        let mut detector = ZeroCrossingDetector::new(0.01);
+
+        let signal = vec![-0.3, -0.1, 0.2, 0.4];
+
+        let crossings = detector.find_all_crossings(&signal);
+
+        assert_eq!(crossings.len(), 1);
+        let expected = 2.0 - 0.2 / (0.2 - (-0.1));
+        assert!(
+            (crossings[0] - expected).abs() < 0.001,
+            "Expected {}, got {}",
+            expected,
+            crossings[0]
+        );
     }
 }

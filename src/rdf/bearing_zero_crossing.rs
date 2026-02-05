@@ -122,17 +122,11 @@ impl ZeroCrossingBearingCalculator {
         })
     }
 
-    fn calculate_metrics(
-        &self,
-        crossings: &[usize],
-        samples_per_rotation: f32,
-    ) -> ConfidenceMetrics {
+    fn calculate_metrics(&self, crossings: &[f32], samples_per_rotation: f32) -> ConfidenceMetrics {
         if crossings.is_empty() {
             return ConfidenceMetrics::default();
         }
 
-        // --- Signal Strength ---
-        // A rising-edge detector should find one crossing per rotation.
         let expected_crossings = self.base.work_buffer.len() as f32 / samples_per_rotation;
         let signal_strength = if expected_crossings > 0.0 {
             (crossings.len() as f32 / expected_crossings).clamp(0.0, 1.0)
@@ -140,14 +134,12 @@ impl ZeroCrossingBearingCalculator {
             0.0
         };
 
-        // --- Coherence from crossing regularity ---
         let coherence = if crossings.len() >= 2 {
-            // The interval between rising-edge crossings should be one full period.
             let expected_interval = samples_per_rotation;
             let mut interval_errors = Vec::with_capacity(crossings.len() - 1);
 
             for window in crossings.windows(2) {
-                let interval = (window[1] - window[0]) as f32;
+                let interval = window[1] - window[0];
                 let error = ((interval - expected_interval) / expected_interval).abs();
                 interval_errors.push(error);
             }
