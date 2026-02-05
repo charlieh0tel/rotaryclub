@@ -32,10 +32,10 @@ impl AutomaticGainControl {
     /// # Arguments
     /// * `config` - AGC configuration parameters
     /// * `sample_rate` - Audio sample rate in Hz
-    pub fn new(config: &AgcConfig, sample_rate: u32) -> Self {
+    pub fn new(config: &AgcConfig, sample_rate: f32) -> Self {
         let attack_coeff = Self::time_constant_to_coeff(config.attack_time_ms, sample_rate);
         let release_coeff = Self::time_constant_to_coeff(config.release_time_ms, sample_rate);
-        let window_size = (sample_rate as f32 * config.measurement_window_ms / 1000.0) as usize;
+        let window_size = (sample_rate * config.measurement_window_ms / 1000.0) as usize;
 
         Self {
             target_rms: config.target_rms,
@@ -48,8 +48,8 @@ impl AutomaticGainControl {
         }
     }
 
-    fn time_constant_to_coeff(time_ms: f32, sample_rate: u32) -> f32 {
-        let time_samples = (time_ms / 1000.0) * sample_rate as f32;
+    fn time_constant_to_coeff(time_ms: f32, sample_rate: f32) -> f32 {
+        let time_samples = (time_ms / 1000.0) * sample_rate;
         (-1.0 / time_samples).exp()
     }
 
@@ -122,7 +122,7 @@ mod tests {
             measurement_window_ms: 10.0,
         };
 
-        let mut agc = AutomaticGainControl::new(&config, 48000);
+        let mut agc = AutomaticGainControl::new(&config, 48000.0);
 
         let weak_signal: Vec<f32> = (0..48000)
             .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 48000.0).sin())
@@ -156,7 +156,7 @@ mod tests {
             measurement_window_ms: 10.0,
         };
 
-        let mut agc = AutomaticGainControl::new(&config, 48000);
+        let mut agc = AutomaticGainControl::new(&config, 48000.0);
 
         let strong_signal: Vec<f32> = (0..48000)
             .map(|i| 0.9 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 48000.0).sin())
@@ -187,7 +187,7 @@ mod tests {
             measurement_window_ms: 1.0,
         };
 
-        let mut agc = AutomaticGainControl::new(&config, 48000);
+        let mut agc = AutomaticGainControl::new(&config, 48000.0);
 
         let silent_signal = vec![0.001; 48000];
         let mut output = silent_signal.clone();

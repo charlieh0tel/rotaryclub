@@ -1,7 +1,18 @@
+use super::NorthTick;
+
+pub const MIN_POWER_THRESHOLD: f32 = 1e-10;
 const SNR_NORMALIZATION_DB: f32 = 20.0;
 const SNR_WEIGHT: f32 = 0.4;
 const COHERENCE_WEIGHT: f32 = 0.4;
 const SIGNAL_STRENGTH_WEIGHT: f32 = 0.2;
+
+pub trait BearingCalculator {
+    fn process_buffer(
+        &mut self,
+        doppler_buffer: &[f32],
+        north_tick: &NorthTick,
+    ) -> Option<BearingMeasurement>;
+}
 
 /// Convert phase angle to bearing in degrees
 ///

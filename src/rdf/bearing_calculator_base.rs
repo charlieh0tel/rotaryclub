@@ -33,7 +33,7 @@ impl BearingCalculatorBase {
         let filter_group_delay = bandpass.group_delay_samples();
 
         Ok(Self {
-            agc: AutomaticGainControl::new(agc_config, sample_rate as u32),
+            agc: AutomaticGainControl::new(agc_config, sample_rate),
             bandpass,
             filter_group_delay,
             sample_counter: 0,

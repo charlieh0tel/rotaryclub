@@ -1,6 +1,7 @@
 use rotaryclub::config::{AgcConfig, DopplerConfig, RdfConfig};
 use rotaryclub::rdf::{
-    CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator,
+    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
+    NorthTracker, ZeroCrossingBearingCalculator,
 };
 use std::f32::consts::PI;
 

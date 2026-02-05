@@ -3,22 +3,22 @@ use crate::error::Result;
 use crate::signal_processing::ZeroCrossingDetector;
 use std::f32::consts::PI;
 
+use super::bearing::MIN_POWER_THRESHOLD;
+
 const DEFAULT_SINGLE_CROSSING_COHERENCE: f32 = 0.5;
-const MIN_POWER_THRESHOLD: f32 = 1e-10;
 const SNR_DB_OFFSET: f32 = 40.0;
 const MAX_SNR_DB: f32 = 40.0;
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
-use super::{BearingMeasurement, ConfidenceMetrics, NorthTick};
+use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick};
 
 /// Zero-crossing based bearing calculator
 ///
 /// Calculates bearing by detecting zero-crossings in the filtered Doppler tone
 /// and measuring phase offset relative to north tick pulses.
 ///
-/// This method is simple and fast (~7° accuracy) but less robust to noise than
-/// correlation-based methods.
+/// This method is simple and fast, using sub-sample interpolation for high accuracy.
 pub struct ZeroCrossingBearingCalculator {
     base: BearingCalculatorBase,
     zero_detector: ZeroCrossingDetector,
@@ -44,15 +44,7 @@ impl ZeroCrossingBearingCalculator {
         })
     }
 
-    /// Process Doppler channel and calculate bearing relative to north tick
-    ///
-    /// Returns a bearing measurement if successful, or `None` if no valid
-    /// bearing could be calculated (e.g., no zero-crossings detected).
-    ///
-    /// # Arguments
-    /// * `doppler_buffer` - Audio samples from Doppler channel
-    /// * `north_tick` - Most recent north reference tick
-    pub fn process_buffer(
+    fn process_buffer_impl(
         &mut self,
         doppler_buffer: &[f32],
         north_tick: &NorthTick,
@@ -165,6 +157,16 @@ impl ZeroCrossingBearingCalculator {
             coherence,
             signal_strength,
         }
+    }
+}
+
+impl BearingCalculator for ZeroCrossingBearingCalculator {
+    fn process_buffer(
+        &mut self,
+        doppler_buffer: &[f32],
+        north_tick: &NorthTick,
+    ) -> Option<BearingMeasurement> {
+        self.process_buffer_impl(doppler_buffer, north_tick)
     }
 }
 

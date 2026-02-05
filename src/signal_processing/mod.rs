@@ -7,7 +7,6 @@ pub mod peak_detector;
 pub mod zero_crossing_detector;
 
 pub use agc::AutomaticGainControl;
-#[allow(unused_imports)]
 pub use filter::Filter;
 pub use fir_bandpass::FirBandpass;
 pub use fir_highpass::FirHighpass;

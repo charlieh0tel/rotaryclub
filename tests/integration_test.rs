@@ -2,7 +2,8 @@ mod test_signals;
 
 use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{
-    CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator,
+    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
+    NorthTracker, ZeroCrossingBearingCalculator,
 };
 
 #[test]

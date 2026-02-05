@@ -71,8 +71,8 @@ Channel assignment is configurable via `ChannelRole` enum.
 - **IIR filters**: Lower latency and fewer coefficients than
   FIR. Butterworth provides flat passband.
 - **Bearing extraction methods**: Two options available:
-  - **Correlation (default)**: I/Q demodulation more robust to noise, ~1-2° accuracy on test signals
-  - **Zero-crossing**: Simple and fast, ~7° accuracy, lower CPU usage
+  - **Correlation (default)**: I/Q demodulation, robust to noise
+  - **Zero-crossing**: Sub-sample interpolation, lower CPU usage
 - **DPLL for north tracking**: Locks onto rotation frequency, tolerates missed pulses,
   provides smooth frequency estimates
 - **48 kHz sample rate**: Standard audio hardware

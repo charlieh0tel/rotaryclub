@@ -15,6 +15,11 @@ pub struct NorthTick {
     pub period: Option<f32>,
 }
 
+pub trait NorthTracker {
+    fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick>;
+    fn rotation_frequency(&self) -> Option<f32>;
+}
+
 /// North reference tracker
 ///
 /// Detects and tracks north timing reference pulses from the antenna array.
@@ -23,7 +28,7 @@ pub struct NorthTick {
 /// # Example
 /// ```no_run
 /// use rotaryclub::config::RdfConfig;
-/// use rotaryclub::rdf::NorthReferenceTracker;
+/// use rotaryclub::rdf::{NorthReferenceTracker, NorthTracker};
 ///
 /// let config = RdfConfig::default();
 /// let sample_rate = 48000.0;
@@ -58,23 +63,17 @@ impl NorthReferenceTracker {
             }
         }
     }
+}
 
-    /// Process an audio buffer and detect north tick pulses
-    ///
-    /// Returns a vector of detected north ticks with their sample positions
-    /// and estimated rotation periods.
-    pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
+impl NorthTracker for NorthReferenceTracker {
+    fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
         match self {
             Self::Simple(tracker) => tracker.process_buffer(buffer),
             Self::Dpll(tracker) => tracker.process_buffer(buffer),
         }
     }
 
-    /// Get the current rotation frequency estimate in Hz
-    ///
-    /// Returns `None` if insufficient ticks have been detected to establish
-    /// a frequency estimate.
-    pub fn rotation_frequency(&self) -> Option<f32> {
+    fn rotation_frequency(&self) -> Option<f32> {
         match self {
             Self::Simple(tracker) => tracker.rotation_frequency(),
             Self::Dpll(tracker) => tracker.rotation_frequency(),

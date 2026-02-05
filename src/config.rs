@@ -66,11 +66,11 @@ pub struct AudioConfig {
 }
 
 /// Bearing calculation method
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum BearingMethod {
-    /// Simple zero-crossing detection (~7° accuracy, lower CPU)
+    /// Zero-crossing detection with sub-sample interpolation
     ZeroCrossing,
-    /// I/Q correlation demodulation (~1-2° accuracy, higher CPU)
+    /// I/Q correlation demodulation
     Correlation,
 }
 
@@ -96,10 +96,9 @@ pub struct DopplerConfig {
 }
 
 /// North reference tracking mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum NorthTrackingMode {
     /// Simple exponential smoothing of rotation period
-    #[allow(dead_code)]
     Simple,
     /// Digital phase-locked loop (DPLL) for robust tracking
     Dpll,

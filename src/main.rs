@@ -14,7 +14,8 @@ use audio::{AudioRingBuffer, AudioSource, DeviceSource, WavFileSource};
 use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig};
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
 use rdf::{
-    CorrelationBearingCalculator, NorthReferenceTracker, NorthTick, ZeroCrossingBearingCalculator,
+    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTracker,
+    ZeroCrossingBearingCalculator,
 };
 
 #[derive(Parser, Debug)]
@@ -23,11 +24,11 @@ use rdf::{
 struct Args {
     /// Bearing calculation method
     #[arg(short = 'm', long, value_enum, default_value = "correlation")]
-    method: BearingMethodArg,
+    method: BearingMethod,
 
     /// North tick tracking mode
     #[arg(short = 'n', long, value_enum, default_value = "dpll")]
-    north_mode: NorthModeArg,
+    north_mode: NorthTrackingMode,
 
     /// Swap left/right channels
     #[arg(short = 's', long)]
@@ -54,54 +55,6 @@ struct Args {
     input: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-enum BearingMethodArg {
-    Correlation,
-    ZeroCrossing,
-}
-
-impl From<BearingMethodArg> for BearingMethod {
-    fn from(arg: BearingMethodArg) -> Self {
-        match arg {
-            BearingMethodArg::Correlation => BearingMethod::Correlation,
-            BearingMethodArg::ZeroCrossing => BearingMethod::ZeroCrossing,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-enum NorthModeArg {
-    Dpll,
-    Simple,
-}
-
-impl From<NorthModeArg> for NorthTrackingMode {
-    fn from(arg: NorthModeArg) -> Self {
-        match arg {
-            NorthModeArg::Dpll => NorthTrackingMode::Dpll,
-            NorthModeArg::Simple => NorthTrackingMode::Simple,
-        }
-    }
-}
-
-enum BearingCalculator {
-    ZeroCrossing(ZeroCrossingBearingCalculator),
-    Correlation(CorrelationBearingCalculator),
-}
-
-impl BearingCalculator {
-    fn process_buffer(
-        &mut self,
-        buffer: &[f32],
-        tick: &NorthTick,
-    ) -> Option<rdf::BearingMeasurement> {
-        match self {
-            BearingCalculator::ZeroCrossing(calc) => calc.process_buffer(buffer, tick),
-            BearingCalculator::Correlation(calc) => calc.process_buffer(buffer, tick),
-        }
-    }
-}
-
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -116,8 +69,8 @@ fn main() -> anyhow::Result<()> {
 
     // Apply CLI arguments to config
     let mut config = RdfConfig::default();
-    config.doppler.method = args.method.into();
-    config.north_tick.mode = args.north_mode.into();
+    config.doppler.method = args.method;
+    config.north_tick.mode = args.north_mode;
     config.bearing.output_rate_hz = args.output_rate;
     config.bearing.north_offset_degrees = args.north_offset;
 
@@ -211,23 +164,19 @@ fn run_processing_loop(
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
 
-    let mut bearing_calc = match config.doppler.method {
-        BearingMethod::ZeroCrossing => {
-            BearingCalculator::ZeroCrossing(ZeroCrossingBearingCalculator::new(
-                &config.doppler,
-                &config.agc,
-                sample_rate,
-                config.bearing.smoothing_window,
-            )?)
-        }
-        BearingMethod::Correlation => {
-            BearingCalculator::Correlation(CorrelationBearingCalculator::new(
-                &config.doppler,
-                &config.agc,
-                sample_rate,
-                config.bearing.smoothing_window,
-            )?)
-        }
+    let mut bearing_calc: Box<dyn BearingCalculator> = match config.doppler.method {
+        BearingMethod::ZeroCrossing => Box::new(ZeroCrossingBearingCalculator::new(
+            &config.doppler,
+            &config.agc,
+            sample_rate,
+            config.bearing.smoothing_window,
+        )?),
+        BearingMethod::Correlation => Box::new(CorrelationBearingCalculator::new(
+            &config.doppler,
+            &config.agc,
+            sample_rate,
+            config.bearing.smoothing_window,
+        )?),
     };
 
     let mut ring_buffer = AudioRingBuffer::new();

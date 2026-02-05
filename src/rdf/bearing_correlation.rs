@@ -2,14 +2,14 @@ use crate::config::{AgcConfig, DopplerConfig};
 use crate::error::Result;
 use std::f32::consts::PI;
 
-const MIN_POWER_THRESHOLD: f32 = 1e-10;
+use super::bearing::MIN_POWER_THRESHOLD;
 const COHERENCE_WINDOW_COUNT: usize = 4;
 const MAX_PHASE_VARIANCE: f32 = PI * PI / 3.0;
 const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
-use super::{BearingMeasurement, ConfidenceMetrics, NorthTick};
+use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick};
 
 /// Correlation-based bearing calculator using I/Q demodulation
 ///
@@ -43,18 +43,7 @@ impl CorrelationBearingCalculator {
         })
     }
 
-    /// Process Doppler channel using I/Q correlation to extract phase
-    ///
-    /// Correlates the filtered Doppler signal with sin/cos at the rotation
-    /// frequency to extract bearing via I/Q demodulation.
-    ///
-    /// Returns a bearing measurement if successful, or `None` if no valid
-    /// bearing could be calculated.
-    ///
-    /// # Arguments
-    /// * `doppler_buffer` - Audio samples from Doppler channel
-    /// * `north_tick` - Most recent north reference tick
-    pub fn process_buffer(
+    fn process_buffer_impl(
         &mut self,
         doppler_buffer: &[f32],
         north_tick: &NorthTick,
@@ -203,6 +192,16 @@ impl CorrelationBearingCalculator {
             coherence,
             signal_strength,
         }
+    }
+}
+
+impl BearingCalculator for CorrelationBearingCalculator {
+    fn process_buffer(
+        &mut self,
+        doppler_buffer: &[f32],
+        north_tick: &NorthTick,
+    ) -> Option<BearingMeasurement> {
+        self.process_buffer_impl(doppler_buffer, north_tick)
     }
 }
 

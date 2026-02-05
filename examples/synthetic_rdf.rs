@@ -1,5 +1,7 @@
 use rotaryclub::config::RdfConfig;
-use rotaryclub::rdf::{NorthReferenceTracker, ZeroCrossingBearingCalculator};
+use rotaryclub::rdf::{
+    BearingCalculator, NorthReferenceTracker, NorthTracker, ZeroCrossingBearingCalculator,
+};
 use std::f32::consts::PI;
 
 fn main() -> anyhow::Result<()> {
