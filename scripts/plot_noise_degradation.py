@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Plot noise degradation curves for RDF bearing estimation.
+Plot noise degradation curves for RDF bearing estimation with error bars.
 
 Reads CSV data from stdin (from noise_analysis binary) and creates
 a 4-panel plot showing error vs different noise parameters.
 
 Usage:
-    cargo run --bin noise_analysis --features test-utils | python scripts/plot_noise_degradation.py
+    cargo run --release --bin noise_analysis --features test-utils | python scripts/plot_noise_degradation.py
 """
 
 import sys
@@ -17,22 +17,40 @@ from collections import defaultdict
 
 def parse_csv(input_stream):
     """Parse CSV data into a dictionary grouped by noise type."""
-    data = defaultdict(lambda: {"param": [], "zc_error": [], "corr_error": []})
+    data = defaultdict(
+        lambda: {
+            "param": [],
+            "zc_mean": [],
+            "zc_std": [],
+            "corr_mean": [],
+            "corr_std": [],
+        }
+    )
 
     reader = csv.DictReader(input_stream)
     for row in reader:
         noise_type = row["noise_type"]
         data[noise_type]["param"].append(float(row["parameter"]))
-        data[noise_type]["zc_error"].append(float(row["zc_error"]))
-        data[noise_type]["corr_error"].append(float(row["corr_error"]))
+        data[noise_type]["zc_mean"].append(float(row["zc_mean"]))
+        data[noise_type]["zc_std"].append(float(row["zc_std"]))
+        data[noise_type]["corr_mean"].append(float(row["corr_mean"]))
+        data[noise_type]["corr_std"].append(float(row["corr_std"]))
 
     return data
 
 
-def plot_panel(ax, params, zc_errors, corr_errors, title, xlabel, ylabel="Max Error (degrees)"):
-    """Plot a single panel with both methods."""
-    ax.plot(params, zc_errors, "b-o", label="Zero-Crossing", markersize=5, linewidth=2, alpha=0.8)
-    ax.plot(params, corr_errors, "r--s", label="Correlation", markersize=4, linewidth=1.5, alpha=0.8, markerfacecolor='none')
+def plot_panel(ax, params, zc_mean, zc_std, corr_mean, corr_std, title, xlabel, ylabel="Mean Error (degrees)"):
+    """Plot a single panel with both methods and error bars."""
+    ax.errorbar(
+        params, zc_mean, yerr=zc_std,
+        fmt="b-o", label="Zero-Crossing", markersize=4, linewidth=1.5,
+        capsize=2, capthick=1, alpha=0.8
+    )
+    ax.errorbar(
+        params, corr_mean, yerr=corr_std,
+        fmt="r--s", label="Correlation", markersize=3, linewidth=1.5,
+        capsize=2, capthick=1, alpha=0.8, markerfacecolor="none"
+    )
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
@@ -45,14 +63,16 @@ def main():
     data = parse_csv(sys.stdin)
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("RDF Bearing Estimation: Noise Degradation Analysis", fontsize=14)
+    fig.suptitle("RDF Bearing Estimation: Noise Degradation Analysis (N=10 trials)", fontsize=14)
 
     if "awgn" in data:
         plot_panel(
             axes[0, 0],
             data["awgn"]["param"],
-            data["awgn"]["zc_error"],
-            data["awgn"]["corr_error"],
+            data["awgn"]["zc_mean"],
+            data["awgn"]["zc_std"],
+            data["awgn"]["corr_mean"],
+            data["awgn"]["corr_std"],
             "Additive White Gaussian Noise",
             "SNR (dB)",
         )
@@ -62,8 +82,10 @@ def main():
         plot_panel(
             axes[0, 1],
             data["fading"]["param"],
-            data["fading"]["zc_error"],
-            data["fading"]["corr_error"],
+            data["fading"]["zc_mean"],
+            data["fading"]["zc_std"],
+            data["fading"]["corr_mean"],
+            data["fading"]["corr_std"],
             "Rayleigh Fading",
             "Doppler Spread (Hz)",
         )
@@ -72,8 +94,10 @@ def main():
         plot_panel(
             axes[1, 0],
             data["multipath"]["param"],
-            data["multipath"]["zc_error"],
-            data["multipath"]["corr_error"],
+            data["multipath"]["zc_mean"],
+            data["multipath"]["zc_std"],
+            data["multipath"]["corr_mean"],
+            data["multipath"]["corr_std"],
             "Multipath Interference",
             "Delay (% of rotation period)",
         )
@@ -82,8 +106,10 @@ def main():
         plot_panel(
             axes[1, 1],
             data["impulse"]["param"],
-            data["impulse"]["zc_error"],
-            data["impulse"]["corr_error"],
+            data["impulse"]["zc_mean"],
+            data["impulse"]["zc_std"],
+            data["impulse"]["corr_mean"],
+            data["impulse"]["corr_std"],
             "Impulse Noise",
             "Impulse Rate (Hz)",
         )
