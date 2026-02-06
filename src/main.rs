@@ -236,6 +236,8 @@ fn run_processing_loop(
                     snr_db: bearing.metrics.snr_db,
                     coherence: bearing.metrics.coherence,
                     signal_strength: bearing.metrics.signal_strength,
+                    lock_quality: tick.lock_quality,
+                    phase_error_variance: north_tracker.phase_error_variance(),
                 };
 
                 bearing_stats.update(adjusted_bearing);

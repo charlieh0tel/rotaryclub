@@ -6,8 +6,7 @@ use crate::rdf::{
     NorthTracker, ZeroCrossingBearingCalculator,
 };
 
-use super::noise::NoiseConfig;
-use super::{apply_noise, generate_test_signal};
+use super::{NoiseConfig, apply_noise, generate_test_signal};
 
 #[derive(Debug, Clone, Default)]
 pub struct BearingMeasurement {
@@ -117,7 +116,7 @@ pub fn measure_error_across_bearings(
     let mut corr_errors = Vec::new();
 
     for &bearing in test_bearings {
-        let signal = generate_test_signal(0.5, sample_rate, rotation_hz, rotation_hz, bearing);
+        let signal = generate_test_signal(0.5, sample_rate, rotation_hz, bearing);
 
         let doppler: Vec<f32> = signal.iter().step_by(2).copied().collect();
         let north_tick: Vec<f32> = signal.iter().skip(1).step_by(2).copied().collect();

@@ -83,7 +83,7 @@ impl SimpleNorthTracker {
             ticks.push(NorthTick {
                 sample_index: global_sample,
                 period: self.samples_per_rotation,
-                lock_quality: None,
+                lock_quality: self.lock_quality(),
                 phase: 0.0, // By definition, tick = north = 0 radians
                 frequency,
             });

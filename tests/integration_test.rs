@@ -14,8 +14,7 @@ fn test_north_tick_detection() {
     let sample_rate = config.audio.sample_rate as f32;
     let rotation_hz = config.doppler.expected_freq;
 
-    let signal =
-        test_signals::generate_test_signal(1.0, sample_rate as u32, rotation_hz, rotation_hz, 0.0);
+    let signal = test_signals::generate_test_signal(1.0, sample_rate as u32, rotation_hz, 0.0);
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
 
@@ -60,7 +59,6 @@ fn calculate_bearing_from_synthetic(
     let signal = test_signals::generate_test_signal(
         0.5,
         sample_rate as u32,
-        config.doppler.expected_freq,
         config.doppler.expected_freq,
         bearing_degrees,
     );

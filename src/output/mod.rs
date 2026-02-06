@@ -25,6 +25,8 @@ pub struct BearingOutput {
     pub snr_db: f32,
     pub coherence: f32,
     pub signal_strength: f32,
+    pub lock_quality: Option<f32>,
+    pub phase_error_variance: Option<f32>,
 }
 
 pub trait Formatter: Send {

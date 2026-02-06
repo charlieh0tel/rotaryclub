@@ -1,5 +1,5 @@
 use rotaryclub::config::RdfConfig;
-use rotaryclub::test_utils::{
+use rotaryclub::simulation::{
     FadingType, MultipathComponent, NoiseConfig, angle_error, apply_noise, generate_test_signal,
     measure_bearing,
 };
@@ -30,7 +30,7 @@ fn run_trial(
     bearing: f32,
     noise_config: &NoiseConfig,
 ) -> (Option<f32>, Option<f32>) {
-    let signal = generate_test_signal(0.5, sample_rate, rotation_hz, rotation_hz, bearing);
+    let signal = generate_test_signal(0.5, sample_rate, rotation_hz, bearing);
     let doppler: Vec<f32> = signal.iter().step_by(2).copied().collect();
     let north_tick: Vec<f32> = signal.iter().skip(1).step_by(2).copied().collect();
 

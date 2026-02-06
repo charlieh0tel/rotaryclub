@@ -5,12 +5,11 @@ pub const NORTH_TICK_AMPLITUDE: f32 = 0.8;
 
 /// Generate synthetic RDF test signal with fixed bearing
 /// Returns interleaved stereo samples [L, R, L, R, ...]
-/// By default: Left = Doppler tone, Right = North tick
+/// Left = Doppler tone, Right = North tick
 pub fn generate_test_signal(
     duration_secs: f32,
     sample_rate: u32,
     rotation_hz: f32,
-    _doppler_tone_hz: f32,
     bearing_degrees: f32,
 ) -> Vec<f32> {
     generate_test_signal_with_bearing_fn(duration_secs, sample_rate, rotation_hz, |_| {
@@ -58,25 +57,22 @@ where
     samples
 }
 
-#[cfg(feature = "wav-export")]
-pub fn save_wav(filename: &str, samples: &[f32], sample_rate: u32) -> std::io::Result<()> {
-    use hound::{WavSpec, WavWriter};
+/// Generate a pure Doppler signal for a given bearing (no north tick)
+pub fn generate_doppler_signal_for_bearing(
+    num_samples: usize,
+    sample_rate: f32,
+    rotation_hz: f32,
+    bearing_degrees: f32,
+) -> Vec<f32> {
+    let bearing_radians = bearing_degrees.to_radians();
+    let omega = 2.0 * PI * rotation_hz;
 
-    let spec = WavSpec {
-        channels: 2,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-
-    let mut writer = WavWriter::create(filename, spec)?;
-
-    for &sample in samples {
-        writer.write_sample(sample)?;
-    }
-
-    writer.finalize()?;
-    Ok(())
+    (0..num_samples)
+        .map(|i| {
+            let t = i as f32 / sample_rate;
+            (omega * t - bearing_radians).sin()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -85,13 +81,13 @@ mod tests {
 
     #[test]
     fn test_generate_signal_length() {
-        let signal = generate_test_signal(1.0, 48000, 500.0, 500.0, 0.0);
+        let signal = generate_test_signal(1.0, 48000, 500.0, 0.0);
         assert_eq!(signal.len(), 48000 * 2);
     }
 
     #[test]
     fn test_generate_signal_interleaved() {
-        let signal = generate_test_signal(0.01, 48000, 500.0, 500.0, 0.0);
+        let signal = generate_test_signal(0.01, 48000, 500.0, 0.0);
 
         assert_eq!(signal.len() % 2, 0);
 
@@ -114,7 +110,7 @@ mod tests {
     #[test]
     fn test_generate_multiple_bearings() {
         for bearing in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
-            let signal = generate_test_signal(0.1, 48000, 500.0, 500.0, bearing);
+            let signal = generate_test_signal(0.1, 48000, 500.0, bearing);
             assert_eq!(signal.len(), 4800 * 2);
         }
     }

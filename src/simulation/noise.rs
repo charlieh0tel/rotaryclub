@@ -4,7 +4,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Normal};
 use std::f32::consts::PI;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize)]
 pub struct NoiseConfig {
     pub seed: Option<u64>,
     pub additive: Option<AdditiveNoiseConfig>,
@@ -69,49 +69,51 @@ impl NoiseConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct AdditiveNoiseConfig {
     pub snr_db: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum FadingType {
     Rayleigh,
     Rician { k_factor: f32 },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct FadingConfig {
+    #[serde(flatten)]
     pub fading_type: FadingType,
     pub doppler_spread_hz: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MultipathComponent {
     pub delay_samples: usize,
     pub amplitude: f32,
     pub phase_offset: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MultipathConfig {
     pub components: Vec<MultipathComponent>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct DoublingConfig {
     pub second_bearing_degrees: f32,
     pub amplitude_ratio: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct ImpulseNoiseConfig {
     pub rate_hz: f32,
     pub amplitude: f32,
     pub duration_samples: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct FrequencyDriftConfig {
     pub max_deviation_hz: f32,
     pub drift_rate_hz_per_sec: f32,
@@ -283,26 +285,9 @@ fn apply_impulse_noise(
     }
 }
 
-pub fn generate_doppler_signal_for_bearing(
-    num_samples: usize,
-    sample_rate: f32,
-    rotation_hz: f32,
-    bearing_degrees: f32,
-) -> Vec<f32> {
-    let bearing_radians = bearing_degrees.to_radians();
-    let omega = 2.0 * PI * rotation_hz;
-
-    (0..num_samples)
-        .map(|i| {
-            let t = i as f32 / sample_rate;
-            (omega * t - bearing_radians).sin()
-        })
-        .collect()
-}
-
 fn apply_doubling(signal: &mut [f32], config: &DoublingConfig, sample_rate: f32, rotation_hz: f32) {
     let n = signal.len();
-    let second_signal = generate_doppler_signal_for_bearing(
+    let second_signal = super::signal::generate_doppler_signal_for_bearing(
         n,
         sample_rate,
         rotation_hz,
@@ -379,10 +364,9 @@ pub fn generate_noisy_test_signal(
     bearing_degrees: f32,
     noise_config: &NoiseConfig,
 ) -> Vec<f32> {
-    let clean = super::generate::generate_test_signal(
+    let clean = super::signal::generate_test_signal(
         duration_secs,
         sample_rate,
-        rotation_hz,
         rotation_hz,
         bearing_degrees,
     );
@@ -403,6 +387,7 @@ pub fn generate_noisy_test_signal(
 
 #[cfg(test)]
 mod tests {
+    use super::super::signal::generate_doppler_signal_for_bearing;
     use super::*;
 
     #[test]

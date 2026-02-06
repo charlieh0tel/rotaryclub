@@ -1,0 +1,23 @@
+# Example noise configuration for synthetic WAV generation
+
+[awgn]
+snr_db = 20.0
+
+[fading]
+type = "rayleigh"
+doppler_spread_hz = 5.0
+
+[[multipath]]
+delay_samples = 10
+amplitude = 0.3
+phase_offset = 0.0
+
+[[multipath]]
+delay_samples = 25
+amplitude = 0.15
+phase_offset = 1.57
+
+[impulse]
+rate_hz = 50.0
+amplitude = 2.0
+duration_samples = 5

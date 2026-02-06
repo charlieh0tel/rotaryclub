@@ -25,6 +25,7 @@ pub struct NorthTick {
 pub trait NorthTracker {
     fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick>;
     fn rotation_frequency(&self) -> Option<f32>;
+    #[allow(dead_code)]
     fn lock_quality(&self) -> Option<f32>;
     fn phase_error_variance(&self) -> Option<f32>;
 }
