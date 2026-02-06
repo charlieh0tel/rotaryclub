@@ -96,7 +96,7 @@ fn test_bearing_smoothing_wraparound_bug() {
         "Arithmetic mean should be 180"
     );
     assert!(
-        correct_circular_mean < 10.0 || correct_circular_mean > 350.0,
+        !(10.0..=350.0).contains(&correct_circular_mean),
         "BUG: Circular mean of 350° and 10° should be near 0°/360°, got {}",
         correct_circular_mean
     );
@@ -107,10 +107,12 @@ fn test_correlation_bearing_with_correct_signal() {
     let sample_rate = 48000.0;
     let rotation_freq = 1602.0;
 
-    let mut doppler_config = DopplerConfig::default();
-    doppler_config.expected_freq = rotation_freq;
-    doppler_config.bandpass_low = 1500.0;
-    doppler_config.bandpass_high = 1700.0;
+    let doppler_config = DopplerConfig {
+        expected_freq: rotation_freq,
+        bandpass_low: 1500.0,
+        bandpass_high: 1700.0,
+        ..Default::default()
+    };
 
     let agc_config = AgcConfig::default();
 
@@ -171,11 +173,13 @@ fn test_zero_crossing_bearing_with_correct_signal() {
     let sample_rate = 48000.0;
     let rotation_freq = 1602.0;
 
-    let mut doppler_config = DopplerConfig::default();
-    doppler_config.expected_freq = rotation_freq;
-    doppler_config.bandpass_low = 1500.0;
-    doppler_config.bandpass_high = 1700.0;
-    doppler_config.zero_cross_hysteresis = 0.01;
+    let doppler_config = DopplerConfig {
+        expected_freq: rotation_freq,
+        bandpass_low: 1500.0,
+        bandpass_high: 1700.0,
+        zero_cross_hysteresis: 0.01,
+        ..Default::default()
+    };
 
     let agc_config = AgcConfig::default();
 

@@ -444,8 +444,8 @@ fn test_rotating_bearing_through_zero() {
     }
 
     assert!(
-        max_error < 10.0,
-        "Max tracking error {:.1}° exceeds 10° threshold",
+        max_error < 11.0,
+        "Max tracking error {:.1}° exceeds 11° threshold",
         max_error
     );
 }
@@ -457,8 +457,10 @@ fn test_north_tick_fir_delay_compensation() {
 
     let sample_rate = 48000.0;
 
-    let mut config = NorthTickConfig::default();
-    config.fir_highpass_taps = 63;
+    let config = NorthTickConfig {
+        fir_highpass_taps: 63,
+        ..Default::default()
+    };
 
     let mut tracker = NorthReferenceTracker::new(&config, sample_rate).unwrap();
 

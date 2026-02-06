@@ -10,6 +10,102 @@
 //! north_tick_channel: ChannelRole::Right,  // or ChannelRole::Left
 //! ```
 
+use std::fmt;
+use std::str::FromStr;
+
+/// Rotation frequency specification
+///
+/// Can be specified as either a frequency in Hz or a period in microseconds.
+/// Useful when the exact period is known but the frequency is a repeating decimal.
+///
+/// # Parsing formats
+/// - `1602.564` - frequency in Hz (no suffix)
+/// - `1602.564hz` or `1602.564Hz` - frequency in Hz (explicit)
+/// - `624us` or `624μs` - period in microseconds
+///
+/// # Example
+/// ```
+/// use rotaryclub::config::RotationFrequency;
+///
+/// // 624 μs period = 1602.5641025641... Hz
+/// let freq: RotationFrequency = "624us".parse().unwrap();
+/// assert!((freq.as_hz() - 1602.564).abs() < 0.001);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct RotationFrequency(f32);
+
+impl RotationFrequency {
+    /// Create from frequency in Hz
+    pub fn from_hz(hz: f32) -> Self {
+        Self(hz)
+    }
+
+    /// Create from period in microseconds
+    pub fn from_interval_us(us: f32) -> Self {
+        Self(1_000_000.0 / us)
+    }
+
+    /// Get frequency in Hz
+    pub fn as_hz(&self) -> f32 {
+        self.0
+    }
+
+    /// Get period in microseconds
+    #[allow(dead_code)]
+    pub fn as_interval_us(&self) -> f32 {
+        1_000_000.0 / self.0
+    }
+}
+
+impl Default for RotationFrequency {
+    fn default() -> Self {
+        // 624 μs period = 1602.5641025641... Hz
+        Self::from_interval_us(624.0)
+    }
+}
+
+impl fmt::Display for RotationFrequency {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.3}hz", self.0)
+    }
+}
+
+impl FromStr for RotationFrequency {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        // Check for microsecond suffix (us or μs)
+        if let Some(num) = s.strip_suffix("us").or_else(|| s.strip_suffix("μs")) {
+            let us: f32 = num
+                .trim()
+                .parse()
+                .map_err(|_| format!("invalid interval: {}", s))?;
+            if us <= 0.0 {
+                return Err("interval must be positive".to_string());
+            }
+            return Ok(Self::from_interval_us(us));
+        }
+
+        // Check for Hz suffix (case insensitive)
+        let num = s
+            .strip_suffix("hz")
+            .or_else(|| s.strip_suffix("Hz"))
+            .or_else(|| s.strip_suffix("HZ"))
+            .unwrap_or(s);
+
+        let hz: f32 = num
+            .trim()
+            .parse()
+            .map_err(|_| format!("invalid frequency: {}", s))?;
+        if hz <= 0.0 {
+            return Err("frequency must be positive".to_string());
+        }
+        Ok(Self::from_hz(hz))
+    }
+}
+
 /// Channel assignment for stereo input
 ///
 /// Specifies which physical audio channel carries which signal type.
@@ -124,7 +220,7 @@ pub struct DpllConfig {
 impl Default for DpllConfig {
     fn default() -> Self {
         Self {
-            initial_frequency_hz: 1602.0,
+            initial_frequency_hz: 1_000_000.0 / 624.0, // 624 μs period
             natural_frequency_hz: 10.0,
             damping_ratio: 0.707,
             frequency_min_hz: 1400.0,
@@ -222,7 +318,7 @@ impl Default for AudioConfig {
 impl Default for DopplerConfig {
     fn default() -> Self {
         Self {
-            expected_freq: 1602.0,
+            expected_freq: 1_000_000.0 / 624.0, // 624 μs period
             bandpass_low: 1350.0,
             bandpass_high: 1850.0,
             filter_order: 4,
@@ -264,5 +360,45 @@ impl Default for AgcConfig {
             release_time_ms: 100.0,
             measurement_window_ms: 10.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rotation_frequency_from_hz() {
+        let freq: RotationFrequency = "1602.564".parse().unwrap();
+        assert!((freq.as_hz() - 1602.564).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_rotation_frequency_from_hz_explicit() {
+        let freq: RotationFrequency = "1602.564hz".parse().unwrap();
+        assert!((freq.as_hz() - 1602.564).abs() < 0.001);
+
+        let freq: RotationFrequency = "1602.564Hz".parse().unwrap();
+        assert!((freq.as_hz() - 1602.564).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_rotation_frequency_from_interval_us() {
+        // 624 μs = 1602.5641025641... Hz
+        let freq: RotationFrequency = "624us".parse().unwrap();
+        assert!((freq.as_hz() - 1602.5641).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_rotation_frequency_from_interval_unicode() {
+        let freq: RotationFrequency = "624μs".parse().unwrap();
+        assert!((freq.as_hz() - 1602.5641).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_rotation_frequency_invalid() {
+        assert!("abc".parse::<RotationFrequency>().is_err());
+        assert!("-100hz".parse::<RotationFrequency>().is_err());
+        assert!("0us".parse::<RotationFrequency>().is_err());
     }
 }

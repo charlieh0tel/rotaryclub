@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use rotaryclub::config::RotationFrequency;
 use rotaryclub::save_wav;
 use rotaryclub::simulation::{
     AdditiveNoiseConfig, FadingConfig, FadingType, ImpulseNoiseConfig, MultipathComponent,
@@ -41,9 +42,9 @@ struct Args {
     #[arg(long, default_value_t = 48000)]
     sample_rate: u32,
 
-    /// Rotation frequency in Hz
-    #[arg(long, default_value_t = 1602.564)]
-    rotation_hz: f32,
+    /// Rotation frequency (e.g., "1602.564", "1602.564hz", "624us")
+    #[arg(long, default_value = "624us")]
+    rotation: RotationFrequency,
 
     /// Output filename prefix
     #[arg(long, default_value = "synth")]
@@ -237,7 +238,7 @@ fn main() -> Result<()> {
             let signal = generate_noisy_test_signal(
                 args.duration,
                 args.sample_rate,
-                args.rotation_hz,
+                args.rotation.as_hz(),
                 bearing,
                 &noise_config,
             );
@@ -264,7 +265,7 @@ fn main() -> Result<()> {
     if args.manifest {
         let manifest = Manifest {
             sample_rate: args.sample_rate,
-            rotation_hz: args.rotation_hz,
+            rotation_hz: args.rotation.as_hz(),
             duration: args.duration,
             files: manifest_entries,
         };

@@ -11,7 +11,7 @@ mod rdf;
 mod signal_processing;
 
 use audio::{AudioRingBuffer, AudioSource, DeviceSource, WavFileSource};
-use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig};
+use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency};
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
 use rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTracker,
@@ -29,6 +29,10 @@ struct Args {
     /// North tick tracking mode
     #[arg(short = 'n', long, value_enum, default_value = "dpll")]
     north_mode: NorthTrackingMode,
+
+    /// Rotation frequency (e.g., "1602", "1602hz", "624us")
+    #[arg(long)]
+    rotation: Option<RotationFrequency>,
 
     /// Swap left/right channels
     #[arg(short = 's', long)]
@@ -73,6 +77,12 @@ fn main() -> anyhow::Result<()> {
     config.north_tick.mode = args.north_mode;
     config.bearing.output_rate_hz = args.output_rate;
     config.bearing.north_offset_degrees = args.north_offset;
+
+    if let Some(rotation) = args.rotation {
+        let hz = rotation.as_hz();
+        config.doppler.expected_freq = hz;
+        config.north_tick.dpll.initial_frequency_hz = hz;
+    }
 
     if args.swap_channels {
         // Swap the channels

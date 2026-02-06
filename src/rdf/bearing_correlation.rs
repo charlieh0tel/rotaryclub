@@ -229,10 +229,12 @@ mod tests {
     #[test]
     fn test_bearing_from_known_phase() {
         let sample_rate = 48000.0;
-        let mut doppler_config = DopplerConfig::default();
-        doppler_config.expected_freq = 480.0;
-        doppler_config.bandpass_low = 400.0;
-        doppler_config.bandpass_high = 560.0;
+        let doppler_config = DopplerConfig {
+            expected_freq: 480.0,
+            bandpass_low: 400.0,
+            bandpass_high: 560.0,
+            ..Default::default()
+        };
 
         let agc_config = AgcConfig::default();
         let mut calc =
