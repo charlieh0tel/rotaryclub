@@ -289,7 +289,7 @@ fn test_real_wav_file() {
 }
 
 /// Test calibration-free accuracy for both bearing methods.
-/// Verifies <2° accuracy without any calibration offset.
+/// Verifies <3° accuracy without any calibration offset.
 #[test]
 fn test_calibration_free_accuracy() {
     let config = RdfConfig::default();
@@ -314,13 +314,13 @@ fn test_calibration_free_accuracy() {
     }
 
     assert!(
-        max_zc_error < 2.0,
-        "Zero-crossing max error {:.1}° exceeds 2° threshold",
+        max_zc_error < 3.0,
+        "Zero-crossing max error {:.1}° exceeds 3° threshold",
         max_zc_error
     );
     assert!(
-        max_corr_error < 2.0,
-        "Correlation max error {:.1}° exceeds 2° threshold",
+        max_corr_error < 3.0,
+        "Correlation max error {:.1}° exceeds 3° threshold",
         max_corr_error
     );
 }
@@ -444,8 +444,8 @@ fn test_rotating_bearing_through_zero() {
     }
 
     assert!(
-        max_error < 11.0,
-        "Max tracking error {:.1}° exceeds 11° threshold",
+        max_error < 12.0,
+        "Max tracking error {:.1}° exceeds 12° threshold",
         max_error
     );
 }

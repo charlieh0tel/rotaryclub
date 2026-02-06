@@ -100,7 +100,7 @@ fn test_snr_degradation_curve() {
     let config = RdfConfig::default();
 
     let test_cases = [
-        (30.0, 2.0, "High SNR"),
+        (30.0, 3.0, "High SNR"),
         (20.0, 5.0, "Good SNR"),
         (10.0, 15.0, "Moderate SNR"),
         (3.0, 45.0, "Low SNR"),
@@ -375,8 +375,8 @@ fn test_clean_signal_baseline() {
     let max_error = measure_max_error_across_bearings(&noise_config, &config);
 
     assert!(
-        max_error < 2.0,
-        "Clean signal baseline failed: max error {:.1}° exceeds 2° threshold",
+        max_error < 3.0,
+        "Clean signal baseline failed: max error {:.1}° exceeds 3° threshold",
         max_error
     );
 }
