@@ -24,6 +24,8 @@ use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick}
 pub struct ZeroCrossingBearingCalculator {
     base: BearingCalculatorBase,
     zero_detector: ZeroCrossingDetector,
+    preprocessed_len: usize,
+    crossings: Vec<f32>,
 }
 
 impl ZeroCrossingBearingCalculator {
@@ -43,34 +45,19 @@ impl ZeroCrossingBearingCalculator {
         Ok(Self {
             base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
             zero_detector: ZeroCrossingDetector::new(doppler_config.zero_cross_hysteresis),
+            preprocessed_len: 0,
+            crossings: Vec::new(),
         })
     }
 
-    fn process_buffer_impl(
-        &mut self,
-        doppler_buffer: &[f32],
-        north_tick: &NorthTick,
-    ) -> Option<BearingMeasurement> {
-        self.base.preprocess(doppler_buffer);
-
-        // Find zero crossings in the filtered buffer
-        let crossings = self
-            .zero_detector
-            .find_all_crossings(&self.base.work_buffer);
-
-        if crossings.is_empty() {
-            self.base.advance_counter(doppler_buffer.len());
+    fn process_tick_impl(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement> {
+        if self.crossings.is_empty() {
             return None;
         }
 
-        // Calculate base offset from north tick
-        let base_offset = match self.base.offset_from_north_tick(north_tick) {
-            Some(offset) => offset,
-            None => {
-                self.base.advance_counter(doppler_buffer.len());
-                return None;
-            }
-        };
+        // Calculate base offset from north tick using buffered position
+        // Can be negative if tick is within the current buffer
+        let base_offset = self.base.offset_from_north_tick(north_tick);
 
         // Get rotation period
         let samples_per_rotation = north_tick.period?;
@@ -83,7 +70,8 @@ impl ZeroCrossingBearingCalculator {
         // Add the north tick timing adjustment for FIR highpass filter effects.
         let group_delay = self.base.filter_group_delay() as f32;
         let tick_adjustment = self.base.north_tick_timing_adjustment();
-        let (sum_x, sum_y) = crossings
+        let (sum_x, sum_y) = self
+            .crossings
             .iter()
             .map(|&crossing_idx| {
                 let samples_since_tick =
@@ -102,9 +90,7 @@ impl ZeroCrossingBearingCalculator {
         // Apply smoothing
         let smoothed_bearing = self.base.smooth_bearing(raw_bearing);
 
-        self.base.advance_counter(doppler_buffer.len());
-
-        let metrics = self.calculate_metrics(&crossings, samples_per_rotation);
+        let metrics = self.calculate_metrics(&self.crossings, samples_per_rotation);
 
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
@@ -161,12 +147,21 @@ impl ZeroCrossingBearingCalculator {
 }
 
 impl BearingCalculator for ZeroCrossingBearingCalculator {
-    fn process_buffer(
-        &mut self,
-        doppler_buffer: &[f32],
-        north_tick: &NorthTick,
-    ) -> Option<BearingMeasurement> {
-        self.process_buffer_impl(doppler_buffer, north_tick)
+    fn preprocess(&mut self, doppler_buffer: &[f32]) {
+        self.base.preprocess(doppler_buffer);
+        self.preprocessed_len = doppler_buffer.len();
+        // Find zero crossings once per buffer
+        self.crossings = self
+            .zero_detector
+            .find_all_crossings(&self.base.work_buffer);
+    }
+
+    fn process_tick(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement> {
+        self.process_tick_impl(north_tick)
+    }
+
+    fn advance_buffer(&mut self) {
+        self.base.advance_counter(self.preprocessed_len);
     }
 }
 

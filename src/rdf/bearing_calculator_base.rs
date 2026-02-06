@@ -13,6 +13,7 @@ pub struct BearingCalculatorBase {
     bandpass: FirBandpass,
     filter_group_delay: usize,
     pub sample_counter: usize,
+    buffer_start_sample: usize,
     bearing_smoother: MovingAverage,
     pub work_buffer: Vec<f32>,
 }
@@ -37,24 +38,27 @@ impl BearingCalculatorBase {
             bandpass,
             filter_group_delay,
             sample_counter: 0,
+            buffer_start_sample: 0,
             bearing_smoother: MovingAverage::new(smoothing),
             work_buffer: Vec::new(),
         })
     }
 
-    /// Preprocess the input buffer: copy to work buffer, apply AGC and bandpass filter
+    /// Preprocess the input buffer: copy to work buffer, apply AGC and bandpass filter.
+    /// Also records the buffer start position for multi-tick processing.
     pub fn preprocess(&mut self, input: &[f32]) {
+        self.buffer_start_sample = self.sample_counter;
         self.work_buffer.clear();
         self.work_buffer.extend_from_slice(input);
         self.agc.process_buffer(&mut self.work_buffer);
         self.bandpass.process_buffer(&mut self.work_buffer);
     }
 
-    /// Calculate the sample offset from the north tick
-    ///
-    /// Returns `None` if the north tick is in the future (invalid state).
-    pub fn offset_from_north_tick(&self, north_tick: &NorthTick) -> Option<usize> {
-        self.sample_counter.checked_sub(north_tick.sample_index)
+    /// Calculate the sample offset from the north tick using buffer_start_sample.
+    /// Returns buffer_start_sample - tick.sample_index (can be negative if tick is
+    /// within the current buffer).
+    pub fn offset_from_north_tick(&self, north_tick: &NorthTick) -> isize {
+        self.buffer_start_sample as isize - north_tick.sample_index as isize
     }
 
     /// Get the fractional north tick timing adjustment in samples

@@ -21,6 +21,7 @@ use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick}
 /// than zero-crossing detection, at the cost of slightly higher CPU usage.
 pub struct CorrelationBearingCalculator {
     base: BearingCalculatorBase,
+    preprocessed_len: usize,
 }
 
 impl CorrelationBearingCalculator {
@@ -39,34 +40,23 @@ impl CorrelationBearingCalculator {
     ) -> Result<Self> {
         Ok(Self {
             base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
+            preprocessed_len: 0,
         })
     }
 
-    fn process_buffer_impl(
-        &mut self,
-        doppler_buffer: &[f32],
-        north_tick: &NorthTick,
-    ) -> Option<BearingMeasurement> {
-        self.base.preprocess(doppler_buffer);
-
-        // Calculate base offset from north tick
-        let base_offset = match self.base.offset_from_north_tick(north_tick) {
-            Some(offset) => offset,
-            None => {
-                self.base.advance_counter(doppler_buffer.len());
-                return None;
-            }
-        };
+    fn process_tick_impl(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement> {
+        // Calculate base offset from north tick using buffered position
+        // Can be negative if tick is within the current buffer
+        let base_offset = self.base.offset_from_north_tick(north_tick);
 
         // Use DPLL's tracked frequency directly
         let omega = north_tick.frequency;
         if omega <= 0.0 {
-            self.base.advance_counter(doppler_buffer.len());
             return None;
         }
 
         // I/Q demodulation: correlate with cos and sin using DPLL's phase tracking
-        // base_offset is already (sample_counter - tick.sample_index), i.e., samples since tick.
+        // base_offset is (buffer_start - tick.sample_index), can be negative.
         // Account for FIR filter group delay in the doppler path.
         let mut i_sum = 0.0;
         let mut q_sum = 0.0;
@@ -76,7 +66,8 @@ impl CorrelationBearingCalculator {
 
         for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
             // Samples since the north tick, compensated for filter delay
-            let samples_since_tick = (base_offset + idx) as f32 - group_delay + tick_adjustment;
+            let samples_since_tick =
+                (base_offset + idx as isize) as f32 - group_delay + tick_adjustment;
             // Phase from DPLL: start at tick phase, advance by omega per sample
             let phase = north_tick.phase + samples_since_tick * omega;
 
@@ -95,8 +86,7 @@ impl CorrelationBearingCalculator {
         let correlation_magnitude = (i * i + q * q).sqrt();
 
         // Calculate confidence metrics
-        let metrics =
-            self.calculate_metrics(north_tick, base_offset, signal_power, correlation_magnitude);
+        let metrics = self.calculate_metrics(north_tick, signal_power, correlation_magnitude);
 
         // Extract bearing directly from I/Q
         // Our signal is: A * sin(ω*t - φ) where φ is the bearing (note the minus!)
@@ -115,8 +105,6 @@ impl CorrelationBearingCalculator {
         // Apply smoothing
         let smoothed_bearing = self.base.smooth_bearing(raw_bearing);
 
-        self.base.advance_counter(doppler_buffer.len());
-
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
@@ -128,7 +116,6 @@ impl CorrelationBearingCalculator {
     fn calculate_metrics(
         &self,
         north_tick: &NorthTick,
-        base_offset: usize,
         signal_power: f32,
         correlation_magnitude: f32,
     ) -> ConfidenceMetrics {
@@ -148,6 +135,7 @@ impl CorrelationBearingCalculator {
         let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
         let group_delay = self.base.filter_group_delay() as f32;
         let omega = north_tick.frequency;
+        let base_offset = self.base.offset_from_north_tick(north_tick);
 
         let tick_adjustment = self.base.north_tick_timing_adjustment();
         for (win_idx, phase) in phases.iter_mut().enumerate() {
@@ -159,7 +147,7 @@ impl CorrelationBearingCalculator {
 
             for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
                 let samples_since_tick =
-                    (base_offset + start + idx) as f32 - group_delay + tick_adjustment;
+                    (base_offset + (start + idx) as isize) as f32 - group_delay + tick_adjustment;
                 let p = north_tick.phase + samples_since_tick * omega;
                 i_win += sample * p.cos();
                 q_win += sample * p.sin();
@@ -199,12 +187,17 @@ impl CorrelationBearingCalculator {
 }
 
 impl BearingCalculator for CorrelationBearingCalculator {
-    fn process_buffer(
-        &mut self,
-        doppler_buffer: &[f32],
-        north_tick: &NorthTick,
-    ) -> Option<BearingMeasurement> {
-        self.process_buffer_impl(doppler_buffer, north_tick)
+    fn preprocess(&mut self, doppler_buffer: &[f32]) {
+        self.base.preprocess(doppler_buffer);
+        self.preprocessed_len = doppler_buffer.len();
+    }
+
+    fn process_tick(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement> {
+        self.process_tick_impl(north_tick)
+    }
+
+    fn advance_buffer(&mut self) {
+        self.base.advance_counter(self.preprocessed_len);
     }
 }
 

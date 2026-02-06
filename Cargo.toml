@@ -45,6 +45,9 @@ required-features = ["simulation"]
 name = "noise_analysis"
 required-features = ["simulation"]
 
+[[bin]]
+name = "analyze_wav"
+
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
 

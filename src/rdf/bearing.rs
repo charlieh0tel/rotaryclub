@@ -7,11 +7,30 @@ const COHERENCE_WEIGHT: f32 = 0.4;
 const SIGNAL_STRENGTH_WEIGHT: f32 = 0.2;
 
 pub trait BearingCalculator {
+    /// Preprocess the doppler buffer (AGC + bandpass filter).
+    /// Call this once per audio buffer before processing multiple ticks.
+    fn preprocess(&mut self, doppler_buffer: &[f32]);
+
+    /// Process a single north tick using the preprocessed buffer.
+    /// Must call `preprocess` first.
+    fn process_tick(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement>;
+
+    /// Advance the sample counter after processing all ticks for a buffer.
+    /// Call this once after all `process_tick` calls for a preprocessed buffer.
+    fn advance_buffer(&mut self);
+
+    /// Convenience method that preprocesses and processes in one call.
+    /// Use `preprocess` + `process_tick` + `advance_buffer` when processing multiple ticks per buffer.
     fn process_buffer(
         &mut self,
         doppler_buffer: &[f32],
         north_tick: &NorthTick,
-    ) -> Option<BearingMeasurement>;
+    ) -> Option<BearingMeasurement> {
+        self.preprocess(doppler_buffer);
+        let result = self.process_tick(north_tick);
+        self.advance_buffer();
+        result
+    }
 }
 
 /// Convert phase angle to bearing in degrees
