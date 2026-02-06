@@ -14,6 +14,7 @@ pub struct SimpleNorthTracker {
     samples_per_rotation: Option<f32>,
     sample_counter: usize,
     sample_rate: f32,
+    filter_buffer: Vec<f32>,
 }
 
 impl SimpleNorthTracker {
@@ -37,14 +38,16 @@ impl SimpleNorthTracker {
             samples_per_rotation: None,
             sample_counter: 0,
             sample_rate,
+            filter_buffer: Vec::new(),
         })
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
-        let mut filtered = buffer.to_vec();
-        self.highpass.process_buffer(&mut filtered);
+        self.filter_buffer.resize(buffer.len(), 0.0);
+        self.filter_buffer.copy_from_slice(buffer);
+        self.highpass.process_buffer(&mut self.filter_buffer);
 
-        let peaks = self.peak_detector.find_all_peaks(&filtered);
+        let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
 
         // Total delay compensation: group_delay + threshold_crossing_offset
         let group_delay = self.highpass.group_delay_samples() as f32;

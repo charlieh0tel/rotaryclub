@@ -28,6 +28,9 @@ pub struct DpllNorthTracker {
     // Statistics for lock quality
     phase_error_stats: Stats<f32>,
     freq_stats: Stats<f32>,
+
+    // Pre-allocated buffer for filtering
+    filter_buffer: Vec<f32>,
 }
 
 impl DpllNorthTracker {
@@ -71,78 +74,91 @@ impl DpllNorthTracker {
             sample_rate,
             phase_error_stats: Stats::new(),
             freq_stats: Stats::new(),
+            filter_buffer: Vec::new(),
         })
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
-        let mut filtered = buffer.to_vec();
-        self.highpass.process_buffer(&mut filtered);
+        self.filter_buffer.resize(buffer.len(), 0.0);
+        self.filter_buffer.copy_from_slice(buffer);
+        self.highpass.process_buffer(&mut self.filter_buffer);
 
-        let peaks = self.peak_detector.find_all_peaks(&filtered);
+        let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
 
         // Total delay compensation: group_delay + threshold_crossing_offset
         let group_delay = self.highpass.group_delay_samples() as f32;
         let total_delay = (group_delay + self.threshold_crossing_offset).round() as usize;
 
-        let mut ticks = Vec::new();
+        let mut ticks = Vec::with_capacity(peaks.len());
+        let two_pi = 2.0 * PI;
 
-        for (i, &_sample) in buffer.iter().enumerate() {
-            let global_sample = self.sample_counter + i;
-
-            // Update PLL phase
-            self.phase += self.frequency;
-            if self.phase >= 2.0 * PI {
-                self.phase -= 2.0 * PI;
+        let mut last_sample_idx = 0;
+        for &peak_idx in &peaks {
+            // Advance PLL phase from last_sample_idx to peak_idx
+            let samples_to_advance = peak_idx - last_sample_idx;
+            self.phase += self.frequency * samples_to_advance as f32;
+            // Wrap phase efficiently
+            if self.phase >= two_pi {
+                self.phase -= (self.phase / two_pi).floor() * two_pi;
             }
 
-            // Check if we detected a peak at this sample
-            if peaks.contains(&i) {
-                // Phase error: how far are we from expected zero phase?
-                // When we detect a tick, we expect phase to be near 0
-                let mut phase_error = -self.phase;
+            let global_sample = self.sample_counter + peak_idx;
 
-                // Wrap phase error to [-π, π]
-                while phase_error > PI {
-                    phase_error -= 2.0 * PI;
-                }
-                while phase_error < -PI {
-                    phase_error += 2.0 * PI;
-                }
+            // Phase error: how far are we from expected zero phase?
+            // When we detect a tick, we expect phase to be near 0
+            let mut phase_error = -self.phase;
 
-                // Track phase error for variance calculation
-                self.phase_error_stats.update(phase_error);
+            // Wrap phase error to [-π, π]
+            if phase_error > PI {
+                phase_error -= two_pi;
+            } else if phase_error < -PI {
+                phase_error += two_pi;
+            }
 
-                // Update frequency and phase with PI controller
-                self.frequency += self.ki * phase_error;
-                self.phase += self.kp * phase_error;
+            // Track phase error for variance calculation
+            self.phase_error_stats.update(phase_error);
 
-                // Clamp frequency to configured range
-                self.frequency = self.frequency.clamp(self.min_omega, self.max_omega);
+            // Update frequency and phase with PI controller
+            self.frequency += self.ki * phase_error;
+            self.phase += self.kp * phase_error;
 
-                // Track frequency for stability calculation
-                self.freq_stats.update(self.frequency);
+            // Clamp frequency to configured range
+            self.frequency = self.frequency.clamp(self.min_omega, self.max_omega);
 
-                // Wrap phase after correction
-                if self.phase >= 2.0 * PI {
-                    self.phase -= 2.0 * PI;
-                } else if self.phase < 0.0 {
-                    self.phase += 2.0 * PI;
-                }
+            // Track frequency for stability calculation
+            self.freq_stats.update(self.frequency);
 
-                // Calculate period in samples from current frequency estimate
-                let period = 2.0 * PI / self.frequency;
+            // Wrap phase after correction
+            if self.phase >= two_pi {
+                self.phase -= two_pi;
+            } else if self.phase < 0.0 {
+                self.phase += two_pi;
+            }
 
-                // Compensate for filter delay: the filtered output at this sample
-                // corresponds to an input pulse that occurred total_delay samples earlier.
-                // For bearing calculation, tick defines north (phase=0).
-                // The DPLL's internal phase tracks jitter, but the reference is the tick itself.
-                ticks.push(NorthTick {
-                    sample_index: global_sample.saturating_sub(total_delay),
-                    period: Some(period),
-                    lock_quality: self.lock_quality(),
-                    phase: 0.0,
-                    frequency: self.frequency,
-                });
+            // Calculate period in samples from current frequency estimate
+            let period = two_pi / self.frequency;
+
+            // Compensate for filter delay: the filtered output at this sample
+            // corresponds to an input pulse that occurred total_delay samples earlier.
+            // For bearing calculation, tick defines north (phase=0).
+            // The DPLL's internal phase tracks jitter, but the reference is the tick itself.
+            ticks.push(NorthTick {
+                sample_index: global_sample.saturating_sub(total_delay),
+                period: Some(period),
+                lock_quality: self.lock_quality(),
+                phase: 0.0,
+                frequency: self.frequency,
+            });
+
+            last_sample_idx = peak_idx + 1;
+        }
+
+        // Advance phase for remaining samples after the last peak
+        if last_sample_idx < buffer.len() {
+            let remaining = buffer.len() - last_sample_idx;
+            self.phase += self.frequency * remaining as f32;
+            if self.phase >= two_pi {
+                self.phase -= (self.phase / two_pi).floor() * two_pi;
             }
         }
 
