@@ -74,25 +74,28 @@ def find_tick_rate(signal, rate, doppler_freq, hp_cutoffs=[3000, 5000, 8000], th
     return best_match
 
 
-def analyze_lock_quality(filepath, bandpass_low, bandpass_high, highpass_cutoff=5000.0):
+def analyze_lock_quality(filepath, bandpass_low, bandpass_high, highpass_cutoff=5000.0, swap_channels=False):
     """Analyze north tick channel for rotation rate and lock quality."""
     data, rate = sf.read(filepath)
 
-    if len(data.shape) > 1:
-        left = data[:, 0].astype(float)
-    else:
-        left = data.astype(float)
+    doppler_idx = 1 if swap_channels else 0
+    tick_idx = 0 if swap_channels else 1
 
-    doppler_freq = find_doppler_frequency(left, rate, bandpass_low, bandpass_high)
+    if len(data.shape) > 1:
+        doppler = data[:, doppler_idx].astype(float)
+    else:
+        doppler = data.astype(float)
+
+    doppler_freq = find_doppler_frequency(doppler, rate, bandpass_low, bandpass_high)
 
     if len(data.shape) < 2:
         return doppler_freq, None, None, None
 
-    right = data[:, 1].astype(float)
+    tick = data[:, tick_idx].astype(float)
 
     nyq = rate / 2
     b, a = butter(2, highpass_cutoff / nyq, btype='high')
-    filtered = filtfilt(b, a, right)
+    filtered = filtfilt(b, a, tick)
 
     threshold = np.std(filtered) * 3
     peaks, _ = find_peaks(np.abs(filtered), height=threshold, distance=int(rate / 2000))
@@ -118,7 +121,7 @@ def analyze_lock_quality(filepath, bandpass_low, bandpass_high, highpass_cutoff=
     return doppler_freq, rotation_freq, phase_error_var, lock_quality
 
 
-def analyze_tick_ratio(filepath, bandpass_low, bandpass_high):
+def analyze_tick_ratio(filepath, bandpass_low, bandpass_high, swap_channels=False):
     """Analyze both channels for doppler and tick signals."""
     data, rate = sf.read(filepath)
 
@@ -127,7 +130,12 @@ def analyze_tick_ratio(filepath, bandpass_low, bandpass_high):
 
     results = {'filepath': filepath, 'rate': rate, 'channels': []}
 
-    for ch_idx, ch_name in [(0, 'left'), (1, 'right')]:
+    if swap_channels:
+        channel_order = [(1, 'right (doppler)'), (0, 'left (tick)')]
+    else:
+        channel_order = [(0, 'left (doppler)'), (1, 'right (tick)')]
+
+    for ch_idx, ch_name in channel_order:
         channel = data[:, ch_idx].astype(float)
 
         doppler_freq = find_doppler_frequency(channel, rate, bandpass_low, bandpass_high)
@@ -145,32 +153,36 @@ def analyze_tick_ratio(filepath, bandpass_low, bandpass_high):
 
 def run_quality_mode(files, args):
     """Run lock quality analysis."""
-    print(f"{'File':<40} {'Doppler (Hz)':>12} {'NorthTick (Hz)':>14} {'PhaseVar':>10} {'LockQual':>10}")
-    print("-" * 90)
+    if args.swap_channels:
+        print("Channels: Doppler=Right, NorthTick=Left")
+    else:
+        print("Channels: Doppler=Left, NorthTick=Right")
+    print(f"{'File':<40} {'Doppler (Hz)':>14} {'NorthTick (Hz)':>14} {'PhaseVar':>12} {'LockQual':>10}")
+    print("-" * 94)
 
     for f in files:
         try:
             doppler_freq, north_freq, phase_var, lock_qual = analyze_lock_quality(
-                f, args.bandpass_low, args.bandpass_high)
+                f, args.bandpass_low, args.bandpass_high, swap_channels=args.swap_channels)
 
             name = f.split('/')[-1][:38]
-            north_str = f"{north_freq:14.1f}" if north_freq else "N/A".rjust(14)
-            phase_str = f"{phase_var:10.6f}" if phase_var is not None else "N/A".rjust(10)
-            lock_str = f"{lock_qual:10.3f}" if lock_qual is not None else "N/A".rjust(10)
+            north_str = f"{north_freq:14.4f}" if north_freq else "N/A".rjust(14)
+            phase_str = f"{phase_var:12.6f}" if phase_var is not None else "N/A".rjust(12)
+            lock_str = f"{lock_qual:10.4f}" if lock_qual is not None else "N/A".rjust(10)
 
-            print(f"{name:<40} {doppler_freq:>12.1f} {north_str} {phase_str} {lock_str}")
+            print(f"{name:<40} {doppler_freq:>14.4f} {north_str} {phase_str} {lock_str}")
         except Exception as e:
             print(f"{f}: error - {e}", file=sys.stderr)
 
 
 def run_ratio_mode(files, args):
     """Run tick/doppler ratio analysis."""
-    print(f"{'File':<40} {'Ch':<6} {'Doppler':>10} {'Tick':>10} {'Ratio':>8} {'Std':>8}")
-    print("-" * 88)
+    print(f"{'File':<40} {'Ch':<18} {'Doppler':>12} {'Tick':>12} {'Ratio':>8} {'Std':>10}")
+    print("-" * 104)
 
     for f in files:
         try:
-            results = analyze_tick_ratio(f, args.bandpass_low, args.bandpass_high)
+            results = analyze_tick_ratio(f, args.bandpass_low, args.bandpass_high, swap_channels=args.swap_channels)
             if results is None:
                 print(f"{f}: not stereo", file=sys.stderr)
                 continue
@@ -184,13 +196,13 @@ def run_ratio_mode(files, args):
                 if tick:
                     tick_freq = tick['tick_freq']
                     ratio_str = f"1/{tick['expected_ratio']}"
-                    std_str = f"{tick['interval_std']:.1f}"
-                    print(f"{name:<40} {ch['name']:<6} {doppler:>10.1f} {tick_freq:>10.1f} {ratio_str:>8} {std_str:>8}")
+                    std_str = f"{tick['interval_std']:.4f}"
+                    print(f"{name:<40} {ch['name']:<18} {doppler:>12.4f} {tick_freq:>12.4f} {ratio_str:>8} {std_str:>10}")
 
                     if args.verbose:
                         print(f"    HP>{tick['hp_cutoff']}Hz @ {tick['threshold_mult']}x std, {tick['n_ticks']} ticks")
                 else:
-                    print(f"{name:<40} {ch['name']:<6} {doppler:>10.1f} {'--':>10} {'--':>8} {'--':>8}")
+                    print(f"{name:<40} {ch['name']:<18} {doppler:>12.4f} {'--':>12} {'--':>8} {'--':>10}")
 
         except Exception as e:
             print(f"{f}: error - {e}", file=sys.stderr)
@@ -207,6 +219,8 @@ def main():
                         help='Bandpass upper cutoff (default: 1800)')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='Show detailed tick detection info (ratio mode only)')
+    parser.add_argument('-s', '--swap-channels', action='store_true',
+                        help='Swap left/right channels (doppler on right, tick on left)')
     args = parser.parse_args()
 
     files = args.files if args.files else sorted(glob.glob('data/*.wav'))
