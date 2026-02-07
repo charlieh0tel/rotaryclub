@@ -12,6 +12,7 @@ pub struct BearingCalculatorBase {
     agc: AutomaticGainControl,
     bandpass: FirBandpass,
     filter_group_delay: usize,
+    north_tick_timing_adjustment: f32,
     pub sample_counter: usize,
     buffer_start_sample: usize,
     bearing_smoother: MovingAverage,
@@ -37,6 +38,7 @@ impl BearingCalculatorBase {
             agc: AutomaticGainControl::new(agc_config, sample_rate),
             bandpass,
             filter_group_delay,
+            north_tick_timing_adjustment: doppler_config.north_tick_timing_adjustment,
             sample_counter: 0,
             buffer_start_sample: 0,
             bearing_smoother: MovingAverage::new(smoothing),
@@ -70,7 +72,7 @@ impl BearingCalculatorBase {
     ///
     /// This adjustment compensates for that discrete-sampling effect.
     pub fn north_tick_timing_adjustment(&self) -> f32 {
-        0.5
+        self.north_tick_timing_adjustment
     }
 
     /// Get the filter group delay in samples

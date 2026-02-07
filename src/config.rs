@@ -191,6 +191,11 @@ pub struct DopplerConfig {
     pub zero_cross_hysteresis: f32,
     /// Bearing calculation method to use
     pub method: BearingMethod,
+    /// North tick timing adjustment in samples.
+    /// The north tick detector triggers at the first sample above threshold,
+    /// but the actual threshold crossing occurs in the previous inter-sample
+    /// interval. This adjustment (typically 0.5) compensates for that offset.
+    pub north_tick_timing_adjustment: f32,
 }
 
 /// North reference tracking mode
@@ -261,6 +266,8 @@ pub struct BearingConfig {
     pub output_rate_hz: f32,
     /// North reference offset for calibration (degrees added to all bearings)
     pub north_offset_degrees: f32,
+    /// Timeout in seconds before warning about missing north tick (live capture only)
+    pub north_tick_warning_timeout_secs: f32,
 }
 
 /// Automatic gain control configuration
@@ -324,6 +331,7 @@ impl Default for DopplerConfig {
             filter_order: 4,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,
+            north_tick_timing_adjustment: 0.5,
         }
     }
 }
@@ -348,6 +356,7 @@ impl Default for BearingConfig {
             smoothing_window: 5,
             output_rate_hz: 10.0,
             north_offset_degrees: 0.0,
+            north_tick_warning_timeout_secs: 2.0,
         }
     }
 }

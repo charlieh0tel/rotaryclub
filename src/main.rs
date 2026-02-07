@@ -294,7 +294,8 @@ fn run_processing_loop(
 
         if last_north_tick.is_none()
             && throttle_output
-            && last_output.elapsed() >= Duration::from_secs(2)
+            && last_output.elapsed()
+                >= Duration::from_secs_f32(config.bearing.north_tick_warning_timeout_secs)
         {
             log::warn!("Waiting for north tick...");
             last_output = Instant::now();
