@@ -32,9 +32,11 @@ impl AutomaticGainControl {
     /// * `config` - AGC configuration parameters
     /// * `sample_rate` - Audio sample rate in Hz
     pub fn new(config: &AgcConfig, sample_rate: f32) -> Self {
-        let attack_coeff = Self::time_constant_to_coeff(config.attack_time_ms, sample_rate);
-        let release_coeff = Self::time_constant_to_coeff(config.release_time_ms, sample_rate);
         let window_size = (sample_rate * config.measurement_window_ms / 1000.0) as usize;
+        let attack_coeff =
+            Self::time_constant_to_coeff(config.attack_time_ms, config.measurement_window_ms);
+        let release_coeff =
+            Self::time_constant_to_coeff(config.release_time_ms, config.measurement_window_ms);
 
         Self {
             target_rms: config.target_rms,
@@ -49,9 +51,8 @@ impl AutomaticGainControl {
         }
     }
 
-    fn time_constant_to_coeff(time_ms: f32, sample_rate: f32) -> f32 {
-        let time_samples = (time_ms / 1000.0) * sample_rate;
-        (-1.0 / time_samples).exp()
+    fn time_constant_to_coeff(time_constant_ms: f32, window_ms: f32) -> f32 {
+        (-window_ms / time_constant_ms).exp()
     }
 
     /// Process a single audio sample through the AGC
@@ -74,7 +75,7 @@ impl AutomaticGainControl {
 
             if rms > MIN_RMS_THRESHOLD {
                 let desired_gain = self.target_rms / rms;
-                let coeff = if desired_gain > self.current_gain {
+                let coeff = if desired_gain < self.current_gain {
                     self.attack_coeff
                 } else {
                     self.release_coeff
@@ -114,92 +115,140 @@ impl AutomaticGainControl {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_agc_amplifies_weak_signal() {
-        let config = AgcConfig {
+    fn make_tone(amplitude: f32, freq_hz: f32, sample_rate: f32, num_samples: usize) -> Vec<f32> {
+        (0..num_samples)
+            .map(|i| {
+                amplitude * (2.0 * std::f32::consts::PI * freq_hz * i as f32 / sample_rate).sin()
+            })
+            .collect()
+    }
+
+    fn rms(samples: &[f32]) -> f32 {
+        (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt()
+    }
+
+    fn default_config() -> AgcConfig {
+        AgcConfig {
             target_rms: 0.5,
             attack_time_ms: 10.0,
             release_time_ms: 100.0,
             measurement_window_ms: 10.0,
             min_gain: 0.1,
             max_gain: 10.0,
-        };
+        }
+    }
 
+    #[test]
+    fn test_agc_converges_weak_signal() {
+        let config = default_config();
         let mut agc = AutomaticGainControl::new(&config, 48000.0);
 
-        let weak_signal: Vec<f32> = (0..48000)
-            .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 48000.0).sin())
-            .collect();
+        let mut signal = make_tone(0.1, 1000.0, 48000.0, 48000);
+        agc.process_buffer(&mut signal);
 
-        let mut output = weak_signal.clone();
-        agc.process_buffer(&mut output);
-
-        let input_rms =
-            (weak_signal.iter().map(|x| x * x).sum::<f32>() / weak_signal.len() as f32).sqrt();
-        let last_quarter = &output[output.len() * 3 / 4..];
-        let output_rms =
-            (last_quarter.iter().map(|x| x * x).sum::<f32>() / last_quarter.len() as f32).sqrt();
-
+        let output_rms = rms(&signal[signal.len() * 3 / 4..]);
+        let error = (output_rms - config.target_rms).abs() / config.target_rms;
         assert!(
-            output_rms > input_rms * 2.0,
-            "AGC should amplify weak signal"
-        );
-        assert!(
-            (output_rms - config.target_rms).abs() < (input_rms - config.target_rms).abs(),
-            "Output should be closer to target than input"
+            error < 0.15,
+            "After 1s, weak signal RMS should be within 15% of target: got {output_rms:.3}, target {}, error {:.0}%",
+            config.target_rms,
+            error * 100.0
         );
     }
 
     #[test]
-    fn test_agc_reduces_strong_signal() {
-        let config = AgcConfig {
-            target_rms: 0.5,
-            attack_time_ms: 10.0,
-            release_time_ms: 100.0,
-            measurement_window_ms: 10.0,
-            min_gain: 0.1,
-            max_gain: 10.0,
-        };
-
+    fn test_agc_converges_strong_signal() {
+        let config = default_config();
         let mut agc = AutomaticGainControl::new(&config, 48000.0);
 
-        let strong_signal: Vec<f32> = (0..48000)
-            .map(|i| 0.9 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 48000.0).sin())
-            .collect();
+        let mut signal = make_tone(0.9, 1000.0, 48000.0, 48000);
+        agc.process_buffer(&mut signal);
 
-        let mut output = strong_signal.clone();
-        agc.process_buffer(&mut output);
-
-        let input_rms =
-            (strong_signal.iter().map(|x| x * x).sum::<f32>() / strong_signal.len() as f32).sqrt();
-        let last_quarter = &output[output.len() * 3 / 4..];
-        let output_rms =
-            (last_quarter.iter().map(|x| x * x).sum::<f32>() / last_quarter.len() as f32).sqrt();
-
-        assert!(output_rms < input_rms, "AGC should reduce strong signal");
+        let output_rms = rms(&signal[signal.len() * 3 / 4..]);
+        let error = (output_rms - config.target_rms).abs() / config.target_rms;
         assert!(
-            (output_rms - config.target_rms).abs() < (input_rms - config.target_rms).abs(),
-            "Output should be closer to target than input"
+            error < 0.15,
+            "After 1s, strong signal RMS should be within 15% of target: got {output_rms:.3}, target {}, error {:.0}%",
+            config.target_rms,
+            error * 100.0
         );
     }
 
     #[test]
     fn test_agc_gain_clamping() {
         let config = AgcConfig {
-            target_rms: 0.5,
             attack_time_ms: 1.0,
             release_time_ms: 10.0,
             measurement_window_ms: 1.0,
-            min_gain: 0.1,
-            max_gain: 10.0,
+            ..default_config()
         };
 
         let mut agc = AutomaticGainControl::new(&config, 48000.0);
 
-        let silent_signal = vec![0.001; 48000];
-        let mut output = silent_signal.clone();
-        agc.process_buffer(&mut output);
+        let mut signal = vec![0.001; 48000];
+        agc.process_buffer(&mut signal);
 
         assert!(agc.current_gain() <= config.max_gain);
+    }
+
+    #[test]
+    fn test_agc_attack_faster_than_release() {
+        let config = default_config();
+        let sample_rate = 48000.0;
+        let samples_500ms = 24000;
+
+        // Measure attack: loud signal drives gain down
+        let mut agc = AutomaticGainControl::new(&config, sample_rate);
+        let mut loud = make_tone(0.9, 1000.0, sample_rate, samples_500ms);
+        agc.process_buffer(&mut loud);
+        let gain_after_attack = agc.current_gain();
+
+        // Measure release: quiet signal drives gain up
+        let mut agc = AutomaticGainControl::new(&config, sample_rate);
+        let mut quiet = make_tone(0.1, 1000.0, sample_rate, samples_500ms);
+        agc.process_buffer(&mut quiet);
+        let gain_after_release = agc.current_gain();
+
+        // Attack (gain decrease for loud signal) should converge faster
+        // than release (gain increase for quiet signal).
+        let attack_target = config.target_rms / (0.9 / 2.0_f32.sqrt());
+        let release_target = config.target_rms / (0.1 / 2.0_f32.sqrt());
+
+        let attack_convergence =
+            1.0 - (gain_after_attack - attack_target).abs() / (1.0 - attack_target).abs();
+        let release_convergence =
+            1.0 - (gain_after_release - release_target).abs() / (1.0 - release_target).abs();
+
+        assert!(
+            attack_convergence > release_convergence,
+            "Attack should converge faster than release: attack {attack_convergence:.2} vs release {release_convergence:.2}"
+        );
+    }
+
+    #[test]
+    fn test_agc_loud_after_quiet_recovers_fast() {
+        let config = default_config();
+        let sample_rate = 48000.0;
+
+        let mut agc = AutomaticGainControl::new(&config, sample_rate);
+
+        // 0.5s of quiet signal — gain ramps up
+        let mut quiet = make_tone(0.05, 1000.0, sample_rate, 24000);
+        agc.process_buffer(&mut quiet);
+        let gain_after_quiet = agc.current_gain();
+        assert!(
+            gain_after_quiet > 3.0,
+            "Gain should be high after quiet period: {gain_after_quiet:.2}"
+        );
+
+        // 100ms of loud signal — gain should come back down quickly (attack)
+        let mut loud = make_tone(0.9, 1000.0, sample_rate, 4800);
+        agc.process_buffer(&mut loud);
+        let gain_after_loud = agc.current_gain();
+
+        assert!(
+            gain_after_loud < 1.5,
+            "Gain should recover within 100ms after loud signal arrives: {gain_after_loud:.2}"
+        );
     }
 }

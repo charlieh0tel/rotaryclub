@@ -426,12 +426,12 @@ impl Default for BearingConfig {
 impl Default for AgcConfig {
     fn default() -> Self {
         Self {
-            target_rms: 0.5,
+            target_rms: 0.3,
             attack_time_ms: 10.0,
             release_time_ms: 100.0,
             measurement_window_ms: 10.0,
             min_gain: 0.1,
-            max_gain: 10.0,
+            max_gain: 5.0,
         }
     }
 }
