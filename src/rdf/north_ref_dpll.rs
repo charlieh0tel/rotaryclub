@@ -57,6 +57,7 @@ impl DpllNorthTracker {
             config.highpass_cutoff,
             sample_rate,
             config.fir_highpass_taps,
+            config.highpass_transition_hz,
         )?;
 
         let threshold_crossing_offset =

@@ -28,10 +28,12 @@ impl BearingCalculatorBase {
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
-        let bandpass = FirBandpass::new_default(
+        let bandpass = FirBandpass::new(
             doppler_config.bandpass_low,
             doppler_config.bandpass_high,
             sample_rate,
+            doppler_config.bandpass_taps,
+            doppler_config.bandpass_transition_hz,
         )?;
         let filter_group_delay = bandpass.group_delay_samples();
 

@@ -1,9 +1,7 @@
+use crate::constants::{MAX_NORMALIZED_FREQ, MIN_NORMALIZED_FREQ};
 use crate::error::{RdfError, Result};
 use crate::signal_processing::Filter;
 use pm_remez::{BandSetting, constant, pm_parameters, pm_remez};
-
-const DEFAULT_NUM_TAPS: usize = 127;
-const TRANSITION_BANDWIDTH_HZ: f32 = 100.0;
 
 /// FIR bandpass filter with linear phase response
 ///
@@ -24,10 +22,17 @@ impl FirBandpass {
     /// * `high_hz` - Upper cutoff frequency in Hz
     /// * `sample_rate` - Audio sample rate in Hz
     /// * `num_taps` - Number of filter taps (must be odd for Type I linear phase)
+    /// * `transition_hz` - Transition bandwidth in Hz
     ///
     /// # Errors
     /// Returns `RdfError::FilterDesign` if filter parameters are invalid
-    pub fn new(low_hz: f32, high_hz: f32, sample_rate: f32, num_taps: usize) -> Result<Self> {
+    pub fn new(
+        low_hz: f32,
+        high_hz: f32,
+        sample_rate: f32,
+        num_taps: usize,
+        transition_hz: f32,
+    ) -> Result<Self> {
         let num_taps = if num_taps.is_multiple_of(2) {
             num_taps + 1
         } else {
@@ -36,20 +41,20 @@ impl FirBandpass {
 
         let normalize = |hz: f32| (hz / sample_rate) as f64;
 
-        let trans_norm = (TRANSITION_BANDWIDTH_HZ / sample_rate) as f64;
+        let trans_norm = (transition_hz / sample_rate) as f64;
 
         let stop1_end = normalize(low_hz) - trans_norm;
         let pass_start = normalize(low_hz);
         let pass_end = normalize(high_hz);
         let stop2_start = normalize(high_hz) + trans_norm;
 
-        let stop1_end = stop1_end.max(0.001);
-        let stop2_start = stop2_start.min(0.499);
+        let stop1_end = stop1_end.max(MIN_NORMALIZED_FREQ);
+        let stop2_start = stop2_start.min(MAX_NORMALIZED_FREQ);
 
         if pass_start <= stop1_end || pass_end >= stop2_start {
             return Err(RdfError::FilterDesign(format!(
                 "Invalid filter frequencies: low={}, high={}, sample_rate={}, transition={}",
-                low_hz, high_hz, sample_rate, TRANSITION_BANDWIDTH_HZ
+                low_hz, high_hz, sample_rate, transition_hz
             )));
         }
 
@@ -75,11 +80,6 @@ impl FirBandpass {
             taps,
             pos: 0,
         })
-    }
-
-    /// Create with default number of taps
-    pub fn new_default(low_hz: f32, high_hz: f32, sample_rate: f32) -> Result<Self> {
-        Self::new(low_hz, high_hz, sample_rate, DEFAULT_NUM_TAPS)
     }
 
     /// Process a single audio sample through the filter
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_fir_bandpass_design() {
-        let filter = FirBandpass::new(1500.0, 1700.0, 48000.0, 127);
+        let filter = FirBandpass::new(1500.0, 1700.0, 48000.0, 127, 100.0);
         assert!(filter.is_ok());
         let filter = filter.unwrap();
         assert_eq!(filter.num_taps(), 127);
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_fir_bandpass_passes_center_frequency() {
-        let mut filter = FirBandpass::new(400.0, 600.0, 48000.0, 127).unwrap();
+        let mut filter = FirBandpass::new(400.0, 600.0, 48000.0, 127, 100.0).unwrap();
 
         let input: Vec<f32> = (0..4800)
             .map(|i| (2.0 * PI * 500.0 * i as f32 / 48000.0).sin())
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_fir_bandpass_attenuates_out_of_band() {
-        let mut filter = FirBandpass::new(400.0, 600.0, 48000.0, 255).unwrap();
+        let mut filter = FirBandpass::new(400.0, 600.0, 48000.0, 255, 100.0).unwrap();
 
         let input: Vec<f32> = (0..4800)
             .map(|i| (2.0 * PI * 100.0 * i as f32 / 48000.0).sin())

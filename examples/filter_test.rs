@@ -8,12 +8,12 @@ fn main() -> anyhow::Result<()> {
 
     // Test FIR bandpass filter
     println!("FIR Bandpass Filter (400-600 Hz, 127 taps):");
-    let mut fir_bandpass = FirBandpass::new(400.0, 600.0, sample_rate, 127)?;
+    let mut fir_bandpass = FirBandpass::new(400.0, 600.0, sample_rate, 127, 100.0)?;
     test_bandpass(&mut fir_bandpass, sample_rate);
 
     // Test FIR highpass filter
     println!("\nFIR Highpass Filter (2000 Hz, 63 taps):");
-    let mut highpass = FirHighpass::new(2000.0, sample_rate, 63)?;
+    let mut highpass = FirHighpass::new(2000.0, sample_rate, 63, 500.0)?;
     test_highpass(&mut highpass, sample_rate);
 
     println!("\nFilter test complete.");

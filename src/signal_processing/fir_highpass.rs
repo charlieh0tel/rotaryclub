@@ -1,8 +1,7 @@
+use crate::constants::{MAX_NORMALIZED_FREQ, MIN_NORMALIZED_FREQ};
 use crate::error::{RdfError, Result};
 use crate::signal_processing::Filter;
 use pm_remez::{BandSetting, constant, pm_parameters, pm_remez};
-
-const TRANSITION_BANDWIDTH_HZ: f32 = 500.0;
 
 /// FIR highpass filter with linear phase response
 ///
@@ -22,10 +21,16 @@ impl FirHighpass {
     /// * `cutoff_hz` - Cutoff frequency in Hz
     /// * `sample_rate` - Audio sample rate in Hz
     /// * `num_taps` - Number of filter taps (must be odd for Type I linear phase)
+    /// * `transition_hz` - Transition bandwidth in Hz
     ///
     /// # Errors
     /// Returns `RdfError::FilterDesign` if filter parameters are invalid
-    pub fn new(cutoff_hz: f32, sample_rate: f32, num_taps: usize) -> Result<Self> {
+    pub fn new(
+        cutoff_hz: f32,
+        sample_rate: f32,
+        num_taps: usize,
+        transition_hz: f32,
+    ) -> Result<Self> {
         let num_taps = if num_taps.is_multiple_of(2) {
             num_taps + 1
         } else {
@@ -34,18 +39,18 @@ impl FirHighpass {
 
         let normalize = |hz: f32| (hz / sample_rate) as f64;
 
-        let trans_norm = (TRANSITION_BANDWIDTH_HZ / sample_rate) as f64;
+        let trans_norm = (transition_hz / sample_rate) as f64;
 
         let stop_end = normalize(cutoff_hz) - trans_norm;
         let pass_start = normalize(cutoff_hz);
 
-        let stop_end = stop_end.max(0.001);
-        let pass_start = pass_start.min(0.499 - trans_norm);
+        let stop_end = stop_end.max(MIN_NORMALIZED_FREQ);
+        let pass_start = pass_start.min(MAX_NORMALIZED_FREQ - trans_norm);
 
         if pass_start <= stop_end {
             return Err(RdfError::FilterDesign(format!(
                 "Invalid filter frequencies: cutoff={}, sample_rate={}, transition={}",
-                cutoff_hz, sample_rate, TRANSITION_BANDWIDTH_HZ
+                cutoff_hz, sample_rate, transition_hz
             )));
         }
 
@@ -143,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_fir_highpass_design() {
-        let filter = FirHighpass::new(5000.0, 48000.0, 63);
+        let filter = FirHighpass::new(5000.0, 48000.0, 63, 500.0);
         assert!(filter.is_ok());
         let filter = filter.unwrap();
         assert_eq!(filter.num_taps(), 63);
@@ -152,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_fir_highpass_passes_high_frequency() {
-        let mut filter = FirHighpass::new(2000.0, 48000.0, 127).unwrap();
+        let mut filter = FirHighpass::new(2000.0, 48000.0, 127, 500.0).unwrap();
 
         let input: Vec<f32> = (0..4800)
             .map(|i| (2.0 * PI * 10000.0 * i as f32 / 48000.0).sin())
@@ -178,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_fir_highpass_attenuates_low_frequency() {
-        let mut filter = FirHighpass::new(5000.0, 48000.0, 127).unwrap();
+        let mut filter = FirHighpass::new(5000.0, 48000.0, 127, 500.0).unwrap();
 
         let input: Vec<f32> = (0..4800)
             .map(|i| (2.0 * PI * 500.0 * i as f32 / 48000.0).sin())
@@ -204,16 +209,16 @@ mod tests {
 
     #[test]
     fn test_fir_highpass_group_delay() {
-        let filter = FirHighpass::new(5000.0, 48000.0, 63).unwrap();
+        let filter = FirHighpass::new(5000.0, 48000.0, 63, 500.0).unwrap();
         assert_eq!(filter.group_delay_samples(), 31);
 
-        let filter = FirHighpass::new(5000.0, 48000.0, 127).unwrap();
+        let filter = FirHighpass::new(5000.0, 48000.0, 127, 500.0).unwrap();
         assert_eq!(filter.group_delay_samples(), 63);
     }
 
     #[test]
     fn test_threshold_crossing_offset() {
-        let filter = FirHighpass::new(5000.0, 48000.0, 63).unwrap();
+        let filter = FirHighpass::new(5000.0, 48000.0, 63, 500.0).unwrap();
 
         // For the 5000Hz highpass at 48kHz with default threshold/amplitude,
         // the impulse response has its first above-threshold tap at the center,
@@ -231,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_fir_highpass_impulse_response_timing() {
-        let mut filter = FirHighpass::new(5000.0, 48000.0, 63).unwrap();
+        let mut filter = FirHighpass::new(5000.0, 48000.0, 63, 500.0).unwrap();
         let group_delay = filter.group_delay_samples();
 
         let mut samples = vec![0.0f32; 200];

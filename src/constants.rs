@@ -3,6 +3,14 @@
 //! These constants define thresholds and epsilon values used throughout
 //! the signal processing pipeline to ensure numerical stability.
 
+/// Minimum normalized frequency for FIR filter design (just above DC).
+/// Normalized frequency is f/fs where fs is sample rate, range [0, 0.5].
+pub const MIN_NORMALIZED_FREQ: f64 = 0.001;
+
+/// Maximum normalized frequency for FIR filter design (just below Nyquist).
+/// Normalized frequency is f/fs where fs is sample rate, range [0, 0.5].
+pub const MAX_NORMALIZED_FREQ: f64 = 0.499;
+
 /// Epsilon for preventing division by zero in interpolation calculations.
 /// Used when computing sub-sample positions (e.g., zero-crossing interpolation).
 pub const INTERPOLATION_EPSILON: f32 = 1e-10;

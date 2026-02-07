@@ -184,9 +184,10 @@ pub struct DopplerConfig {
     pub bandpass_low: f32,
     /// Bandpass filter upper cutoff in Hz
     pub bandpass_high: f32,
-    /// Filter order (unused with FIR bandpass, kept for compatibility)
-    #[allow(dead_code)]
-    pub filter_order: usize,
+    /// Number of FIR bandpass filter taps (must be odd, default: 127)
+    pub bandpass_taps: usize,
+    /// Bandpass filter transition bandwidth in Hz (default: 100.0)
+    pub bandpass_transition_hz: f32,
     /// Zero-crossing detection hysteresis to reject noise
     pub zero_cross_hysteresis: f32,
     /// Bearing calculation method to use
@@ -246,6 +247,8 @@ pub struct NorthTickConfig {
     pub highpass_cutoff: f32,
     /// Number of taps for FIR highpass filter (must be odd, default 63)
     pub fir_highpass_taps: usize,
+    /// Highpass filter transition bandwidth in Hz (default: 500.0)
+    pub highpass_transition_hz: f32,
     /// Peak detection threshold (0-1 range)
     pub threshold: f32,
     /// Expected pulse amplitude for timing compensation (0-1 range)
@@ -383,7 +386,8 @@ impl Default for DopplerConfig {
             expected_freq: 1_000_000.0 / 624.0, // 624 μs period
             bandpass_low: 1350.0,
             bandpass_high: 1850.0,
-            filter_order: 4,
+            bandpass_taps: 127,
+            bandpass_transition_hz: 100.0,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,
             north_tick_timing_adjustment: 0.5,
@@ -397,6 +401,7 @@ impl Default for NorthTickConfig {
             mode: NorthTrackingMode::Dpll,
             highpass_cutoff: 5000.0,
             fir_highpass_taps: 63,
+            highpass_transition_hz: 500.0,
             threshold: 0.15,
             expected_pulse_amplitude: 0.8,
             min_interval_ms: 0.6,
