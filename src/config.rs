@@ -255,6 +255,8 @@ pub struct NorthTickConfig {
     pub min_interval_ms: f32,
     /// DPLL configuration (only used when mode is Dpll)
     pub dpll: DpllConfig,
+    /// Weights for lock quality calculation
+    pub lock_quality_weights: LockQualityWeights,
 }
 
 /// Bearing output configuration
@@ -268,6 +270,55 @@ pub struct BearingConfig {
     pub north_offset_degrees: f32,
     /// Timeout in seconds before warning about missing north tick (live capture only)
     pub north_tick_warning_timeout_secs: f32,
+    /// Weights for combining confidence metrics into overall score
+    pub confidence_weights: ConfidenceWeights,
+}
+
+/// Weights for combining confidence metrics into an overall score
+///
+/// The combined confidence score is: `snr_weight * snr_score + coherence_weight * coherence + signal_strength_weight * signal_strength`
+/// where `snr_score = (snr_db / snr_normalization_db).clamp(0, 1)`
+#[derive(Debug, Clone, Copy)]
+pub struct ConfidenceWeights {
+    /// Weight for SNR component (default: 0.4)
+    pub snr_weight: f32,
+    /// Weight for coherence component (default: 0.4)
+    pub coherence_weight: f32,
+    /// Weight for signal strength component (default: 0.2)
+    pub signal_strength_weight: f32,
+    /// SNR value in dB that maps to score 1.0 (default: 20.0)
+    pub snr_normalization_db: f32,
+}
+
+impl Default for ConfidenceWeights {
+    fn default() -> Self {
+        Self {
+            snr_weight: 0.4,
+            coherence_weight: 0.4,
+            signal_strength_weight: 0.2,
+            snr_normalization_db: 20.0,
+        }
+    }
+}
+
+/// Weights for DPLL lock quality calculation
+///
+/// Lock quality combines phase stability and frequency stability scores.
+#[derive(Debug, Clone, Copy)]
+pub struct LockQualityWeights {
+    /// Weight for phase error component (default: 0.7)
+    pub phase_weight: f32,
+    /// Weight for frequency stability component (default: 0.3)
+    pub frequency_weight: f32,
+}
+
+impl Default for LockQualityWeights {
+    fn default() -> Self {
+        Self {
+            phase_weight: 0.7,
+            frequency_weight: 0.3,
+        }
+    }
 }
 
 /// Automatic gain control configuration
@@ -350,6 +401,7 @@ impl Default for NorthTickConfig {
             expected_pulse_amplitude: 0.8,
             min_interval_ms: 0.6,
             dpll: DpllConfig::default(),
+            lock_quality_weights: LockQualityWeights::default(),
         }
     }
 }
@@ -361,6 +413,7 @@ impl Default for BearingConfig {
             output_rate_hz: 10.0,
             north_offset_degrees: 0.0,
             north_tick_warning_timeout_secs: 2.0,
+            confidence_weights: ConfidenceWeights::default(),
         }
     }
 }

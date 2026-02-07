@@ -1,4 +1,4 @@
-use crate::config::NorthTickConfig;
+use crate::config::{LockQualityWeights, NorthTickConfig};
 use crate::constants::FREQUENCY_EPSILON;
 use crate::error::Result;
 use crate::rdf::NorthTick;
@@ -29,6 +29,7 @@ pub struct DpllNorthTracker {
     // Statistics for lock quality
     phase_error_stats: Stats<f32>,
     freq_stats: Stats<f32>,
+    lock_quality_weights: LockQualityWeights,
 
     // Pre-allocated buffer for filtering
     filter_buffer: Vec<f32>,
@@ -75,6 +76,7 @@ impl DpllNorthTracker {
             sample_rate,
             phase_error_stats: Stats::new(),
             freq_stats: Stats::new(),
+            lock_quality_weights: config.lock_quality_weights,
             filter_buffer: Vec::new(),
         })
     }
@@ -202,8 +204,11 @@ impl DpllNorthTracker {
         };
         let freq_score = (1.0 - freq_cv * 100.0).clamp(0.0, 1.0);
 
-        // Combined score: weight phase error more heavily
-        Some(0.7 * phase_score + 0.3 * freq_score)
+        // Combined score using configured weights
+        Some(
+            self.lock_quality_weights.phase_weight * phase_score
+                + self.lock_quality_weights.frequency_weight * freq_score,
+        )
     }
 
     pub fn filtered_buffer(&self) -> &[f32] {

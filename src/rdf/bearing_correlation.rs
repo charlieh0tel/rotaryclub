@@ -108,7 +108,7 @@ impl CorrelationBearingCalculator {
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
-            confidence: metrics.combined_score(),
+            confidence: metrics.combined_score(self.base.confidence_weights()),
             metrics,
         })
     }

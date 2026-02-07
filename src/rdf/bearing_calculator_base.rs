@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::{AutomaticGainControl, FirBandpass, MovingAverage};
 
@@ -13,6 +13,7 @@ pub struct BearingCalculatorBase {
     bandpass: FirBandpass,
     filter_group_delay: usize,
     north_tick_timing_adjustment: f32,
+    confidence_weights: ConfidenceWeights,
     pub sample_counter: usize,
     buffer_start_sample: usize,
     bearing_smoother: MovingAverage,
@@ -39,11 +40,17 @@ impl BearingCalculatorBase {
             bandpass,
             filter_group_delay,
             north_tick_timing_adjustment: doppler_config.north_tick_timing_adjustment,
+            confidence_weights: ConfidenceWeights::default(),
             sample_counter: 0,
             buffer_start_sample: 0,
             bearing_smoother: MovingAverage::new(smoothing),
             work_buffer: Vec::new(),
         })
+    }
+
+    /// Get the confidence weights for combining metrics
+    pub fn confidence_weights(&self) -> &ConfidenceWeights {
+        &self.confidence_weights
     }
 
     /// Preprocess the input buffer: copy to work buffer, apply AGC and bandpass filter.

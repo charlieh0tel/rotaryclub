@@ -1,11 +1,7 @@
+pub use crate::config::ConfidenceWeights;
 pub use crate::constants::MIN_POWER_THRESHOLD;
 
 use super::NorthTick;
-
-const SNR_NORMALIZATION_DB: f32 = 20.0;
-const SNR_WEIGHT: f32 = 0.4;
-const COHERENCE_WEIGHT: f32 = 0.4;
-const SIGNAL_STRENGTH_WEIGHT: f32 = 0.2;
 
 pub trait BearingCalculator {
     /// Preprocess the doppler buffer (AGC + bandpass filter).
@@ -65,12 +61,12 @@ pub struct ConfidenceMetrics {
 }
 
 impl ConfidenceMetrics {
-    /// Calculate combined confidence score from metrics
-    pub fn combined_score(&self) -> f32 {
-        let snr_score = (self.snr_db / SNR_NORMALIZATION_DB).clamp(0.0, 1.0);
-        SNR_WEIGHT * snr_score
-            + COHERENCE_WEIGHT * self.coherence
-            + SIGNAL_STRENGTH_WEIGHT * self.signal_strength
+    /// Calculate combined confidence score from metrics using provided weights
+    pub fn combined_score(&self, weights: &ConfidenceWeights) -> f32 {
+        let snr_score = (self.snr_db / weights.snr_normalization_db).clamp(0.0, 1.0);
+        weights.snr_weight * snr_score
+            + weights.coherence_weight * self.coherence
+            + weights.signal_strength_weight * self.signal_strength
     }
 }
 
@@ -104,21 +100,23 @@ mod tests {
 
     #[test]
     fn test_confidence_metrics_default() {
+        let weights = ConfidenceWeights::default();
         let metrics = ConfidenceMetrics::default();
         assert_eq!(metrics.snr_db, 0.0);
         assert_eq!(metrics.coherence, 0.0);
         assert_eq!(metrics.signal_strength, 0.0);
-        assert_eq!(metrics.combined_score(), 0.0);
+        assert_eq!(metrics.combined_score(&weights), 0.0);
     }
 
     #[test]
     fn test_confidence_metrics_combined_score() {
+        let weights = ConfidenceWeights::default();
         let metrics = ConfidenceMetrics {
             snr_db: 20.0,
             coherence: 1.0,
             signal_strength: 1.0,
         };
-        let score = metrics.combined_score();
+        let score = metrics.combined_score(&weights);
         assert!((score - 1.0).abs() < 0.001);
 
         let metrics = ConfidenceMetrics {
@@ -126,19 +124,22 @@ mod tests {
             coherence: 0.5,
             signal_strength: 0.5,
         };
-        let score = metrics.combined_score();
-        let expected = SNR_WEIGHT * 0.5 + COHERENCE_WEIGHT * 0.5 + SIGNAL_STRENGTH_WEIGHT * 0.5;
+        let score = metrics.combined_score(&weights);
+        let expected = weights.snr_weight * 0.5
+            + weights.coherence_weight * 0.5
+            + weights.signal_strength_weight * 0.5;
         assert!((score - expected).abs() < 0.001);
     }
 
     #[test]
     fn test_confidence_metrics_snr_clamping() {
+        let weights = ConfidenceWeights::default();
         let metrics = ConfidenceMetrics {
             snr_db: 40.0,
             coherence: 0.0,
             signal_strength: 0.0,
         };
-        let score = metrics.combined_score();
+        let score = metrics.combined_score(&weights);
         assert!((score - 0.4).abs() < 0.001);
 
         let metrics = ConfidenceMetrics {
@@ -146,7 +147,7 @@ mod tests {
             coherence: 0.0,
             signal_strength: 0.0,
         };
-        let score = metrics.combined_score();
+        let score = metrics.combined_score(&weights);
         assert_eq!(score, 0.0);
     }
 }
