@@ -72,6 +72,10 @@ struct Args {
     /// Dump audio to WAV file (stereo: left=doppler, right=north_tick)
     #[arg(long)]
     dump_audio: Option<PathBuf>,
+
+    /// North tick input gain multiplier (default: 1.0)
+    #[arg(long, default_value = "1.0")]
+    north_tick_gain: f32,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -158,6 +162,8 @@ fn main() -> anyhow::Result<()> {
         config.doppler.expected_freq = hz;
         config.north_tick.dpll.initial_frequency_hz = hz;
     }
+
+    config.north_tick.gain = args.north_tick_gain;
 
     if args.swap_channels {
         config.audio.doppler_channel = ChannelRole::Right;
