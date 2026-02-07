@@ -262,10 +262,6 @@ pub struct NorthTickConfig {
     pub dpll: DpllConfig,
     /// Weights for lock quality calculation
     pub lock_quality_weights: LockQualityWeights,
-    /// Minimum expected peak amplitude (warn if below, 0-1 range)
-    pub amplitude_warn_low: f32,
-    /// Maximum expected peak amplitude (warn if above, 0-1 range)
-    pub amplitude_warn_high: f32,
 }
 
 /// Bearing output configuration
@@ -414,8 +410,6 @@ impl Default for NorthTickConfig {
             min_interval_ms: 0.6,
             dpll: DpllConfig::default(),
             lock_quality_weights: LockQualityWeights::default(),
-            amplitude_warn_low: 0.4,
-            amplitude_warn_high: 0.9,
         }
     }
 }

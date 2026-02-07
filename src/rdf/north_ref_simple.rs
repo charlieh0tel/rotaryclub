@@ -8,8 +8,6 @@ const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
 
 pub struct SimpleNorthTracker {
     gain: f32,
-    amplitude_warn_low: f32,
-    amplitude_warn_high: f32,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
     threshold_crossing_offset: f32,
@@ -36,8 +34,6 @@ impl SimpleNorthTracker {
 
         Ok(Self {
             gain: 10.0_f32.powf(config.gain_db / 20.0),
-            amplitude_warn_low: config.amplitude_warn_low,
-            amplitude_warn_high: config.amplitude_warn_high,
             highpass,
             peak_detector: PeakDetector::new(config.threshold, min_samples),
             threshold_crossing_offset,
@@ -67,20 +63,7 @@ impl SimpleNorthTracker {
 
         let mut ticks = Vec::new();
 
-        for (peak_idx, amplitude) in peaks {
-            if amplitude < self.amplitude_warn_low {
-                log::warn!(
-                    "North tick amplitude {:.3} below minimum {:.3}",
-                    amplitude,
-                    self.amplitude_warn_low
-                );
-            } else if amplitude > self.amplitude_warn_high {
-                log::warn!(
-                    "North tick amplitude {:.3} above maximum {:.3}",
-                    amplitude,
-                    self.amplitude_warn_high
-                );
-            }
+        for (peak_idx, _amplitude) in peaks {
             // Compensate for FIR filter delay: the filtered output at peak_idx
             // corresponds to an input pulse that occurred total_delay samples earlier.
             let global_sample = self
