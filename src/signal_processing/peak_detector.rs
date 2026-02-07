@@ -59,22 +59,25 @@ impl PeakDetector {
 
     /// Find all peaks in a buffer
     ///
-    /// Returns a vector of sample indices where peaks are detected.
+    /// Returns a vector of (sample_index, peak_amplitude) pairs.
+    /// The amplitude is the maximum absolute value in a window after the
+    /// threshold crossing.
     ///
     /// # Arguments
     /// * `buffer` - Audio samples to process
-    pub fn find_all_peaks(&mut self, buffer: &[f32]) -> Vec<usize> {
-        buffer
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &sample)| {
-                if self.detect_peak(sample) {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect()
+    pub fn find_all_peaks(&mut self, buffer: &[f32]) -> Vec<(usize, f32)> {
+        let mut peaks = Vec::new();
+        for (i, &sample) in buffer.iter().enumerate() {
+            if self.detect_peak(sample) {
+                let window_end = (i + self.min_samples_between_peaks).min(buffer.len());
+                let amplitude = buffer[i..window_end]
+                    .iter()
+                    .map(|s| s.abs())
+                    .fold(sample.abs(), f32::max);
+                peaks.push((i, amplitude));
+            }
+        }
+        peaks
     }
 }
 
@@ -94,8 +97,10 @@ mod tests {
         let peaks = detector.find_all_peaks(&signal);
 
         assert_eq!(peaks.len(), 2);
-        assert_eq!(peaks[0], 20);
-        assert_eq!(peaks[1], 50);
+        assert_eq!(peaks[0].0, 20);
+        assert!((peaks[0].1 - 0.9).abs() < 0.01); // max in window includes sample[25]
+        assert_eq!(peaks[1].0, 50);
+        assert!((peaks[1].1 - 0.7).abs() < 0.01);
     }
 
     #[test]
@@ -108,7 +113,7 @@ mod tests {
 
         // Should detect rising edges crossing threshold
         assert_eq!(peaks.len(), 2);
-        assert_eq!(peaks[0], 2); // Rising edge 0.4 -> 0.6
-        assert_eq!(peaks[1], 8); // Rising edge 0.4 -> 0.8 (after min_interval)
+        assert_eq!(peaks[0].0, 2); // Rising edge 0.4 -> 0.6
+        assert_eq!(peaks[1].0, 8); // Rising edge 0.4 -> 0.8 (after min_interval)
     }
 }

@@ -243,8 +243,8 @@ impl Default for DpllConfig {
 pub struct NorthTickConfig {
     /// Tracking mode (DPLL recommended)
     pub mode: NorthTrackingMode,
-    /// Input gain multiplier (1.0 = unity, applied before filtering)
-    pub gain: f32,
+    /// Input gain in dB (0.0 = unity, applied before filtering)
+    pub gain_db: f32,
     /// Highpass filter cutoff in Hz to isolate pulse transients
     pub highpass_cutoff: f32,
     /// Number of taps for FIR highpass filter (must be odd, default 63)
@@ -262,6 +262,10 @@ pub struct NorthTickConfig {
     pub dpll: DpllConfig,
     /// Weights for lock quality calculation
     pub lock_quality_weights: LockQualityWeights,
+    /// Minimum expected peak amplitude (warn if below, 0-1 range)
+    pub amplitude_warn_low: f32,
+    /// Maximum expected peak amplitude (warn if above, 0-1 range)
+    pub amplitude_warn_high: f32,
 }
 
 /// Bearing output configuration
@@ -401,7 +405,7 @@ impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
             mode: NorthTrackingMode::Dpll,
-            gain: 1.0,
+            gain_db: 0.0,
             highpass_cutoff: 5000.0,
             fir_highpass_taps: 63,
             highpass_transition_hz: 500.0,
@@ -410,6 +414,8 @@ impl Default for NorthTickConfig {
             min_interval_ms: 0.6,
             dpll: DpllConfig::default(),
             lock_quality_weights: LockQualityWeights::default(),
+            amplitude_warn_low: 0.4,
+            amplitude_warn_high: 0.9,
         }
     }
 }

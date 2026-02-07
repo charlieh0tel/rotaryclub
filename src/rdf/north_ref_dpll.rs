@@ -8,6 +8,8 @@ use std::f32::consts::PI;
 
 pub struct DpllNorthTracker {
     gain: f32,
+    amplitude_warn_low: f32,
+    amplitude_warn_high: f32,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
     threshold_crossing_offset: f32,
@@ -65,7 +67,9 @@ impl DpllNorthTracker {
             highpass.threshold_crossing_offset(config.threshold, config.expected_pulse_amplitude);
 
         Ok(Self {
-            gain: config.gain,
+            gain: 10.0_f32.powf(config.gain_db / 20.0),
+            amplitude_warn_low: config.amplitude_warn_low,
+            amplitude_warn_high: config.amplitude_warn_high,
             highpass,
             peak_detector: PeakDetector::new(config.threshold, min_samples),
             threshold_crossing_offset,
@@ -104,7 +108,20 @@ impl DpllNorthTracker {
         let two_pi = 2.0 * PI;
 
         let mut last_sample_idx = 0;
-        for &peak_idx in &peaks {
+        for &(peak_idx, amplitude) in &peaks {
+            if amplitude < self.amplitude_warn_low {
+                log::warn!(
+                    "North tick amplitude {:.3} below minimum {:.3}",
+                    amplitude,
+                    self.amplitude_warn_low
+                );
+            } else if amplitude > self.amplitude_warn_high {
+                log::warn!(
+                    "North tick amplitude {:.3} above maximum {:.3}",
+                    amplitude,
+                    self.amplitude_warn_high
+                );
+            }
             // Advance PLL phase from last_sample_idx to peak_idx
             let samples_to_advance = peak_idx - last_sample_idx;
             self.phase += self.frequency * samples_to_advance as f32;
