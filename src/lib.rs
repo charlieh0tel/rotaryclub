@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod config;
+pub mod constants;
 pub mod error;
 pub mod rdf;
 pub mod signal_processing;

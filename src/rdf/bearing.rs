@@ -1,6 +1,7 @@
+pub use crate::constants::MIN_POWER_THRESHOLD;
+
 use super::NorthTick;
 
-pub const MIN_POWER_THRESHOLD: f32 = 1e-10;
 const SNR_NORMALIZATION_DB: f32 = 20.0;
 const SNR_WEIGHT: f32 = 0.4;
 const COHERENCE_WEIGHT: f32 = 0.4;

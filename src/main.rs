@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 mod audio;
 mod config;
+mod constants;
 mod error;
 mod output;
 mod rdf;

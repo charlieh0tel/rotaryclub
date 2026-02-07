@@ -1,3 +1,5 @@
+use crate::constants::INTERPOLATION_EPSILON;
+
 /// Zero-crossing detector with hysteresis
 ///
 /// Detects rising-edge zero crossings (negative to positive transitions) in
@@ -59,7 +61,7 @@ impl ZeroCrossingDetector {
         for (i, &sample) in buffer.iter().enumerate().skip(1) {
             if self.detect_crossing(sample) {
                 let denominator = sample - prev_sample;
-                if denominator.abs() > 1e-10 {
+                if denominator.abs() > INTERPOLATION_EPSILON {
                     let fraction = sample / denominator;
                     crossings.push(i as f32 - fraction);
                 } else {

@@ -1,4 +1,5 @@
 use crate::config::NorthTickConfig;
+use crate::constants::FREQUENCY_EPSILON;
 use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{FirHighpass, PeakDetector};
@@ -194,7 +195,7 @@ impl DpllNorthTracker {
         let phase_score = (1.0 - phase_std / PI).clamp(0.0, 1.0);
 
         // Frequency stability - lower variance relative to mean is better
-        let freq_cv = if self.freq_stats.mean.abs() > 1e-10 {
+        let freq_cv = if self.freq_stats.mean.abs() > FREQUENCY_EPSILON {
             (self.freq_stats.std_dev / self.freq_stats.mean).abs()
         } else {
             1.0

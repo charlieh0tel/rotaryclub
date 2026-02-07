@@ -1,6 +1,6 @@
 use crate::config::AgcConfig;
+use crate::constants::MIN_RMS_THRESHOLD;
 
-const MIN_RMS_THRESHOLD: f32 = 1e-6;
 const MIN_GAIN: f32 = 0.1;
 const MAX_GAIN: f32 = 10.0;
 
