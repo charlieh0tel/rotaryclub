@@ -62,6 +62,10 @@ struct Args {
     /// Remove DC offset from audio
     #[arg(long)]
     remove_dc: bool,
+
+    /// Dump audio to WAV file (stereo: left=doppler, right=north_tick)
+    #[arg(long)]
+    dump_audio: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -134,7 +138,14 @@ fn main() -> anyhow::Result<()> {
         println!("{}", header);
     }
 
-    let stats = run_processing_loop(source, config, formatter, throttle_output, args.remove_dc)?;
+    let stats = run_processing_loop(
+        source,
+        config,
+        formatter,
+        throttle_output,
+        args.remove_dc,
+        args.dump_audio.as_deref(),
+    )?;
 
     if args.input.is_some() && stats.bearing_stats.count > 0 {
         eprintln!();
@@ -172,12 +183,15 @@ struct ProcessingStats {
     rotation_stats: Stats<f32>,
 }
 
+// TODO: For device input, implement file rotation to avoid unbounded memory growth
+// when using --dump-audio for long recordings.
 fn run_processing_loop(
     mut source: Box<dyn AudioSource>,
     config: RdfConfig,
     formatter: Box<dyn Formatter>,
     throttle_output: bool,
     remove_dc: bool,
+    dump_audio: Option<&std::path::Path>,
 ) -> anyhow::Result<ProcessingStats> {
     let sample_rate = config.audio.sample_rate as f32;
 
@@ -209,10 +223,17 @@ fn run_processing_loop(
     let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
     let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
 
+    // Collects raw audio for --dump-audio (use analyze_wav for filtered output)
+    let mut dump_samples: Vec<f32> = Vec::new();
+
     loop {
         let Some(audio_data) = source.next_buffer()? else {
             break;
         };
+
+        if dump_audio.is_some() {
+            dump_samples.extend_from_slice(&audio_data);
+        }
 
         ring_buffer.push_interleaved(&audio_data);
 
@@ -277,6 +298,20 @@ fn run_processing_loop(
             log::warn!("Waiting for north tick...");
             last_output = Instant::now();
         }
+    }
+
+    if let Some(path) = dump_audio {
+        eprintln!(
+            "Writing {} samples to {}",
+            dump_samples.len() / 2,
+            path.display()
+        );
+        rotaryclub::save_wav(
+            path.to_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+            &dump_samples,
+            config.audio.sample_rate,
+        )?;
     }
 
     Ok(ProcessingStats {

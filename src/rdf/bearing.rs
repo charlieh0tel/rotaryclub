@@ -19,6 +19,9 @@ pub trait BearingCalculator {
     /// Call this once after all `process_tick` calls for a preprocessed buffer.
     fn advance_buffer(&mut self);
 
+    /// Get the filtered buffer (after AGC + bandpass) from the last preprocess call
+    fn filtered_buffer(&self) -> &[f32];
+
     /// Convenience method that preprocesses and processes in one call.
     /// Use `preprocess` + `process_tick` + `advance_buffer` when processing multiple ticks per buffer.
     fn process_buffer(

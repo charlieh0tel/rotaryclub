@@ -28,6 +28,8 @@ pub trait NorthTracker {
     #[allow(dead_code)]
     fn lock_quality(&self) -> Option<f32>;
     fn phase_error_variance(&self) -> Option<f32>;
+    /// Get the filtered buffer (after highpass) from the last process_buffer call
+    fn filtered_buffer(&self) -> &[f32];
 }
 
 /// North reference tracker
@@ -101,6 +103,13 @@ impl NorthTracker for NorthReferenceTracker {
         match self {
             Self::Simple(tracker) => tracker.phase_error_variance(),
             Self::Dpll(tracker) => tracker.phase_error_variance(),
+        }
+    }
+
+    fn filtered_buffer(&self) -> &[f32] {
+        match self {
+            Self::Simple(tracker) => tracker.filtered_buffer(),
+            Self::Dpll(tracker) => tracker.filtered_buffer(),
         }
     }
 }

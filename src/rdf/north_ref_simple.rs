@@ -110,6 +110,10 @@ impl SimpleNorthTracker {
     pub fn phase_error_variance(&self) -> Option<f32> {
         None
     }
+
+    pub fn filtered_buffer(&self) -> &[f32] {
+        &self.filter_buffer
+    }
 }
 
 #[cfg(test)]

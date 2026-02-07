@@ -163,6 +163,10 @@ impl BearingCalculator for ZeroCrossingBearingCalculator {
     fn advance_buffer(&mut self) {
         self.base.advance_counter(self.preprocessed_len);
     }
+
+    fn filtered_buffer(&self) -> &[f32] {
+        &self.base.work_buffer
+    }
 }
 
 #[cfg(test)]

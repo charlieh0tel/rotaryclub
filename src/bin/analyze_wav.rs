@@ -68,6 +68,10 @@ struct Args {
     /// Remove DC offset from audio
     #[arg(long)]
     remove_dc: bool,
+
+    /// Dump audio to WAV file (stereo: left=doppler, right=north_tick)
+    #[arg(long)]
+    dump_audio: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -178,6 +182,7 @@ fn main() -> anyhow::Result<()> {
                 args.no_bearing,
                 trim_opts.as_ref(),
                 args.remove_dc,
+                args.dump_audio.as_deref(),
             )
         })
         .collect();
@@ -197,13 +202,14 @@ fn analyze_file(
     no_bearing: bool,
     trim_opts: Option<&TrimOptions>,
     remove_dc: bool,
+    dump_audio: Option<&std::path::Path>,
 ) -> FileAnalysis {
     let filename = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| path.display().to_string());
 
-    match analyze_file_impl(path, config, no_bearing, trim_opts, remove_dc) {
+    match analyze_file_impl(path, config, no_bearing, trim_opts, remove_dc, dump_audio) {
         Ok(analysis) => analysis,
         Err(e) => FileAnalysis {
             filename,
@@ -302,6 +308,7 @@ fn analyze_file_impl(
     no_bearing: bool,
     trim_opts: Option<&TrimOptions>,
     remove_dc: bool,
+    dump_audio: Option<&std::path::Path>,
 ) -> anyhow::Result<FileAnalysis> {
     let filename = path
         .file_name()
@@ -339,6 +346,8 @@ fn analyze_file_impl(
     let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
     let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
 
+    let mut dump_samples: Vec<f32> = Vec::new();
+
     loop {
         let Some(audio_data) = source.next_buffer()? else {
             break;
@@ -359,6 +368,19 @@ fn analyze_file_impl(
 
         if let Some(ref mut calc) = bearing_calc {
             calc.preprocess(&doppler);
+        }
+
+        // Dump filtered signals (after bandpass/highpass filters)
+        if dump_audio.is_some() {
+            let filtered_doppler = bearing_calc
+                .as_ref()
+                .map(|c| c.filtered_buffer())
+                .unwrap_or(&doppler);
+            let filtered_north = north_tracker.filtered_buffer();
+            for (&d, &n) in filtered_doppler.iter().zip(filtered_north.iter()) {
+                dump_samples.push(d);
+                dump_samples.push(n);
+            }
         }
 
         for tick in &north_ticks {
@@ -456,6 +478,26 @@ fn analyze_file_impl(
         min: s.min * scale,
         max: s.max * scale,
     });
+
+    if let Some(dump_dir) = dump_audio {
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "output".to_string());
+        let dump_path = dump_dir.join(format!("{}_split.wav", stem));
+        eprintln!(
+            "Writing {} samples to {}",
+            dump_samples.len() / 2,
+            dump_path.display()
+        );
+        rotaryclub::save_wav(
+            dump_path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+            &dump_samples,
+            config.audio.sample_rate,
+        )?;
+    }
 
     Ok(FileAnalysis {
         filename,

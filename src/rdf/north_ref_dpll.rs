@@ -204,6 +204,10 @@ impl DpllNorthTracker {
         // Combined score: weight phase error more heavily
         Some(0.7 * phase_score + 0.3 * freq_score)
     }
+
+    pub fn filtered_buffer(&self) -> &[f32] {
+        &self.filter_buffer
+    }
 }
 
 #[cfg(test)]
