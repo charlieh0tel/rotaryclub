@@ -3,15 +3,11 @@ use rolling_stats::Stats;
 use serde::Serialize;
 use std::path::PathBuf;
 
-use rotaryclub::audio::{AudioRingBuffer, AudioSource, WavFileSource};
+use rotaryclub::audio::{AudioSource, WavFileSource};
 use rotaryclub::config::{
     BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
-use rotaryclub::rdf::{
-    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTracker,
-    ZeroCrossingBearingCalculator,
-};
-use rotaryclub::signal_processing::DcRemover;
+use rotaryclub::processing::RdfProcessor;
 
 #[derive(Parser, Debug)]
 #[command(name = "analyze_wav")]
@@ -325,33 +321,8 @@ fn analyze_file_impl(
     let mut source: Box<dyn AudioSource> = Box::new(WavFileSource::new(path, chunk_size)?);
     let sample_rate = config.audio.sample_rate as f32;
 
-    let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-
-    let mut bearing_calc: Option<Box<dyn BearingCalculator>> = if no_bearing {
-        None
-    } else {
-        Some(match config.doppler.method {
-            BearingMethod::ZeroCrossing => Box::new(ZeroCrossingBearingCalculator::new(
-                &config.doppler,
-                &config.agc,
-                sample_rate,
-                config.bearing.smoothing_window,
-            )?),
-            BearingMethod::Correlation => Box::new(CorrelationBearingCalculator::new(
-                &config.doppler,
-                &config.agc,
-                sample_rate,
-                config.bearing.smoothing_window,
-            )?),
-        })
-    };
-
-    let mut ring_buffer = AudioRingBuffer::new();
+    let mut processor = RdfProcessor::new(config, remove_dc, !no_bearing)?;
     let mut collected_ticks: Vec<CollectedTick> = Vec::new();
-
-    let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
-    let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
-
     let mut dump_samples: Vec<f32> = Vec::new();
 
     loop {
@@ -359,55 +330,26 @@ fn analyze_file_impl(
             break;
         };
 
-        ring_buffer.push_interleaved(&audio_data);
+        let tick_results = processor.process_audio(&audio_data);
 
-        let samples = ring_buffer.latest(audio_data.len() / 2);
-        let stereo_pairs: Vec<(f32, f32)> = samples.iter().map(|s| (s.left, s.right)).collect();
-        let (mut doppler, mut north_tick) = config.audio.split_channels(&stereo_pairs);
-
-        if remove_dc {
-            dc_remover_doppler.process(&mut doppler);
-            dc_remover_north.process(&mut north_tick);
-        }
-
-        let north_ticks = north_tracker.process_buffer(&north_tick);
-
-        if let Some(ref mut calc) = bearing_calc {
-            calc.preprocess(&doppler);
-        }
-
-        // Dump filtered signals (after bandpass/highpass filters)
         if dump_audio.is_some() {
-            let filtered_doppler = bearing_calc
-                .as_ref()
-                .map(|c| c.filtered_buffer())
-                .unwrap_or(&doppler);
-            let filtered_north = north_tracker.filtered_buffer();
+            let filtered_doppler = processor.filtered_doppler();
+            let filtered_north = processor.filtered_north();
             for (&d, &n) in filtered_doppler.iter().zip(filtered_north.iter()) {
                 dump_samples.push(d);
                 dump_samples.push(n);
             }
         }
 
-        for tick in &north_ticks {
-            let bearing = if let Some(ref mut calc) = bearing_calc {
-                calc.process_tick(tick).map(|b| b.bearing_degrees)
-            } else {
-                None
-            };
-
+        for result in tick_results {
             collected_ticks.push(CollectedTick {
-                sample_index: tick.sample_index,
-                lock_quality: tick.lock_quality,
-                period: tick.period,
-                frequency: north_tracker.rotation_frequency(),
-                bearing,
-                phase_error_variance: north_tracker.phase_error_variance(),
+                sample_index: result.north_tick.sample_index,
+                lock_quality: result.north_tick.lock_quality,
+                period: result.north_tick.period,
+                frequency: processor.rotation_frequency(),
+                bearing: result.bearing.map(|b| b.bearing_degrees),
+                phase_error_variance: processor.phase_error_variance(),
             });
-        }
-
-        if let Some(ref mut calc) = bearing_calc {
-            calc.advance_buffer();
         }
     }
 

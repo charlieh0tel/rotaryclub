@@ -6,15 +6,11 @@ use std::time::{Duration, Instant};
 mod output;
 
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
-use rotaryclub::audio::{AudioRingBuffer, AudioSource, DeviceSource, WavFileSource};
+use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource};
 use rotaryclub::config::{
     BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
-use rotaryclub::rdf::{
-    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
-    NorthTracker, ZeroCrossingBearingCalculator,
-};
-use rotaryclub::signal_processing::DcRemover;
+use rotaryclub::processing::RdfProcessor;
 
 #[derive(Parser, Debug)]
 #[command(name = "rotaryclub")]
@@ -195,35 +191,13 @@ fn run_processing_loop(
     remove_dc: bool,
     dump_audio: Option<&std::path::Path>,
 ) -> anyhow::Result<ProcessingStats> {
-    let sample_rate = config.audio.sample_rate as f32;
+    let mut processor = RdfProcessor::new(&config, remove_dc, true)?;
 
-    let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-
-    let mut bearing_calc: Box<dyn BearingCalculator> = match config.doppler.method {
-        BearingMethod::ZeroCrossing => Box::new(ZeroCrossingBearingCalculator::new(
-            &config.doppler,
-            &config.agc,
-            sample_rate,
-            config.bearing.smoothing_window,
-        )?),
-        BearingMethod::Correlation => Box::new(CorrelationBearingCalculator::new(
-            &config.doppler,
-            &config.agc,
-            sample_rate,
-            config.bearing.smoothing_window,
-        )?),
-    };
-
-    let mut ring_buffer = AudioRingBuffer::new();
     let mut last_output = Instant::now();
     let output_interval = Duration::from_secs_f32(1.0 / config.bearing.output_rate_hz);
 
-    let mut last_north_tick: Option<NorthTick> = None;
     let mut bearing_stats: Stats<f32> = Stats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
-
-    let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
-    let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
 
     // Collects raw audio for --dump-audio (use analyze_wav for filtered output)
     let mut dump_samples: Vec<f32> = Vec::new();
@@ -237,41 +211,23 @@ fn run_processing_loop(
             dump_samples.extend_from_slice(&audio_data);
         }
 
-        ring_buffer.push_interleaved(&audio_data);
+        let tick_results = processor.process_audio(&audio_data);
 
-        let samples = ring_buffer.latest(audio_data.len() / 2);
-        let stereo_pairs: Vec<(f32, f32)> = samples.iter().map(|s| (s.left, s.right)).collect();
-        let (mut doppler, mut north_tick) = config.audio.split_channels(&stereo_pairs);
-
-        if remove_dc {
-            dc_remover_doppler.process(&mut doppler);
-            dc_remover_north.process(&mut north_tick);
+        if let Some(freq) = processor.rotation_frequency()
+            && !tick_results.is_empty()
+        {
+            log::debug!("Rotation detected: {:.1} Hz", freq);
+            rotation_stats.update(freq);
         }
 
-        let north_ticks = north_tracker.process_buffer(&north_tick);
-
-        if let Some(tick) = north_ticks.last() {
-            last_north_tick = Some(*tick);
-
-            if let Some(freq) = north_tracker.rotation_frequency() {
-                log::debug!("Rotation detected: {:.1} Hz", freq);
-                rotation_stats.update(freq);
-            }
-        }
-
-        let ticks_to_process: Vec<_> = if throttle_output {
-            last_north_tick.iter().copied().collect()
-        } else {
-            north_ticks
-        };
-
-        for tick in &ticks_to_process {
-            if let Some(bearing) = bearing_calc.process_buffer(&doppler, tick)
+        for result in &tick_results {
+            if let Some(ref bearing) = result.bearing
                 && (!throttle_output || last_output.elapsed() >= output_interval)
             {
                 let mut adjusted_bearing =
                     bearing.bearing_degrees + config.bearing.north_offset_degrees;
-                let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
+                let mut adjusted_raw =
+                    bearing.raw_bearing + config.bearing.north_offset_degrees;
 
                 adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
                 adjusted_raw = adjusted_raw.rem_euclid(360.0);
@@ -283,8 +239,8 @@ fn run_processing_loop(
                     snr_db: bearing.metrics.snr_db,
                     coherence: bearing.metrics.coherence,
                     signal_strength: bearing.metrics.signal_strength,
-                    lock_quality: tick.lock_quality,
-                    phase_error_variance: north_tracker.phase_error_variance(),
+                    lock_quality: result.north_tick.lock_quality,
+                    phase_error_variance: processor.phase_error_variance(),
                 };
 
                 bearing_stats.update(adjusted_bearing);
@@ -293,7 +249,7 @@ fn run_processing_loop(
             }
         }
 
-        if last_north_tick.is_none()
+        if processor.last_north_tick().is_none()
             && throttle_output
             && last_output.elapsed()
                 >= Duration::from_secs_f32(config.bearing.north_tick_warning_timeout_secs)
