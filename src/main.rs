@@ -17,6 +17,7 @@ use rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTracker,
     ZeroCrossingBearingCalculator,
 };
+use signal_processing::DcRemover;
 
 #[derive(Parser, Debug)]
 #[command(name = "rotaryclub")]
@@ -57,6 +58,10 @@ struct Args {
     /// Input WAV file (default: live device capture)
     #[arg(short = 'i', long)]
     input: Option<PathBuf>,
+
+    /// Remove DC offset from audio
+    #[arg(long)]
+    remove_dc: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -129,7 +134,7 @@ fn main() -> anyhow::Result<()> {
         println!("{}", header);
     }
 
-    let stats = run_processing_loop(source, config, formatter, throttle_output)?;
+    let stats = run_processing_loop(source, config, formatter, throttle_output, args.remove_dc)?;
 
     if args.input.is_some() && stats.bearing_stats.count > 0 {
         eprintln!();
@@ -172,6 +177,7 @@ fn run_processing_loop(
     config: RdfConfig,
     formatter: Box<dyn Formatter>,
     throttle_output: bool,
+    remove_dc: bool,
 ) -> anyhow::Result<ProcessingStats> {
     let sample_rate = config.audio.sample_rate as f32;
 
@@ -200,6 +206,9 @@ fn run_processing_loop(
     let mut bearing_stats: Stats<f32> = Stats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
 
+    let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
+    let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
+
     loop {
         let Some(audio_data) = source.next_buffer()? else {
             break;
@@ -209,7 +218,12 @@ fn run_processing_loop(
 
         let samples = ring_buffer.latest(audio_data.len() / 2);
         let stereo_pairs: Vec<(f32, f32)> = samples.iter().map(|s| (s.left, s.right)).collect();
-        let (doppler, north_tick) = config.audio.split_channels(&stereo_pairs);
+        let (mut doppler, mut north_tick) = config.audio.split_channels(&stereo_pairs);
+
+        if remove_dc {
+            dc_remover_doppler.process(&mut doppler);
+            dc_remover_north.process(&mut north_tick);
+        }
 
         let north_ticks = north_tracker.process_buffer(&north_tick);
 

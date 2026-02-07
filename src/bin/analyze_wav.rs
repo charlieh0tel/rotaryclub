@@ -11,6 +11,7 @@ use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTracker,
     ZeroCrossingBearingCalculator,
 };
+use rotaryclub::signal_processing::DcRemover;
 
 #[derive(Parser, Debug)]
 #[command(name = "analyze_wav")]
@@ -63,6 +64,10 @@ struct Args {
     /// Lock quality threshold for auto-trim (0.0-1.0)
     #[arg(long, default_value = "0.5")]
     trim_threshold: f32,
+
+    /// Remove DC offset from audio
+    #[arg(long)]
+    remove_dc: bool,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -166,7 +171,15 @@ fn main() -> anyhow::Result<()> {
     let results: Vec<FileAnalysis> = args
         .files
         .iter()
-        .map(|path| analyze_file(path, &config, args.no_bearing, trim_opts.as_ref()))
+        .map(|path| {
+            analyze_file(
+                path,
+                &config,
+                args.no_bearing,
+                trim_opts.as_ref(),
+                args.remove_dc,
+            )
+        })
         .collect();
 
     match args.format {
@@ -183,13 +196,14 @@ fn analyze_file(
     config: &RdfConfig,
     no_bearing: bool,
     trim_opts: Option<&TrimOptions>,
+    remove_dc: bool,
 ) -> FileAnalysis {
     let filename = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| path.display().to_string());
 
-    match analyze_file_impl(path, config, no_bearing, trim_opts) {
+    match analyze_file_impl(path, config, no_bearing, trim_opts, remove_dc) {
         Ok(analysis) => analysis,
         Err(e) => FileAnalysis {
             filename,
@@ -287,6 +301,7 @@ fn analyze_file_impl(
     config: &RdfConfig,
     no_bearing: bool,
     trim_opts: Option<&TrimOptions>,
+    remove_dc: bool,
 ) -> anyhow::Result<FileAnalysis> {
     let filename = path
         .file_name()
@@ -321,6 +336,9 @@ fn analyze_file_impl(
     let mut ring_buffer = AudioRingBuffer::new();
     let mut collected_ticks: Vec<CollectedTick> = Vec::new();
 
+    let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
+    let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
+
     loop {
         let Some(audio_data) = source.next_buffer()? else {
             break;
@@ -330,7 +348,12 @@ fn analyze_file_impl(
 
         let samples = ring_buffer.latest(audio_data.len() / 2);
         let stereo_pairs: Vec<(f32, f32)> = samples.iter().map(|s| (s.left, s.right)).collect();
-        let (doppler, north_tick) = config.audio.split_channels(&stereo_pairs);
+        let (mut doppler, mut north_tick) = config.audio.split_channels(&stereo_pairs);
+
+        if remove_dc {
+            dc_remover_doppler.process(&mut doppler);
+            dc_remover_north.process(&mut north_tick);
+        }
 
         let north_ticks = north_tracker.process_buffer(&north_tick);
 

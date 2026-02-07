@@ -450,6 +450,144 @@ fn test_rotating_bearing_through_zero() {
     );
 }
 
+/// Test that DC offset removal improves accuracy when signal has DC offset.
+#[test]
+fn test_dc_offset_removal() {
+    use rotaryclub::signal_processing::DcRemover;
+
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+
+    let test_bearing = 90.0;
+
+    for dc_offset in [0.0, 0.3, 1.0, 5.0] {
+        // Generate signal and add DC offset
+        let signal =
+            test_signals::generate_test_signal(0.5, sample_rate as u32, rotation_hz, test_bearing);
+
+        // Add DC offset to both channels
+        let signal_with_dc: Vec<f32> = signal.iter().map(|s| s + dc_offset).collect();
+
+        // Process without DC removal
+        let bearing_without_removal = {
+            let mut north_tracker =
+                NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+            let mut corr_calc =
+                CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)
+                    .unwrap();
+
+            let chunk_size = config.audio.buffer_size * 2;
+            let mut measurements = Vec::new();
+            let mut last_tick: Option<NorthTick> = None;
+
+            for chunk in signal_with_dc.chunks(chunk_size) {
+                let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+                let (doppler, north_tick) = config.audio.split_channels(&stereo);
+
+                if let Some(ref tick) = last_tick {
+                    if let Some(bearing) = corr_calc.process_buffer(&doppler, tick) {
+                        measurements.push(bearing.bearing_degrees);
+                    }
+                } else {
+                    corr_calc.process_buffer(
+                        &doppler,
+                        &NorthTick {
+                            sample_index: 0,
+                            period: Some(30.0),
+                            lock_quality: None,
+                            phase: 0.0,
+                            frequency: 2.0 * PI / 30.0,
+                        },
+                    );
+                }
+
+                let ticks = north_tracker.process_buffer(&north_tick);
+                if let Some(tick) = ticks.last() {
+                    last_tick = Some(*tick);
+                }
+            }
+
+            if measurements.len() > 5 {
+                measurements.iter().skip(3).sum::<f32>() / (measurements.len() - 3) as f32
+            } else {
+                measurements.iter().sum::<f32>() / measurements.len().max(1) as f32
+            }
+        };
+
+        // Process with DC removal
+        let bearing_with_removal = {
+            let mut north_tracker =
+                NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+            let mut corr_calc =
+                CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)
+                    .unwrap();
+            let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
+            let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
+
+            let chunk_size = config.audio.buffer_size * 2;
+            let mut measurements = Vec::new();
+            let mut last_tick: Option<NorthTick> = None;
+
+            for chunk in signal_with_dc.chunks(chunk_size) {
+                let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+                let (mut doppler, mut north_tick) = config.audio.split_channels(&stereo);
+
+                dc_remover_doppler.process(&mut doppler);
+                dc_remover_north.process(&mut north_tick);
+
+                if let Some(ref tick) = last_tick {
+                    if let Some(bearing) = corr_calc.process_buffer(&doppler, tick) {
+                        measurements.push(bearing.bearing_degrees);
+                    }
+                } else {
+                    corr_calc.process_buffer(
+                        &doppler,
+                        &NorthTick {
+                            sample_index: 0,
+                            period: Some(30.0),
+                            lock_quality: None,
+                            phase: 0.0,
+                            frequency: 2.0 * PI / 30.0,
+                        },
+                    );
+                }
+
+                let ticks = north_tracker.process_buffer(&north_tick);
+                if let Some(tick) = ticks.last() {
+                    last_tick = Some(*tick);
+                }
+            }
+
+            if measurements.len() > 5 {
+                measurements.iter().skip(3).sum::<f32>() / (measurements.len() - 3) as f32
+            } else {
+                measurements.iter().sum::<f32>() / measurements.len().max(1) as f32
+            }
+        };
+
+        let error_without = angle_error(bearing_without_removal, test_bearing).abs();
+        let error_with = angle_error(bearing_with_removal, test_bearing).abs();
+
+        // DC removal should produce a reasonable bearing (within 10 degrees)
+        assert!(
+            error_with < 10.0,
+            "DC {}: error {:.1}° exceeds 10° threshold",
+            dc_offset,
+            error_with
+        );
+
+        // DC removal should not make things worse (allow some tolerance)
+        assert!(
+            error_with <= error_without + 5.0,
+            "DC {}: removal made accuracy worse: {:.1}° vs {:.1}° without",
+            dc_offset,
+            error_with,
+            error_without
+        );
+    }
+}
+
 /// Test that FIR highpass delay compensation works correctly for north tick detection.
 #[test]
 fn test_north_tick_fir_delay_compensation() {
