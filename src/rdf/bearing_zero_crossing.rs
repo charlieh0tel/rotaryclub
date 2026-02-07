@@ -6,8 +6,6 @@ use std::f32::consts::PI;
 use super::bearing::MIN_POWER_THRESHOLD;
 
 const DEFAULT_SINGLE_CROSSING_COHERENCE: f32 = 0.5;
-const SNR_DB_OFFSET: f32 = 40.0;
-const MAX_SNR_DB: f32 = 40.0;
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
@@ -90,7 +88,8 @@ impl ZeroCrossingBearingCalculator {
         // Apply smoothing
         let smoothed_bearing = self.base.smooth_bearing(raw_bearing);
 
-        let metrics = self.calculate_metrics(&self.crossings, samples_per_rotation);
+        let metrics =
+            self.calculate_metrics(&self.crossings, samples_per_rotation, north_tick, avg_phase);
 
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
@@ -100,7 +99,13 @@ impl ZeroCrossingBearingCalculator {
         })
     }
 
-    fn calculate_metrics(&self, crossings: &[f32], samples_per_rotation: f32) -> ConfidenceMetrics {
+    fn calculate_metrics(
+        &self,
+        crossings: &[f32],
+        samples_per_rotation: f32,
+        north_tick: &NorthTick,
+        avg_phase: f32,
+    ) -> ConfidenceMetrics {
         if crossings.is_empty() {
             return ConfidenceMetrics::default();
         }
@@ -129,17 +134,42 @@ impl ZeroCrossingBearingCalculator {
             DEFAULT_SINGLE_CROSSING_COHERENCE
         };
 
-        // --- SNR Estimation from signal amplitude ---
-        let signal_power: f32 = self.base.work_buffer.iter().map(|s| s * s).sum::<f32>()
-            / self.base.work_buffer.len() as f32;
-        let snr_db = if signal_power > MIN_POWER_THRESHOLD {
-            10.0 * signal_power.log10() + SNR_DB_OFFSET
+        // --- SNR Estimation via projection onto ideal Doppler sine ---
+        // Reconstruct an ideal sine wave at the known bearing phase and north tick
+        // frequency, then measure how much of the actual signal correlates with it.
+        let omega = north_tick.frequency;
+        let snr_db = if omega > 0.0 {
+            let base_offset = self.base.offset_from_north_tick(north_tick);
+            let group_delay = self.base.filter_group_delay() as f32;
+            let tick_adjustment = self.base.north_tick_timing_adjustment();
+
+            let mut projection_sum = 0.0f32;
+            let mut power_sum = 0.0f32;
+
+            for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
+                let samples_since_tick =
+                    (base_offset + idx as isize) as f32 - group_delay + tick_adjustment;
+                let phase = north_tick.phase + samples_since_tick * omega;
+                let ideal = (phase - avg_phase).sin();
+                projection_sum += sample * ideal;
+                power_sum += sample * sample;
+            }
+
+            let n = self.base.work_buffer.len() as f32;
+            let projection = projection_sum / n;
+            let signal_power = power_sum / n;
+
+            // projection ≈ A/2 for signal A*sin(ωt - φ), since sin² averages to 1/2.
+            // Correlated power = 2 * projection² reconstructs the full signal power.
+            let correlated_power = 2.0 * projection * projection;
+            let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
+            10.0 * (correlated_power / noise_power).log10()
         } else {
             0.0
         };
 
         ConfidenceMetrics {
-            snr_db: snr_db.clamp(0.0, MAX_SNR_DB),
+            snr_db,
             coherence,
             signal_strength,
         }
