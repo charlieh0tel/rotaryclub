@@ -25,8 +25,10 @@ def analyze(path, channel_names=None):
     print(f"{path}: {data.shape[0]} frames, {len(channels)}ch, {rate}Hz")
 
     for name, ch in channels:
+        dc = float(np.mean(ch))
         peak = float(np.max(np.abs(ch)))
         rms = float(np.sqrt(np.mean(ch * ch)))
+        ac_rms = float(np.sqrt(np.mean((ch - dc) ** 2)))
         peak_db = 20 * math.log10(peak) if peak > 0 else float("-inf")
         rms_db = 20 * math.log10(rms) if rms > 0 else float("-inf")
         over_1 = int(np.sum(np.abs(ch) > 1.0))
@@ -34,8 +36,9 @@ def analyze(path, channel_names=None):
         crest = peak / rms if rms > 0 else float("inf")
 
         print(f"  {name}:")
+        print(f"    dc  ={dc:+.6f}")
         print(f"    peak={peak:.4f} ({peak_db:+.1f} dBFS)")
-        print(f"    rms ={rms:.4f} ({rms_db:+.1f} dBFS)")
+        print(f"    rms ={rms:.4f} ({rms_db:+.1f} dBFS)  ac_rms={ac_rms:.4f}")
         print(f"    crest factor={crest:.1f} ({20*math.log10(crest):+.1f} dB)")
         print(f"    samples >0.9={over_09}  >1.0={over_1}")
 
