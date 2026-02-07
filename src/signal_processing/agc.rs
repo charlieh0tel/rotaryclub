@@ -1,9 +1,6 @@
 use crate::config::AgcConfig;
 use crate::constants::MIN_RMS_THRESHOLD;
 
-const MIN_GAIN: f32 = 0.1;
-const MAX_GAIN: f32 = 10.0;
-
 /// Automatic Gain Control (AGC)
 ///
 /// Dynamically adjusts signal amplitude to maintain a target RMS level,
@@ -14,13 +11,15 @@ const MAX_GAIN: f32 = 10.0;
 /// - Attack: how quickly gain increases for weak signals
 /// - Release: how quickly gain decreases for strong signals
 ///
-/// Gain is clamped to [0.1, 10.0] to prevent extreme amplification or
-/// attenuation.
+/// Gain is clamped to configured min/max bounds to prevent extreme
+/// amplification or attenuation.
 pub struct AutomaticGainControl {
     target_rms: f32,
     attack_coeff: f32,
     release_coeff: f32,
     current_gain: f32,
+    min_gain: f32,
+    max_gain: f32,
     rms_accumulator: f32,
     sample_count: usize,
     window_size: usize,
@@ -42,6 +41,8 @@ impl AutomaticGainControl {
             attack_coeff,
             release_coeff,
             current_gain: 1.0,
+            min_gain: config.min_gain,
+            max_gain: config.max_gain,
             rms_accumulator: 0.0,
             sample_count: 0,
             window_size,
@@ -80,7 +81,7 @@ impl AutomaticGainControl {
                 };
 
                 self.current_gain = coeff * self.current_gain + (1.0 - coeff) * desired_gain;
-                self.current_gain = self.current_gain.clamp(MIN_GAIN, MAX_GAIN);
+                self.current_gain = self.current_gain.clamp(self.min_gain, self.max_gain);
             }
         }
 
@@ -102,7 +103,7 @@ impl AutomaticGainControl {
 
     /// Get the current gain factor
     ///
-    /// Returns the current gain multiplier (0.1 to 10.0 range).
+    /// Returns the current gain multiplier (clamped to configured min/max range).
     #[allow(dead_code)]
     pub fn current_gain(&self) -> f32 {
         self.current_gain
@@ -120,6 +121,8 @@ mod tests {
             attack_time_ms: 10.0,
             release_time_ms: 100.0,
             measurement_window_ms: 10.0,
+            min_gain: 0.1,
+            max_gain: 10.0,
         };
 
         let mut agc = AutomaticGainControl::new(&config, 48000.0);
@@ -154,6 +157,8 @@ mod tests {
             attack_time_ms: 10.0,
             release_time_ms: 100.0,
             measurement_window_ms: 10.0,
+            min_gain: 0.1,
+            max_gain: 10.0,
         };
 
         let mut agc = AutomaticGainControl::new(&config, 48000.0);
@@ -185,6 +190,8 @@ mod tests {
             attack_time_ms: 1.0,
             release_time_ms: 10.0,
             measurement_window_ms: 1.0,
+            min_gain: 0.1,
+            max_gain: 10.0,
         };
 
         let mut agc = AutomaticGainControl::new(&config, 48000.0);
@@ -193,6 +200,6 @@ mod tests {
         let mut output = silent_signal.clone();
         agc.process_buffer(&mut output);
 
-        assert!(agc.current_gain() <= MAX_GAIN);
+        assert!(agc.current_gain() <= config.max_gain);
     }
 }

@@ -3,22 +3,18 @@ use rolling_stats::Stats;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-mod audio;
-mod config;
-mod constants;
-mod error;
 mod output;
-mod rdf;
-mod signal_processing;
 
-use audio::{AudioRingBuffer, AudioSource, DeviceSource, WavFileSource};
-use config::{BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency};
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
-use rdf::{
-    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTracker,
-    ZeroCrossingBearingCalculator,
+use rotaryclub::audio::{AudioRingBuffer, AudioSource, DeviceSource, WavFileSource};
+use rotaryclub::config::{
+    BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
-use signal_processing::DcRemover;
+use rotaryclub::rdf::{
+    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
+    NorthTracker, ZeroCrossingBearingCalculator,
+};
+use rotaryclub::signal_processing::DcRemover;
 
 #[derive(Parser, Debug)]
 #[command(name = "rotaryclub")]
@@ -217,7 +213,7 @@ fn run_processing_loop(
     let mut last_output = Instant::now();
     let output_interval = Duration::from_secs_f32(1.0 / config.bearing.output_rate_hz);
 
-    let mut last_north_tick: Option<rdf::NorthTick> = None;
+    let mut last_north_tick: Option<NorthTick> = None;
     let mut bearing_stats: Stats<f32> = Stats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
 

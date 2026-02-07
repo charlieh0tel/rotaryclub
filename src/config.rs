@@ -283,6 +283,10 @@ pub struct AgcConfig {
     pub release_time_ms: f32,
     /// Measurement window for RMS calculation in milliseconds
     pub measurement_window_ms: f32,
+    /// Minimum gain (prevents excessive attenuation, default: 0.1 = -20dB)
+    pub min_gain: f32,
+    /// Maximum gain (prevents excessive amplification, default: 10.0 = +20dB)
+    pub max_gain: f32,
 }
 
 impl AudioConfig {
@@ -368,6 +372,8 @@ impl Default for AgcConfig {
             attack_time_ms: 10.0,
             release_time_ms: 100.0,
             measurement_window_ms: 10.0,
+            min_gain: 0.1,
+            max_gain: 10.0,
         }
     }
 }
