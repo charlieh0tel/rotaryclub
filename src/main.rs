@@ -226,8 +226,7 @@ fn run_processing_loop(
             {
                 let mut adjusted_bearing =
                     bearing.bearing_degrees + config.bearing.north_offset_degrees;
-                let mut adjusted_raw =
-                    bearing.raw_bearing + config.bearing.north_offset_degrees;
+                let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
 
                 adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
                 adjusted_raw = adjusted_raw.rem_euclid(360.0);
