@@ -7,6 +7,7 @@ use rolling_stats::Stats;
 use std::f32::consts::PI;
 
 pub struct DpllNorthTracker {
+    gain: f32,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
     threshold_crossing_offset: f32,
@@ -64,6 +65,7 @@ impl DpllNorthTracker {
             highpass.threshold_crossing_offset(config.threshold, config.expected_pulse_amplitude);
 
         Ok(Self {
+            gain: config.gain,
             highpass,
             peak_detector: PeakDetector::new(config.threshold, min_samples),
             threshold_crossing_offset,
@@ -85,6 +87,11 @@ impl DpllNorthTracker {
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
         self.filter_buffer.resize(buffer.len(), 0.0);
         self.filter_buffer.copy_from_slice(buffer);
+        if self.gain != 1.0 {
+            for s in self.filter_buffer.iter_mut() {
+                *s *= self.gain;
+            }
+        }
         self.highpass.process_buffer(&mut self.filter_buffer);
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);

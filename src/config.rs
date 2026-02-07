@@ -243,6 +243,8 @@ impl Default for DpllConfig {
 pub struct NorthTickConfig {
     /// Tracking mode (DPLL recommended)
     pub mode: NorthTrackingMode,
+    /// Input gain multiplier (1.0 = unity, applied before filtering)
+    pub gain: f32,
     /// Highpass filter cutoff in Hz to isolate pulse transients
     pub highpass_cutoff: f32,
     /// Number of taps for FIR highpass filter (must be odd, default 63)
@@ -399,6 +401,7 @@ impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
             mode: NorthTrackingMode::Dpll,
+            gain: 1.0,
             highpass_cutoff: 5000.0,
             fir_highpass_taps: 63,
             highpass_transition_hz: 500.0,
