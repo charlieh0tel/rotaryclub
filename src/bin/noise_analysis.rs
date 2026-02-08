@@ -1,7 +1,8 @@
-use rotaryclub::config::RdfConfig;
+use rotaryclub::RdfProcessor;
+use rotaryclub::config::{BearingMethod, RdfConfig};
 use rotaryclub::simulation::{
-    FadingType, MultipathComponent, NoiseConfig, angle_error, apply_noise, generate_test_signal,
-    measure_bearing,
+    FadingType, MultipathComponent, NoiseConfig, angle_error, apply_noise, circular_mean_degrees,
+    generate_test_signal,
 };
 
 const NUM_TRIALS: usize = 10;
@@ -42,13 +43,45 @@ fn run_trial(
         noisy_signal.push(*n);
     }
 
-    let measurement = measure_bearing(&noisy_signal, config);
-    let zc_error = measurement
-        .zc_bearing
-        .map(|z| angle_error(z, bearing).abs());
-    let corr_error = measurement
-        .corr_bearing
-        .map(|c| angle_error(c, bearing).abs());
+    let mut zc_config = config.clone();
+    zc_config.doppler.method = BearingMethod::ZeroCrossing;
+    let mut corr_config = config.clone();
+    corr_config.doppler.method = BearingMethod::Correlation;
+
+    let mut zc_processor = match RdfProcessor::new(&zc_config, false, true) {
+        Ok(p) => p,
+        Err(_) => return (None, None),
+    };
+    let mut corr_processor = match RdfProcessor::new(&corr_config, false, true) {
+        Ok(p) => p,
+        Err(_) => return (None, None),
+    };
+
+    let zc_results = zc_processor.process_signal(&noisy_signal);
+    let corr_results = corr_processor.process_signal(&noisy_signal);
+
+    let zc_measurements: Vec<f32> = zc_results
+        .iter()
+        .filter_map(|r| r.bearing.map(|b| b.bearing_degrees))
+        .collect();
+    let corr_measurements: Vec<f32> = corr_results
+        .iter()
+        .filter_map(|r| r.bearing.map(|b| b.bearing_degrees))
+        .collect();
+
+    let zc_bearing = if zc_measurements.len() > 5 {
+        circular_mean_degrees(&zc_measurements[3..])
+    } else {
+        circular_mean_degrees(&zc_measurements)
+    };
+    let corr_bearing = if corr_measurements.len() > 5 {
+        circular_mean_degrees(&corr_measurements[3..])
+    } else {
+        circular_mean_degrees(&corr_measurements)
+    };
+
+    let zc_error = zc_bearing.map(|z| angle_error(z, bearing).abs());
+    let corr_error = corr_bearing.map(|c| angle_error(c, bearing).abs());
 
     (zc_error, corr_error)
 }
