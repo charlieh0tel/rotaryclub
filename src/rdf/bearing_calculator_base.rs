@@ -16,7 +16,8 @@ pub struct BearingCalculatorBase {
     confidence_weights: ConfidenceWeights,
     pub sample_counter: usize,
     buffer_start_sample: usize,
-    bearing_smoother: MovingAverage,
+    bearing_smoother_cos: MovingAverage,
+    bearing_smoother_sin: MovingAverage,
     pub work_buffer: Vec<f32>,
 }
 
@@ -45,7 +46,8 @@ impl BearingCalculatorBase {
             confidence_weights: ConfidenceWeights::default(),
             sample_counter: 0,
             buffer_start_sample: 0,
-            bearing_smoother: MovingAverage::new(smoothing),
+            bearing_smoother_cos: MovingAverage::new(smoothing),
+            bearing_smoother_sin: MovingAverage::new(smoothing),
             work_buffer: Vec::new(),
         })
     }
@@ -93,9 +95,13 @@ impl BearingCalculatorBase {
         self.filter_group_delay
     }
 
-    /// Apply smoothing to a raw bearing value
+    /// Apply circular smoothing to a raw bearing value.
+    /// Uses vector averaging (cos/sin components) to handle 0°/360° wraparound.
     pub fn smooth_bearing(&mut self, raw_bearing: f32) -> f32 {
-        self.bearing_smoother.add(raw_bearing)
+        let rad = raw_bearing.to_radians();
+        let avg_cos = self.bearing_smoother_cos.add(rad.cos());
+        let avg_sin = self.bearing_smoother_sin.add(rad.sin());
+        avg_sin.atan2(avg_cos).to_degrees().rem_euclid(360.0)
     }
 
     /// Advance the sample counter by the given amount

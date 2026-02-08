@@ -7,6 +7,7 @@ use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
     NorthTracker, ZeroCrossingBearingCalculator,
 };
+use rotaryclub::simulation::circular_mean_degrees;
 
 #[test]
 fn test_north_tick_detection() {
@@ -104,19 +105,15 @@ fn calculate_bearing_from_synthetic(
     }
 
     let zc_result = if zc_measurements.len() > 5 {
-        Some(zc_measurements.iter().skip(3).sum::<f32>() / (zc_measurements.len() - 3) as f32)
-    } else if !zc_measurements.is_empty() {
-        Some(zc_measurements.iter().sum::<f32>() / zc_measurements.len() as f32)
+        circular_mean_degrees(&zc_measurements[3..])
     } else {
-        None
+        circular_mean_degrees(&zc_measurements)
     };
 
     let corr_result = if corr_measurements.len() > 5 {
-        Some(corr_measurements.iter().skip(3).sum::<f32>() / (corr_measurements.len() - 3) as f32)
-    } else if !corr_measurements.is_empty() {
-        Some(corr_measurements.iter().sum::<f32>() / corr_measurements.len() as f32)
+        circular_mean_degrees(&corr_measurements[3..])
     } else {
-        None
+        circular_mean_degrees(&corr_measurements)
     };
 
     Ok((zc_result, corr_result))
@@ -134,8 +131,7 @@ fn test_bearing_with_perfect_north_tick() {
     let rotation_hz = config.doppler.expected_freq;
     let samples_per_rotation = sample_rate / rotation_hz;
 
-    // Skip 0° - known issue where zero crossing coincides with north tick
-    for test_bearing in [45.0_f32, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
+    for test_bearing in [0.0_f32, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
         let bearing_radians = test_bearing.to_radians();
         let omega = 2.0 * PI * rotation_hz / sample_rate;
         let num_samples = (samples_per_rotation * 100.0) as usize;
@@ -298,7 +294,7 @@ fn test_calibration_free_accuracy() {
     let mut max_zc_error = 0.0f32;
     let mut max_corr_error = 0.0f32;
 
-    for test_bearing in [45.0_f32, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
+    for test_bearing in [0.0_f32, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
         let (zc_measured, corr_measured) =
             calculate_bearing_from_synthetic(test_bearing, &config, sample_rate)
                 .expect("Failed to calculate bearing");
@@ -333,7 +329,7 @@ fn test_methods_agree() {
 
     let mut max_difference = 0.0f32;
 
-    for test_bearing in [45.0_f32, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
+    for test_bearing in [0.0_f32, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
         let (zc_measured, corr_measured) =
             calculate_bearing_from_synthetic(test_bearing, &config, sample_rate)
                 .expect("Failed to calculate bearing");

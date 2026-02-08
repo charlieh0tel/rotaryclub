@@ -3,7 +3,8 @@ mod noise;
 mod signal;
 
 pub use measure::{
-    BearingMeasurement, ErrorStats, angle_error, measure_bearing, measure_error_across_bearings,
+    BearingMeasurement, ErrorStats, angle_error, circular_mean_degrees, measure_bearing,
+    measure_error_across_bearings,
 };
 pub use noise::{
     AdditiveNoiseConfig, DoublingConfig, FadingConfig, FadingType, FrequencyDriftConfig,

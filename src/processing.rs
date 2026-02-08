@@ -106,6 +106,15 @@ impl RdfProcessor {
         results
     }
 
+    pub fn process_signal(&mut self, interleaved: &[f32]) -> Vec<TickResult> {
+        let chunk_size = self.audio_config.buffer_size * 2;
+        let mut all_results = Vec::new();
+        for chunk in interleaved.chunks(chunk_size) {
+            all_results.extend(self.process_audio(chunk));
+        }
+        all_results
+    }
+
     pub fn last_north_tick(&self) -> Option<&NorthTick> {
         self.last_north_tick.as_ref()
     }

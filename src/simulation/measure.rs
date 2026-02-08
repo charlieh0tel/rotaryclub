@@ -1,10 +1,5 @@
-use std::f32::consts::PI;
-
-use crate::config::RdfConfig;
-use crate::rdf::{
-    BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
-    NorthTracker, ZeroCrossingBearingCalculator,
-};
+use crate::config::{BearingMethod, RdfConfig};
+use crate::processing::RdfProcessor;
 
 use super::{NoiseConfig, apply_noise, generate_test_signal};
 
@@ -24,72 +19,54 @@ pub fn angle_error(measured: f32, expected: f32) -> f32 {
     e
 }
 
-pub fn measure_bearing(signal: &[f32], config: &RdfConfig) -> BearingMeasurement {
-    let sample_rate = config.audio.sample_rate as f32;
+pub fn circular_mean_degrees(angles: &[f32]) -> Option<f32> {
+    if angles.is_empty() {
+        return None;
+    }
+    let (sum_cos, sum_sin) = angles.iter().fold((0.0f32, 0.0f32), |(c, s), &a| {
+        let r = a.to_radians();
+        (c + r.cos(), s + r.sin())
+    });
+    Some(sum_sin.atan2(sum_cos).to_degrees().rem_euclid(360.0))
+}
 
-    let mut north_tracker = match NorthReferenceTracker::new(&config.north_tick, sample_rate) {
-        Ok(t) => t,
+pub fn measure_bearing(signal: &[f32], config: &RdfConfig) -> BearingMeasurement {
+    let mut zc_config = config.clone();
+    zc_config.doppler.method = BearingMethod::ZeroCrossing;
+    let mut corr_config = config.clone();
+    corr_config.doppler.method = BearingMethod::Correlation;
+
+    let mut zc_processor = match RdfProcessor::new(&zc_config, false, true) {
+        Ok(p) => p,
         Err(_) => return BearingMeasurement::default(),
     };
-    let mut zc_calc =
-        match ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3) {
-            Ok(c) => c,
-            Err(_) => return BearingMeasurement::default(),
-        };
-    let mut corr_calc =
-        match CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3) {
-            Ok(c) => c,
-            Err(_) => return BearingMeasurement::default(),
-        };
+    let mut corr_processor = match RdfProcessor::new(&corr_config, false, true) {
+        Ok(p) => p,
+        Err(_) => return BearingMeasurement::default(),
+    };
 
-    let chunk_size = config.audio.buffer_size * 2;
-    let mut zc_measurements = Vec::new();
-    let mut corr_measurements = Vec::new();
-    let mut last_tick: Option<NorthTick> = None;
+    let zc_results = zc_processor.process_signal(signal);
+    let corr_results = corr_processor.process_signal(signal);
 
-    for chunk in signal.chunks(chunk_size) {
-        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
-        let (doppler, north_tick) = config.audio.split_channels(&stereo);
-
-        if let Some(ref tick) = last_tick {
-            if let Some(bearing) = zc_calc.process_buffer(&doppler, tick) {
-                zc_measurements.push(bearing.bearing_degrees);
-            }
-            if let Some(bearing) = corr_calc.process_buffer(&doppler, tick) {
-                corr_measurements.push(bearing.bearing_degrees);
-            }
-        } else {
-            let dummy_tick = NorthTick {
-                sample_index: 0,
-                period: Some(30.0),
-                lock_quality: None,
-                phase: 0.0,
-                frequency: 2.0 * PI / 30.0,
-            };
-            zc_calc.process_buffer(&doppler, &dummy_tick);
-            corr_calc.process_buffer(&doppler, &dummy_tick);
-        }
-
-        let ticks = north_tracker.process_buffer(&north_tick);
-        if let Some(tick) = ticks.last() {
-            last_tick = Some(*tick);
-        }
-    }
+    let zc_measurements: Vec<f32> = zc_results
+        .iter()
+        .filter_map(|r| r.bearing.map(|b| b.bearing_degrees))
+        .collect();
+    let corr_measurements: Vec<f32> = corr_results
+        .iter()
+        .filter_map(|r| r.bearing.map(|b| b.bearing_degrees))
+        .collect();
 
     let zc_bearing = if zc_measurements.len() > 5 {
-        Some(zc_measurements.iter().skip(3).sum::<f32>() / (zc_measurements.len() - 3) as f32)
-    } else if !zc_measurements.is_empty() {
-        Some(zc_measurements.iter().sum::<f32>() / zc_measurements.len() as f32)
+        circular_mean_degrees(&zc_measurements[3..])
     } else {
-        None
+        circular_mean_degrees(&zc_measurements)
     };
 
     let corr_bearing = if corr_measurements.len() > 5 {
-        Some(corr_measurements.iter().skip(3).sum::<f32>() / (corr_measurements.len() - 3) as f32)
-    } else if !corr_measurements.is_empty() {
-        Some(corr_measurements.iter().sum::<f32>() / corr_measurements.len() as f32)
+        circular_mean_degrees(&corr_measurements[3..])
     } else {
-        None
+        circular_mean_degrees(&corr_measurements)
     };
 
     BearingMeasurement {
