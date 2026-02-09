@@ -106,6 +106,7 @@ fn spawn_file_processing(
     playback_speed: Arc<AtomicU32>,
     is_playing: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
+    time_offset: f64,
 ) -> anyhow::Result<thread::JoinHandle<()>> {
     let chunk_size = fc.config.audio.buffer_size * 2;
     let source: Box<dyn AudioSource> = Box::new(WavFileSource::new(&fc.input_path, chunk_size)?);
@@ -126,6 +127,7 @@ fn spawn_file_processing(
             playback_speed,
             is_playing,
             stop_requested,
+            time_offset,
         ) {
             let _ = tx.send(GuiUpdate::Log(format!("Processing error: {}", e)));
         }
@@ -170,6 +172,7 @@ fn start_processing(
             Arc::clone(&playback_speed),
             Arc::clone(&is_playing),
             Arc::clone(&stop_requested),
+            0.0,
         )?;
 
         Ok(StartResult {
@@ -202,6 +205,7 @@ fn start_processing(
                 speed_clone,
                 playing_clone,
                 stop_clone,
+                0.0,
             ) {
                 let _ = tx.send(GuiUpdate::Log(format!("Processing error: {}", e)));
             }
@@ -231,6 +235,7 @@ fn run_processing(
     playback_speed: Arc<AtomicU32>,
     is_playing: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
+    time_offset: f64,
 ) -> anyhow::Result<()> {
     let mut processor = RdfProcessor::new(&config, remove_dc, true)?;
     let mut sample_count: u64 = 0;
@@ -278,7 +283,7 @@ fn run_processing(
                 }
             });
 
-            let time_secs = sample_count as f64 / sample_rate as f64;
+            let time_secs = time_offset + sample_count as f64 / sample_rate as f64;
 
             let update = GuiUpdate::Data {
                 time_secs,
@@ -319,9 +324,37 @@ fn run_processing(
 }
 
 const MAX_HISTORY_SECS: f64 = 120.0;
-const DEFAULT_WINDOW_SECS: f64 = 30.0;
-const COMPASS_TRAIL_LEN: usize = 50;
+const DEFAULT_WINDOW_SECS: f64 = 2.5;
+const MIN_WINDOW_SECS: f64 = 1.0;
+const MAX_WINDOW_SECS: f64 = 120.0;
+const MAX_TRAIL_AGE_SECS: f64 = 10.0;
 const MAX_LOG_LINES: usize = 1000;
+
+const PHOSPHOR_COLOR: (u8, u8, u8) = (30, 255, 60);
+const TRAIL_CONFIDENCE_THRESHOLD: f32 = 0.5;
+const TRAIL_TAU_BASE: f32 = 0.15;
+const TRAIL_TAU_SCALE: f32 = 0.3;
+const TRAIL_BRIGHTNESS_CUTOFF: f32 = 0.02;
+const TRAIL_DOT_BASE: f32 = 1.0;
+const TRAIL_DOT_SCALE: f32 = 1.0;
+const TRAIL_GLOW_RADIUS_SCALE: f32 = 1.5;
+const TRAIL_GLOW_ALPHA_SCALE: f32 = 0.25;
+const NEEDLE_MIN_RADIUS_FRAC: f32 = 0.35;
+const NEEDLE_RADIUS_RANGE: f32 = 0.55;
+const NEEDLE_MIN_BRIGHTNESS: f32 = 0.2;
+const NEEDLE_BRIGHTNESS_RANGE: f32 = 0.8;
+const NEEDLE_STROKE_BASE: f32 = 1.0;
+const NEEDLE_STROKE_SCALE: f32 = 2.5;
+const NEEDLE_TIP_BASE: f32 = 2.0;
+const NEEDLE_TIP_SCALE: f32 = 3.0;
+
+struct TrailEntry {
+    bearing: f32,
+    confidence: f32,
+    coherence: f32,
+    strength: f32,
+    time: f64,
+}
 
 struct History {
     bearing: VecDeque<[f64; 2]>,
@@ -331,7 +364,7 @@ struct History {
     coherence: VecDeque<[f64; 2]>,
     signal_strength: VecDeque<[f64; 2]>,
     lock_quality: VecDeque<[f64; 2]>,
-    compass_trail: VecDeque<(f32, f32, f32, f32)>,
+    compass_trail: VecDeque<TrailEntry>,
 }
 
 impl History {
@@ -368,8 +401,13 @@ impl History {
             }
         }
 
-        while self.compass_trail.len() > COMPASS_TRAIL_LEN {
-            self.compass_trail.pop_front();
+        let trail_cutoff = now - MAX_TRAIL_AGE_SECS;
+        while let Some(front) = self.compass_trail.front() {
+            if front.time < trail_cutoff {
+                self.compass_trail.pop_front();
+            } else {
+                break;
+            }
         }
     }
 }
@@ -433,22 +471,29 @@ impl RdfGuiApp {
     }
 
     fn restart_processing(&mut self) {
+        self.restart_processing_at(0.0, true);
+    }
+
+    fn restart_processing_at(&mut self, time_offset: f64, clear_state: bool) {
         self.stop_requested.store(true, Ordering::Relaxed);
         if let Some(handle) = self.processing_handle.take() {
             let _ = handle.join();
         }
 
-        self.history = History::new();
-        self.latest_bearing = None;
-        self.latest_confidence = None;
-        self.latest_snr = None;
-        self.latest_coherence = None;
-        self.latest_signal_strength = None;
-        self.latest_rotation_freq = None;
-        self.latest_lock_quality = None;
-        self.latest_phase_error_var = None;
+        if clear_state {
+            self.history = History::new();
+            self.latest_bearing = None;
+            self.latest_confidence = None;
+            self.latest_snr = None;
+            self.latest_coherence = None;
+            self.latest_signal_strength = None;
+            self.latest_rotation_freq = None;
+            self.latest_lock_quality = None;
+            self.latest_phase_error_var = None;
+            self.latest_time = 0.0;
+        }
+
         self.processing_stopped = false;
-        self.latest_time = 0.0;
 
         while self.rx.try_recv().is_ok() {}
 
@@ -461,6 +506,7 @@ impl RdfGuiApp {
                 Arc::clone(&self.playback_speed),
                 Arc::clone(&self.is_playing),
                 Arc::clone(&self.stop_requested),
+                time_offset,
             ) {
                 Ok(handle) => self.processing_handle = Some(handle),
                 Err(e) => {
@@ -502,12 +548,13 @@ impl RdfGuiApp {
                         self.history
                             .signal_strength
                             .push_back([time_secs, b.signal_strength as f64]);
-                        self.history.compass_trail.push_back((
-                            b.bearing,
-                            b.confidence,
-                            b.coherence,
-                            b.signal_strength,
-                        ));
+                        self.history.compass_trail.push_back(TrailEntry {
+                            bearing: b.bearing,
+                            confidence: b.confidence,
+                            coherence: b.coherence,
+                            strength: b.signal_strength,
+                            time: time_secs,
+                        });
 
                         self.latest_bearing = Some(b.bearing);
                         self.latest_confidence = Some(b.confidence);
@@ -530,11 +577,12 @@ impl RdfGuiApp {
                 }
                 GuiUpdate::Stopped => {
                     if self.loop_enabled && self.is_file_input {
-                        self.restart_processing();
+                        self.restart_processing_at(self.latest_time, false);
                         self.is_playing.store(true, Ordering::Relaxed);
                         return;
                     }
                     self.processing_stopped = true;
+                    self.is_playing.store(false, Ordering::Relaxed);
                 }
             }
         }
@@ -602,28 +650,40 @@ impl RdfGuiApp {
             );
         }
 
-        let trail_len = self.history.compass_trail.len();
-        for (i, &(bearing, confidence, coherence, strength)) in
-            self.history.compass_trail.iter().enumerate()
-        {
-            let age_frac = if trail_len > 1 {
-                i as f32 / (trail_len - 1) as f32
-            } else {
-                1.0
-            };
-            let alpha = (30.0 + age_frac * 200.0) as u8;
-            let sat = confidence;
-            let gray = 120.0_f32;
-            let r = (gray + ((1.0 - confidence) * 255.0 - gray) * sat).clamp(0.0, 255.0) as u8;
-            let g = (gray + (confidence * 255.0 - gray) * sat).clamp(0.0, 255.0) as u8;
-            let b = (gray + (80.0 - gray) * sat).clamp(0.0, 255.0) as u8;
-            let color = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
+        for entry in &self.history.compass_trail {
+            if entry.confidence < TRAIL_CONFIDENCE_THRESHOLD {
+                continue;
+            }
 
-            let angle_rad = bearing.to_radians();
-            let dot_r = radius * (0.35 + 0.55 * strength);
+            let age = (self.latest_time - entry.time) as f32;
+            let tau = TRAIL_TAU_BASE + TRAIL_TAU_SCALE * entry.confidence;
+            let brightness = (-age / tau).exp();
+            if brightness < TRAIL_BRIGHTNESS_CUTOFF {
+                continue;
+            }
+
+            let angle_rad = entry.bearing.to_radians();
+            let dot_r = radius * (NEEDLE_MIN_RADIUS_FRAC + NEEDLE_RADIUS_RANGE * entry.strength);
             let pos = center + egui::vec2(angle_rad.sin() * dot_r, -angle_rad.cos() * dot_r);
-            let dot_size = 1.5 + age_frac * (1.0 + coherence * 3.0);
-            painter.circle_filled(pos, dot_size, color);
+            let dot_size = TRAIL_DOT_BASE + TRAIL_DOT_SCALE * entry.coherence;
+
+            let glow_alpha = (brightness * TRAIL_GLOW_ALPHA_SCALE * 255.0).clamp(0.0, 255.0) as u8;
+            let glow_color = egui::Color32::from_rgba_unmultiplied(
+                PHOSPHOR_COLOR.0,
+                PHOSPHOR_COLOR.1,
+                PHOSPHOR_COLOR.2,
+                glow_alpha,
+            );
+            painter.circle_filled(pos, dot_size * TRAIL_GLOW_RADIUS_SCALE, glow_color);
+
+            let core_alpha = (brightness * 255.0).clamp(0.0, 255.0) as u8;
+            let core_color = egui::Color32::from_rgba_unmultiplied(
+                PHOSPHOR_COLOR.0,
+                PHOSPHOR_COLOR.1,
+                PHOSPHOR_COLOR.2,
+                core_alpha,
+            );
+            painter.circle_filled(pos, dot_size, core_color);
         }
 
         if let Some(bearing) = self.latest_bearing {
@@ -631,20 +691,24 @@ impl RdfGuiApp {
             let coherence = self.latest_coherence.unwrap_or(0.0);
             let strength = self.latest_signal_strength.unwrap_or(0.0);
             let angle_rad = bearing.to_radians();
-            let needle_len = radius * (0.35 + 0.55 * strength);
+            let needle_len = radius * (NEEDLE_MIN_RADIUS_FRAC + NEEDLE_RADIUS_RANGE * strength);
             let tip =
                 center + egui::vec2(angle_rad.sin() * needle_len, -angle_rad.cos() * needle_len);
 
-            let sat = confidence;
-            let gray = 120.0_f32;
-            let nr = (gray + ((1.0 - confidence) * 255.0 - gray) * sat).clamp(0.0, 255.0) as u8;
-            let ng = (gray + (confidence * 255.0 - gray) * sat).clamp(0.0, 255.0) as u8;
-            let nb = (gray + (80.0 - gray) * sat).clamp(0.0, 255.0) as u8;
-            let needle_color = egui::Color32::from_rgb(nr, ng, nb);
-            let stroke_width = 1.0 + coherence * 2.5;
+            let bright = NEEDLE_MIN_BRIGHTNESS + NEEDLE_BRIGHTNESS_RANGE * confidence;
+            let needle_color = egui::Color32::from_rgb(
+                (PHOSPHOR_COLOR.0 as f32 * bright) as u8,
+                (PHOSPHOR_COLOR.1 as f32 * bright) as u8,
+                (PHOSPHOR_COLOR.2 as f32 * bright) as u8,
+            );
+            let stroke_width = NEEDLE_STROKE_BASE + NEEDLE_STROKE_SCALE * coherence;
 
             painter.line_segment([center, tip], egui::Stroke::new(stroke_width, needle_color));
-            painter.circle_filled(tip, 2.0 + coherence * 3.0, needle_color);
+            painter.circle_filled(
+                tip,
+                NEEDLE_TIP_BASE + NEEDLE_TIP_SCALE * coherence,
+                needle_color,
+            );
             painter.circle_filled(center, 3.0, egui::Color32::from_rgb(200, 200, 220));
         }
 
@@ -708,8 +772,12 @@ impl RdfGuiApp {
                 .color(egui::Color32::LIGHT_GRAY)
                 .small(),
         );
-        let smoothed: PlotPoints = self.history.bearing.iter().copied().collect();
-        let raw: PlotPoints = self.history.raw_bearing.iter().copied().collect();
+        let in_window = |pts: &VecDeque<[f64; 2]>| -> PlotPoints {
+            pts.iter().copied().filter(|p| p[0] >= x_min).collect()
+        };
+
+        let smoothed = in_window(&self.history.bearing);
+        let raw = in_window(&self.history.raw_bearing);
         Plot::new("bearing_plot")
             .height(plot_height)
             .include_x(x_min)
@@ -740,7 +808,7 @@ impl RdfGuiApp {
                 .color(egui::Color32::LIGHT_GRAY)
                 .small(),
         );
-        let snr_pts: PlotPoints = self.history.snr.iter().copied().collect();
+        let snr_pts = in_window(&self.history.snr);
         Plot::new("snr_plot")
             .height(plot_height)
             .include_x(x_min)
@@ -763,9 +831,9 @@ impl RdfGuiApp {
                 .color(egui::Color32::LIGHT_GRAY)
                 .small(),
         );
-        let conf_pts: PlotPoints = self.history.confidence.iter().copied().collect();
-        let coh_pts: PlotPoints = self.history.coherence.iter().copied().collect();
-        let str_pts: PlotPoints = self.history.signal_strength.iter().copied().collect();
+        let conf_pts = in_window(&self.history.confidence);
+        let coh_pts = in_window(&self.history.coherence);
+        let str_pts = in_window(&self.history.signal_strength);
         Plot::new("quality_plot")
             .height(plot_height)
             .include_x(x_min)
@@ -796,7 +864,7 @@ impl RdfGuiApp {
                 .color(egui::Color32::LIGHT_GRAY)
                 .small(),
         );
-        let lq_pts: PlotPoints = self.history.lock_quality.iter().copied().collect();
+        let lq_pts = in_window(&self.history.lock_quality);
         Plot::new("lock_quality_plot")
             .height(plot_height)
             .include_x(x_min)
@@ -822,6 +890,10 @@ impl eframe::App for RdfGuiApp {
         self.drain_updates();
         ctx.request_repaint();
 
+        if ctx.input(|i| i.key_pressed(egui::Key::Q)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
         egui::TopBottomPanel::top("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if self.is_file_input {
@@ -830,6 +902,9 @@ impl eframe::App for RdfGuiApp {
                         .button(if playing { "\u{23f8}" } else { "\u{25b6}" })
                         .clicked()
                     {
+                        if !playing && self.processing_stopped {
+                            self.restart_processing();
+                        }
                         self.is_playing.store(!playing, Ordering::Relaxed);
                     }
                     if ui.button("\u{23ee}").clicked() {
@@ -1001,7 +1076,7 @@ impl eframe::App for RdfGuiApp {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Window:").color(egui::Color32::LIGHT_GRAY));
                 ui.add(
-                    egui::Slider::new(&mut self.history_window, 5.0..=120.0)
+                    egui::Slider::new(&mut self.history_window, MIN_WINDOW_SECS..=MAX_WINDOW_SECS)
                         .suffix("s")
                         .logarithmic(true),
                 );
