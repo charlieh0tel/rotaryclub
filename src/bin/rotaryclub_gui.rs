@@ -96,7 +96,6 @@ struct FilePlaybackConfig {
     input_path: PathBuf,
     config: RdfConfig,
     remove_dc: bool,
-    north_offset: f32,
     sample_rate: u32,
 }
 
@@ -106,13 +105,13 @@ fn spawn_file_processing(
     playback_speed: Arc<AtomicU32>,
     is_playing: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
+    north_offset: Arc<AtomicU32>,
     time_offset: f64,
 ) -> anyhow::Result<thread::JoinHandle<()>> {
     let chunk_size = fc.config.audio.buffer_size * 2;
     let source: Box<dyn AudioSource> = Box::new(WavFileSource::new(&fc.input_path, chunk_size)?);
     let config = fc.config.clone();
     let remove_dc = fc.remove_dc;
-    let north_offset = fc.north_offset;
     let sample_rate = fc.sample_rate;
 
     let handle = thread::spawn(move || {
@@ -142,6 +141,7 @@ struct StartResult {
     playback_speed: Arc<AtomicU32>,
     is_playing: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
+    north_offset: Arc<AtomicU32>,
     is_file_input: bool,
     file_config: Option<FilePlaybackConfig>,
 }
@@ -156,13 +156,15 @@ fn start_processing(
     let playback_speed = Arc::new(AtomicU32::new(default_speed.to_bits()));
     let is_playing = Arc::new(AtomicBool::new(!is_file_input));
     let stop_requested = Arc::new(AtomicBool::new(false));
+    let north_offset = Arc::new(AtomicU32::new(
+        config.bearing.north_offset_degrees.to_bits(),
+    ));
 
     if let Some(path) = &args.input {
         let file_config = FilePlaybackConfig {
             input_path: path.clone(),
             config: config.clone(),
             remove_dc: args.remove_dc,
-            north_offset: config.bearing.north_offset_degrees,
             sample_rate: config.audio.sample_rate,
         };
 
@@ -172,6 +174,7 @@ fn start_processing(
             Arc::clone(&playback_speed),
             Arc::clone(&is_playing),
             Arc::clone(&stop_requested),
+            Arc::clone(&north_offset),
             0.0,
         )?;
 
@@ -180,6 +183,7 @@ fn start_processing(
             playback_speed,
             is_playing,
             stop_requested,
+            north_offset,
             is_file_input: true,
             file_config: Some(file_config),
         })
@@ -187,11 +191,11 @@ fn start_processing(
         let source: Box<dyn AudioSource> = Box::new(DeviceSource::new(&config.audio)?);
         let remove_dc = args.remove_dc;
         let dump_audio = args.dump_audio.clone();
-        let north_offset = config.bearing.north_offset_degrees;
         let sample_rate = config.audio.sample_rate;
         let speed_clone = Arc::clone(&playback_speed);
         let playing_clone = Arc::clone(&is_playing);
         let stop_clone = Arc::clone(&stop_requested);
+        let offset_clone = Arc::clone(&north_offset);
 
         let handle = thread::spawn(move || {
             if let Err(e) = run_processing(
@@ -200,7 +204,7 @@ fn start_processing(
                 tx.clone(),
                 remove_dc,
                 dump_audio,
-                north_offset,
+                offset_clone,
                 sample_rate,
                 speed_clone,
                 playing_clone,
@@ -217,6 +221,7 @@ fn start_processing(
             playback_speed,
             is_playing,
             stop_requested,
+            north_offset,
             is_file_input: false,
             file_config: None,
         })
@@ -230,7 +235,7 @@ fn run_processing(
     tx: Sender<GuiUpdate>,
     remove_dc: bool,
     dump_audio: Option<PathBuf>,
-    north_offset: f32,
+    north_offset: Arc<AtomicU32>,
     sample_rate: u32,
     playback_speed: Arc<AtomicU32>,
     is_playing: Arc<AtomicBool>,
@@ -271,8 +276,9 @@ fn run_processing(
 
         for result in &tick_results {
             let bearing_data = result.bearing.map(|b| {
-                let bearing = (b.bearing_degrees + north_offset).rem_euclid(360.0);
-                let raw = (b.raw_bearing + north_offset).rem_euclid(360.0);
+                let offset = f32::from_bits(north_offset.load(Ordering::Relaxed));
+                let bearing = (b.bearing_degrees + offset).rem_euclid(360.0);
+                let raw = (b.raw_bearing + offset).rem_euclid(360.0);
                 BearingData {
                     bearing,
                     raw,
@@ -429,6 +435,8 @@ struct RdfGuiApp {
     latest_time: f64,
     history_window: f64,
     playback_speed: Arc<AtomicU32>,
+    north_offset: Arc<AtomicU32>,
+    north_offset_degrees: f32,
     is_playing: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
     loop_enabled: bool,
@@ -461,6 +469,8 @@ impl RdfGuiApp {
             latest_time: 0.0,
             history_window: DEFAULT_WINDOW_SECS,
             playback_speed: result.playback_speed,
+            north_offset: Arc::clone(&result.north_offset),
+            north_offset_degrees: f32::from_bits(result.north_offset.load(Ordering::Relaxed)),
             is_playing: result.is_playing,
             stop_requested: result.stop_requested,
             loop_enabled: false,
@@ -506,6 +516,7 @@ impl RdfGuiApp {
                 Arc::clone(&self.playback_speed),
                 Arc::clone(&self.is_playing),
                 Arc::clone(&self.stop_requested),
+                Arc::clone(&self.north_offset),
                 time_offset,
             ) {
                 Ok(handle) => self.processing_handle = Some(handle),
@@ -588,7 +599,7 @@ impl RdfGuiApp {
         }
     }
 
-    fn draw_compass(&self, ui: &mut egui::Ui) {
+    fn draw_compass(&mut self, ui: &mut egui::Ui) {
         let desired = egui::vec2(300.0, 300.0);
         let (response, painter) = ui.allocate_painter(desired, egui::Sense::hover());
         let rect = response.rect;
@@ -759,6 +770,22 @@ impl RdfGuiApp {
                 ui.label(dash);
             }
         });
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("North offset:").color(egui::Color32::LIGHT_GRAY));
+            ui.label(
+                egui::RichText::new(format!("{:.0}°", self.north_offset_degrees))
+                    .color(egui::Color32::WHITE),
+            );
+        });
+        if ui
+            .add(egui::Slider::new(&mut self.north_offset_degrees, 0.0..=360.0).suffix("°"))
+            .changed()
+        {
+            self.north_offset
+                .store(self.north_offset_degrees.to_bits(), Ordering::Relaxed);
+        }
     }
 
     fn draw_plots(&self, ui: &mut egui::Ui) {
