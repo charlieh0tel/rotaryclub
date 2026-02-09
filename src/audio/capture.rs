@@ -4,20 +4,53 @@ use audio_thread_priority::RtPriorityHandle;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::Sender;
 
+pub fn list_input_devices() -> Result<Vec<String>> {
+    let host = cpal::default_host();
+    let devices = host
+        .input_devices()
+        .map_err(|e| RdfError::AudioDevice(format!("Failed to enumerate devices: {}", e)))?;
+    let mut names = Vec::new();
+    for device in devices {
+        if let Ok(desc) = device.description() {
+            names.push(desc.name().to_string());
+        }
+    }
+    Ok(names)
+}
+
 pub struct AudioCapture {
     stream: cpal::Stream,
     _rt_handle: Option<RtPriorityHandle>,
 }
 
 impl AudioCapture {
-    /// Initialize audio capture with specified device
-    pub fn new(config: &AudioConfig, tx: Sender<Vec<f32>>) -> Result<Self> {
+    pub fn new(
+        config: &AudioConfig,
+        tx: Sender<Vec<f32>>,
+        device_name: Option<&str>,
+    ) -> Result<Self> {
         let host = cpal::default_host();
 
-        // Get default input device
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| RdfError::AudioDevice("No input device found".into()))?;
+        let device = if let Some(name) = device_name {
+            let mut found = None;
+            let devices = host.input_devices().map_err(|e| {
+                RdfError::AudioDevice(format!("Failed to enumerate devices: {}", e))
+            })?;
+            for d in devices {
+                if let Ok(desc) = d.description()
+                    && desc.name().to_lowercase().contains(&name.to_lowercase())
+                {
+                    found = Some(d);
+                    break;
+                }
+            }
+            found.ok_or_else(|| {
+                RdfError::AudioDevice(format!("No input device matching '{}'", name))
+            })?
+        } else {
+            host.default_input_device()
+                .ok_or_else(|| RdfError::AudioDevice("No input device found".into()))?
+        };
 
         match device.description() {
             Ok(desc) => log::info!("Input device: {:?}", desc),

@@ -8,9 +8,9 @@ use std::time::Instant;
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 
-use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource};
+use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource, list_input_devices};
 use rotaryclub::config::{
     BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
@@ -49,6 +49,12 @@ struct Args {
 
     #[arg(long, default_value = "0")]
     north_tick_gain: f32,
+
+    #[arg(long)]
+    device: Option<String>,
+
+    #[arg(long)]
+    list_devices: bool,
 }
 
 struct BearingData {
@@ -188,7 +194,8 @@ fn start_processing(
             file_config: Some(file_config),
         })
     } else {
-        let source: Box<dyn AudioSource> = Box::new(DeviceSource::new(&config.audio)?);
+        let source: Box<dyn AudioSource> =
+            Box::new(DeviceSource::new(&config.audio, args.device.as_deref())?);
         let remove_dc = args.remove_dc;
         let dump_audio = args.dump_audio.clone();
         let sample_rate = config.audio.sample_rate;
@@ -328,6 +335,15 @@ fn run_processing(
 
     Ok(())
 }
+
+const SPEED_STEPS: [(f32, &str); 6] = [
+    (0.25, "0.25x"),
+    (0.5, "0.5x"),
+    (1.0, "1x"),
+    (2.0, "2x"),
+    (4.0, "4x"),
+    (0.0, "Max"),
+];
 
 const MAX_HISTORY_SECS: f64 = 120.0;
 const DEFAULT_WINDOW_SECS: f64 = 2.5;
@@ -615,49 +631,62 @@ impl RdfGuiApp {
             egui::Stroke::new(1.5, egui::Color32::from_rgb(80, 80, 100)),
         );
 
-        for deg in (0..360).step_by(30) {
+        for deg in (0..360).step_by(10) {
             let angle_rad = (deg as f32).to_radians();
             let sin_a = angle_rad.sin();
             let cos_a = angle_rad.cos();
-            let inner = if deg % 90 == 0 { 0.85 } else { 0.9 };
+            let (inner, stroke_width) = if deg % 90 == 0 {
+                (0.82, 2.5)
+            } else if deg % 30 == 0 {
+                (0.87, 1.5)
+            } else {
+                (0.92, 0.7)
+            };
             let p1 = center + egui::vec2(sin_a * radius * inner, -cos_a * radius * inner);
             let p2 = center + egui::vec2(sin_a * radius, -cos_a * radius);
-            let stroke_width = if deg % 90 == 0 { 2.0 } else { 1.0 };
             painter.line_segment(
                 [p1, p2],
                 egui::Stroke::new(stroke_width, egui::Color32::from_rgb(120, 120, 140)),
             );
         }
 
-        let cardinals: [(&str, f32); 4] = [("N", 0.0), ("E", 90.0), ("S", 180.0), ("W", 270.0)];
-        for (label, deg) in cardinals {
-            let angle_rad = deg.to_radians();
-            let label_r = radius + 10.0;
-            let pos = center + egui::vec2(angle_rad.sin() * label_r, -angle_rad.cos() * label_r);
-            painter.text(
-                pos,
-                egui::Align2::CENTER_CENTER,
-                label,
-                egui::FontId::proportional(12.0),
-                if label == "N" {
-                    egui::Color32::from_rgb(255, 100, 100)
-                } else {
-                    egui::Color32::from_rgb(180, 180, 200)
-                },
-            );
-        }
-
-        let intercardinals = [("NE", 45.0), ("SE", 135.0), ("SW", 225.0), ("NW", 315.0)];
-        for (label, deg) in intercardinals {
+        for deg in (0..360).step_by(30) {
             let angle_rad = (deg as f32).to_radians();
             let label_r = radius + 10.0;
             let pos = center + egui::vec2(angle_rad.sin() * label_r, -angle_rad.cos() * label_r);
+            let (label, color) = if deg == 0 {
+                ("N".to_string(), egui::Color32::from_rgb(255, 100, 100))
+            } else {
+                (
+                    format!("{:03}", deg),
+                    egui::Color32::from_rgb(160, 160, 180),
+                )
+            };
             painter.text(
                 pos,
                 egui::Align2::CENTER_CENTER,
                 label,
-                egui::FontId::proportional(9.0),
-                egui::Color32::from_rgb(120, 120, 140),
+                egui::FontId::proportional(11.0),
+                color,
+            );
+        }
+
+        for &strength in &[0.25_f32, 0.5, 0.75, 1.0] {
+            let ring_r = radius * (NEEDLE_MIN_RADIUS_FRAC + NEEDLE_RADIUS_RANGE * strength);
+            painter.circle_stroke(
+                center,
+                ring_r,
+                egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(80, 80, 100, 40)),
+            );
+            let label_angle: f32 = 45.0_f32.to_radians();
+            let label_pos =
+                center + egui::vec2(label_angle.sin() * ring_r, -label_angle.cos() * ring_r);
+            painter.text(
+                label_pos,
+                egui::Align2::LEFT_BOTTOM,
+                format!("{}%", (strength * 100.0) as u32),
+                egui::FontId::proportional(8.0),
+                egui::Color32::from_rgba_unmultiplied(140, 140, 160, 80),
             );
         }
 
@@ -720,6 +749,28 @@ impl RdfGuiApp {
                 NEEDLE_TIP_BASE + NEEDLE_TIP_SCALE * coherence,
                 needle_color,
             );
+
+            let tri_size = 6.0;
+            let rim_pos = center + egui::vec2(angle_rad.sin() * radius, -angle_rad.cos() * radius);
+            let perp = egui::vec2(angle_rad.cos(), angle_rad.sin());
+            let inward = egui::vec2(-angle_rad.sin(), angle_rad.cos());
+            let tri_pts = vec![
+                rim_pos + inward * tri_size,
+                rim_pos - perp * tri_size * 0.5,
+                rim_pos + perp * tri_size * 0.5,
+            ];
+            let marker_bright = NEEDLE_MIN_BRIGHTNESS + NEEDLE_BRIGHTNESS_RANGE * confidence;
+            let marker_color = egui::Color32::from_rgb(
+                (PHOSPHOR_COLOR.0 as f32 * marker_bright) as u8,
+                (PHOSPHOR_COLOR.1 as f32 * marker_bright) as u8,
+                (PHOSPHOR_COLOR.2 as f32 * marker_bright) as u8,
+            );
+            painter.add(egui::Shape::convex_polygon(
+                tri_pts,
+                marker_color,
+                egui::Stroke::NONE,
+            ));
+
             painter.circle_filled(center, 3.0, egui::Color32::from_rgb(200, 200, 220));
         }
 
@@ -818,6 +869,7 @@ impl RdfGuiApp {
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
+            .legend(Legend::default())
             .show(ui, |plot_ui| {
                 plot_ui.line(
                     Line::new("Smoothed", smoothed).color(egui::Color32::from_rgb(100, 200, 255)),
@@ -873,6 +925,7 @@ impl RdfGuiApp {
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
+            .legend(Legend::default())
             .show(ui, |plot_ui| {
                 plot_ui.line(
                     Line::new("Confidence", conf_pts).color(egui::Color32::from_rgb(100, 255, 100)),
@@ -898,9 +951,10 @@ impl RdfGuiApp {
             .include_x(x_max)
             .include_y(0.0)
             .include_y(1.0)
+            .x_axis_label("s")
             .y_axis_min_width(60.0)
             .link_axis(link_group, [true, false])
-            .show_axes([false, true])
+            .show_axes([true, true])
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
@@ -919,6 +973,33 @@ impl eframe::App for RdfGuiApp {
 
         if ctx.input(|i| i.key_pressed(egui::Key::Q)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        if self.is_file_input {
+            if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+                let playing = self.is_playing.load(Ordering::Relaxed);
+                if !playing && self.processing_stopped {
+                    self.restart_processing();
+                }
+                self.is_playing.store(!playing, Ordering::Relaxed);
+            }
+
+            let current_speed = f32::from_bits(self.playback_speed.load(Ordering::Relaxed));
+            let current_idx = SPEED_STEPS
+                .iter()
+                .position(|&(v, _)| (v - current_speed).abs() < 0.001)
+                .unwrap_or(2);
+
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                let next = (current_idx + 1).min(SPEED_STEPS.len() - 1);
+                self.playback_speed
+                    .store(SPEED_STEPS[next].0.to_bits(), Ordering::Relaxed);
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                let prev = current_idx.saturating_sub(1);
+                self.playback_speed
+                    .store(SPEED_STEPS[prev].0.to_bits(), Ordering::Relaxed);
+            }
         }
 
         egui::TopBottomPanel::top("status_bar").show(ctx, |ui| {
@@ -1024,18 +1105,21 @@ impl eframe::App for RdfGuiApp {
                     );
                 }
 
+                ui.separator();
+                let total_secs = self.latest_time;
+                let minutes = (total_secs / 60.0) as u64;
+                let secs = total_secs % 60.0;
+                ui.label(
+                    egui::RichText::new(format!("{:02}:{:04.1}", minutes, secs))
+                        .color(egui::Color32::WHITE)
+                        .strong(),
+                );
+
                 if self.is_file_input {
                     ui.separator();
                     ui.label(egui::RichText::new("Speed:").color(egui::Color32::LIGHT_GRAY));
                     let current = f32::from_bits(self.playback_speed.load(Ordering::Relaxed));
-                    for (label, value) in [
-                        ("0.25x", 0.25_f32),
-                        ("0.5x", 0.5),
-                        ("1x", 1.0),
-                        ("2x", 2.0),
-                        ("4x", 4.0),
-                        ("Max", 0.0),
-                    ] {
+                    for &(value, label) in &SPEED_STEPS {
                         let active = (current - value).abs() < 0.001;
                         let btn = egui::Button::new(egui::RichText::new(label).color(if active {
                             egui::Color32::BLACK
@@ -1118,6 +1202,18 @@ impl eframe::App for RdfGuiApp {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if args.list_devices {
+        let devices = list_input_devices()?;
+        if devices.is_empty() {
+            eprintln!("No input devices found.");
+        } else {
+            for name in &devices {
+                println!("{}", name);
+            }
+        }
+        return Ok(());
+    }
 
     let log_level = match args.verbose {
         0 => log::LevelFilter::Warn,

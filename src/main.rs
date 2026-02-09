@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 mod output;
 
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
-use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource};
+use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource, list_input_devices};
 use rotaryclub::config::{
     BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
@@ -63,10 +63,30 @@ struct Args {
     /// North tick input gain in dB (default: 0)
     #[arg(long, default_value = "0")]
     north_tick_gain: f32,
+
+    /// Select input device by substring match
+    #[arg(long)]
+    device: Option<String>,
+
+    /// List available input devices and exit
+    #[arg(long)]
+    list_devices: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if args.list_devices {
+        let devices = list_input_devices()?;
+        if devices.is_empty() {
+            eprintln!("No input devices found.");
+        } else {
+            for name in &devices {
+                println!("{}", name);
+            }
+        }
+        return Ok(());
+    }
 
     // Configure logging based on verbosity
     let log_level = match args.verbose {
@@ -125,7 +145,10 @@ fn main() -> anyhow::Result<()> {
         }
         None => {
             eprintln!("Starting audio capture...");
-            (Box::new(DeviceSource::new(&config.audio)?), true)
+            (
+                Box::new(DeviceSource::new(&config.audio, args.device.as_deref())?),
+                true,
+            )
         }
     };
 

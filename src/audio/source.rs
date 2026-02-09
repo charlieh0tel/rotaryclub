@@ -22,9 +22,9 @@ pub struct DeviceSource {
 }
 
 impl DeviceSource {
-    pub fn new(config: &AudioConfig) -> anyhow::Result<Self> {
+    pub fn new(config: &AudioConfig, device_name: Option<&str>) -> anyhow::Result<Self> {
         let (tx, rx) = crossbeam_channel::bounded(10);
-        let capture = AudioCapture::new(config, tx)?;
+        let capture = AudioCapture::new(config, tx, device_name)?;
         Ok(Self {
             rx,
             sample_rate: config.sample_rate,

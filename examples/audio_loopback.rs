@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
 
     // Start audio capture
     println!("Starting audio capture...\n");
-    let _capture = AudioCapture::new(&config.audio, audio_tx)?;
+    let _capture = AudioCapture::new(&config.audio, audio_tx, None)?;
 
     println!("Capturing audio... (Ctrl+C to stop)");
     println!("{:<10} {:<10} {:<10}", "Time (s)", "Left RMS", "Right RMS");
