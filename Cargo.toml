@@ -46,10 +46,15 @@ name = "noise_analysis"
 required-features = ["simulation"]
 
 [[bin]]
+name = "rotaryclub_gui"
+required-features = ["gui"]
+
+[[bin]]
 name = "analyze_wav"
 
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
+gui = ["dep:eframe", "dep:egui_plot"]
 
 [dependencies.serde]
 version = "1.0"
@@ -60,6 +65,14 @@ version = "0.8"
 
 [dependencies.serde_json]
 version = "1.0"
+
+[dependencies.eframe]
+version = "0.33"
+optional = true
+
+[dependencies.egui_plot]
+version = "0.34"
+optional = true
 
 [dependencies.rand]
 version = "0.8"
