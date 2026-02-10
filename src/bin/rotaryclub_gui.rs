@@ -1089,12 +1089,17 @@ impl eframe::App for RdfGuiApp {
                         egui::Color32::from_rgb(255, 100, 100)
                     };
                     ui.label(
-                        egui::RichText::new(format!("{:.1} dB", snr))
+                        egui::RichText::new(format!("{:>6.1} dB", snr))
+                            .monospace()
                             .color(color)
                             .strong(),
                     );
                 } else {
-                    ui.label(egui::RichText::new("---").color(egui::Color32::DARK_GRAY));
+                    ui.label(
+                        egui::RichText::new("  ---.- dB")
+                            .monospace()
+                            .color(egui::Color32::DARK_GRAY),
+                    );
                 }
 
                 if let Some(pev) = self.latest_phase_error_var {
