@@ -3,6 +3,31 @@ use std::f32::consts::PI;
 use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTick, NorthTracker};
 
+#[derive(Debug, Clone)]
+struct DetectionMetrics {
+    detection_rate: f32,
+    false_positive_rate: f32,
+    mean_abs_timing_error_samples: f32,
+    p95_abs_timing_error_samples: f32,
+}
+
+#[derive(Debug, Clone)]
+struct StepResponseMetrics {
+    pre_step_mean_hz: f32,
+    post_step_mean_hz: f32,
+    settle_time_secs: Option<f32>,
+    max_abs_error_after_step_hz: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StepResponseEvalConfig {
+    pre_window: (f32, f32),
+    post_window: (f32, f32),
+    target_post_hz: f32,
+    settle_band_hz: f32,
+    settle_consecutive_ticks: usize,
+}
+
 fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32) -> i32 {
     if max_abs_jitter <= 0 {
         0
@@ -67,6 +92,128 @@ fn run_north_tracker(config: &RdfConfig, north_signal: &[f32]) -> (Vec<NorthTick
     (ticks, tracker.rotation_frequency())
 }
 
+fn percentile(values: &[f32], p: f32) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f32::total_cmp);
+    let idx = ((sorted.len() as f32 - 1.0) * p.clamp(0.0, 1.0)).round() as usize;
+    sorted[idx]
+}
+
+fn detection_metrics(
+    expected_pulses: &[usize],
+    ticks: &[NorthTick],
+    match_tolerance_samples: f32,
+) -> DetectionMetrics {
+    let expected: Vec<f32> = expected_pulses.iter().map(|&s| s as f32).collect();
+    let detected: Vec<f32> = ticks
+        .iter()
+        .map(|tick| tick.sample_index as f32 + tick.fractional_sample_offset)
+        .collect();
+
+    let mut i = 0usize;
+    let mut j = 0usize;
+    let mut matched = 0usize;
+    let mut errors = Vec::new();
+
+    while i < expected.len() && j < detected.len() {
+        let exp = expected[i];
+        let det = detected[j];
+        let err = (det - exp).abs();
+        if err <= match_tolerance_samples {
+            matched += 1;
+            errors.push(err);
+            i += 1;
+            j += 1;
+        } else if det < exp {
+            j += 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    let expected_len = expected.len().max(1) as f32;
+    let unmatched_detections = detected.len().saturating_sub(matched);
+    DetectionMetrics {
+        detection_rate: matched as f32 / expected_len,
+        false_positive_rate: unmatched_detections as f32 / expected_len,
+        mean_abs_timing_error_samples: mean(&errors).unwrap_or(0.0),
+        p95_abs_timing_error_samples: percentile(&errors, 0.95),
+    }
+}
+
+fn step_response_metrics(
+    ticks: &[NorthTick],
+    sample_rate: f32,
+    step_time_secs: f32,
+    eval: StepResponseEvalConfig,
+) -> StepResponseMetrics {
+    let tick_points: Vec<(f32, f32)> = ticks
+        .iter()
+        .map(|tick| {
+            (
+                tick.sample_index as f32 / sample_rate,
+                tick_hz(tick, sample_rate),
+            )
+        })
+        .collect();
+
+    let pre_hz: Vec<f32> = tick_points
+        .iter()
+        .filter_map(|(t, hz)| {
+            if *t > eval.pre_window.0 && *t < eval.pre_window.1 {
+                Some(*hz)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let post_hz: Vec<f32> = tick_points
+        .iter()
+        .filter_map(|(t, hz)| {
+            if *t > eval.post_window.0 && *t < eval.post_window.1 {
+                Some(*hz)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut in_band_run = 0usize;
+    let mut settle_time_secs = None;
+    for (t, hz) in tick_points.iter().filter(|(t, _)| *t >= step_time_secs) {
+        if (*hz - eval.target_post_hz).abs() <= eval.settle_band_hz {
+            in_band_run += 1;
+            if in_band_run >= eval.settle_consecutive_ticks {
+                settle_time_secs = Some(*t - step_time_secs);
+                break;
+            }
+        } else {
+            in_band_run = 0;
+        }
+    }
+
+    let max_abs_error_after_step_hz = tick_points
+        .iter()
+        .filter_map(|(t, hz)| {
+            if *t >= step_time_secs {
+                Some((hz - eval.target_post_hz).abs())
+            } else {
+                None
+            }
+        })
+        .fold(0.0f32, f32::max);
+
+    StepResponseMetrics {
+        pre_step_mean_hz: mean(&pre_hz).unwrap_or(0.0),
+        post_step_mean_hz: mean(&post_hz).unwrap_or(0.0),
+        settle_time_secs,
+        max_abs_error_after_step_hz,
+    }
+}
+
 fn mean(values: &[f32]) -> Option<f32> {
     if values.is_empty() {
         None
@@ -96,28 +243,35 @@ fn test_north_tracking_amplitude_sweep() {
         |_| true,
         0,
     );
-    let expected = pulse_positions.len() as f32;
-
     for amplitude in [0.35f32, 0.5, 0.8, 1.2] {
         let north_signal = build_north_signal(num_samples, &pulse_positions, amplitude);
         let (ticks, freq_opt) = run_north_tracker(&config, &north_signal);
-        let detected = ticks.len() as f32;
-        let detection_rate = detected / expected;
-        let false_positive_rate =
-            ((ticks.len().saturating_sub(pulse_positions.len())) as f32) / expected.max(1.0);
+        let metrics = detection_metrics(&pulse_positions, &ticks, 3.0);
 
         assert!(
-            detection_rate >= 0.90,
+            metrics.detection_rate >= 0.90,
             "Amplitude {:.2}: detection rate {:.2} too low (expected {})",
             amplitude,
-            detection_rate,
+            metrics.detection_rate,
             pulse_positions.len()
         );
         assert!(
-            false_positive_rate <= 0.05,
+            metrics.false_positive_rate <= 0.05,
             "Amplitude {:.2}: false positive rate {:.2} too high",
             amplitude,
-            false_positive_rate
+            metrics.false_positive_rate
+        );
+        assert!(
+            metrics.mean_abs_timing_error_samples <= 1.2,
+            "Amplitude {:.2}: mean timing error {:.2} samples too high",
+            amplitude,
+            metrics.mean_abs_timing_error_samples
+        );
+        assert!(
+            metrics.p95_abs_timing_error_samples <= 2.5,
+            "Amplitude {:.2}: p95 timing error {:.2} samples too high",
+            amplitude,
+            metrics.p95_abs_timing_error_samples
         );
 
         let freq = freq_opt.expect("Expected rotation frequency estimate");
@@ -148,29 +302,31 @@ fn test_north_tracking_threshold_sweep() {
         |_| true,
         0,
     );
-    let expected = pulse_positions.len() as f32;
     let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
 
     for threshold in [0.08f32, 0.12, 0.15, 0.20, 0.25] {
         let mut config = base_config.clone();
         config.north_tick.threshold = threshold;
         let (ticks, freq_opt) = run_north_tracker(&config, &north_signal);
-        let detected = ticks.len() as f32;
-        let detection_rate = detected / expected;
-        let false_positive_rate =
-            ((ticks.len().saturating_sub(pulse_positions.len())) as f32) / expected.max(1.0);
+        let metrics = detection_metrics(&pulse_positions, &ticks, 3.0);
 
         assert!(
-            detection_rate >= 0.88,
+            metrics.detection_rate >= 0.88,
             "Threshold {:.2}: detection rate {:.2} too low",
             threshold,
-            detection_rate
+            metrics.detection_rate
         );
         assert!(
-            false_positive_rate <= 0.08,
+            metrics.false_positive_rate <= 0.08,
             "Threshold {:.2}: false positive rate {:.2} too high",
             threshold,
-            false_positive_rate
+            metrics.false_positive_rate
+        );
+        assert!(
+            metrics.p95_abs_timing_error_samples <= 3.0,
+            "Threshold {:.2}: p95 timing error {:.2} samples too high",
+            threshold,
+            metrics.p95_abs_timing_error_samples
         );
 
         let freq = freq_opt.expect("Expected rotation frequency estimate");
@@ -202,11 +358,9 @@ fn test_north_tracking_jitter_sweep() {
             |_| true,
             jitter_samples,
         );
-        let expected = pulse_positions.len() as f32;
         let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
         let (ticks, freq_opt) = run_north_tracker(&config, &north_signal);
-        let detected = ticks.len() as f32;
-        let detection_rate = detected / expected;
+        let metrics = detection_metrics(&pulse_positions, &ticks, jitter_samples as f32 + 3.0);
 
         let min_detection_rate = match jitter_samples {
             0 => 0.95,
@@ -214,10 +368,29 @@ fn test_north_tracking_jitter_sweep() {
             _ => 0.85,
         };
         assert!(
-            detection_rate >= min_detection_rate,
+            metrics.detection_rate >= min_detection_rate,
             "Jitter ±{} samples: detection rate {:.2} too low",
             jitter_samples,
-            detection_rate
+            metrics.detection_rate
+        );
+        assert!(
+            metrics.false_positive_rate <= 0.10,
+            "Jitter ±{} samples: false positive rate {:.2} too high",
+            jitter_samples,
+            metrics.false_positive_rate
+        );
+
+        let max_p95_timing_error = match jitter_samples {
+            0 => 2.5,
+            1 => 3.5,
+            _ => 5.0,
+        };
+        assert!(
+            metrics.p95_abs_timing_error_samples <= max_p95_timing_error,
+            "Jitter ±{} samples: p95 timing error {:.2} exceeds {:.2}",
+            jitter_samples,
+            metrics.p95_abs_timing_error_samples,
+            max_p95_timing_error
         );
 
         let freq = freq_opt.expect("Expected rotation frequency estimate");
@@ -258,55 +431,60 @@ fn test_north_tracking_frequency_step() {
     );
     let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
     let (ticks, _freq_opt) = run_north_tracker(&config, &north_signal);
-
-    let pre_step_hz: Vec<f32> = ticks
-        .iter()
-        .filter_map(|tick| {
-            let t = tick.sample_index as f32 / sample_rate;
-            if t > 0.25 && t < 0.65 {
-                Some(tick_hz(tick, sample_rate))
-            } else {
-                None
-            }
-        })
-        .collect();
-    let post_step_hz: Vec<f32> = ticks
-        .iter()
-        .filter_map(|tick| {
-            let t = tick.sample_index as f32 / sample_rate;
-            if t > 0.95 && t < 1.35 {
-                Some(tick_hz(tick, sample_rate))
-            } else {
-                None
-            }
-        })
-        .collect();
+    let det_metrics = detection_metrics(&pulse_positions, &ticks, 4.0);
 
     assert!(
-        pre_step_hz.len() > 200,
-        "Expected many pre-step ticks, got {}",
-        pre_step_hz.len()
+        det_metrics.detection_rate >= 0.90,
+        "Frequency step: detection rate {:.2} too low",
+        det_metrics.detection_rate
     );
     assert!(
-        post_step_hz.len() > 200,
-        "Expected many post-step ticks, got {}",
-        post_step_hz.len()
+        det_metrics.false_positive_rate <= 0.08,
+        "Frequency step: false positive rate {:.2} too high",
+        det_metrics.false_positive_rate
+    );
+    assert!(
+        det_metrics.p95_abs_timing_error_samples <= 4.0,
+        "Frequency step: p95 timing error {:.2} too high",
+        det_metrics.p95_abs_timing_error_samples
+    );
+    let step_metrics = step_response_metrics(
+        &ticks,
+        sample_rate,
+        step_time_secs,
+        StepResponseEvalConfig {
+            pre_window: (0.25, 0.65),
+            post_window: (0.95, 1.35),
+            target_post_hz: f2_hz,
+            settle_band_hz: 60.0,
+            settle_consecutive_ticks: 10,
+        },
     );
 
-    let pre_mean = mean(&pre_step_hz).unwrap();
-    let post_mean = mean(&post_step_hz).unwrap();
-
     assert!(
-        (pre_mean - f1_hz).abs() < 70.0,
+        (step_metrics.pre_step_mean_hz - f1_hz).abs() < 70.0,
         "Pre-step frequency {:.1}Hz too far from {:.1}Hz",
-        pre_mean,
+        step_metrics.pre_step_mean_hz,
         f1_hz
     );
     assert!(
-        (post_mean - f2_hz).abs() < 90.0,
+        (step_metrics.post_step_mean_hz - f2_hz).abs() < 90.0,
         "Post-step frequency {:.1}Hz too far from {:.1}Hz",
-        post_mean,
+        step_metrics.post_step_mean_hz,
         f2_hz
+    );
+    assert!(
+        step_metrics.max_abs_error_after_step_hz < 120.0,
+        "Step overshoot/error {:.1}Hz too high",
+        step_metrics.max_abs_error_after_step_hz
+    );
+    let settle_time = step_metrics
+        .settle_time_secs
+        .expect("Frequency step should settle within test duration");
+    assert!(
+        settle_time < 0.35,
+        "Frequency step settle time {:.3}s exceeds 0.35s",
+        settle_time
     );
 }
 
@@ -331,6 +509,18 @@ fn test_north_tracking_dropout_reacquisition() {
     );
     let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
     let (ticks, _freq_opt) = run_north_tracker(&config, &north_signal);
+    let det_metrics = detection_metrics(&pulse_positions, &ticks, 4.0);
+
+    assert!(
+        det_metrics.detection_rate >= 0.85,
+        "Dropout: detection rate {:.2} too low",
+        det_metrics.detection_rate
+    );
+    assert!(
+        det_metrics.false_positive_rate <= 0.08,
+        "Dropout: false positive rate {:.2} too high",
+        det_metrics.false_positive_rate
+    );
 
     let ticks_before: Vec<&NorthTick> = ticks
         .iter()
