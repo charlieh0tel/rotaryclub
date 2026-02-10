@@ -66,6 +66,7 @@ fn measure_bearing_with_noise(
                     sample_index: 0,
                     period: Some(30.0),
                     lock_quality: None,
+                    fractional_sample_offset: 0.0,
                     phase: 0.0,
                     frequency: 2.0 * PI / 30.0,
                 },

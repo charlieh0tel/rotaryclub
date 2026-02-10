@@ -7,6 +7,7 @@ use rolling_stats::Stats;
 use std::f32::consts::PI;
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
+const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
 
 pub struct DpllNorthTracker {
     gain: f32,
@@ -145,6 +146,18 @@ impl DpllNorthTracker {
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
 
+            // Convert phase error to a bounded fractional timing correction.
+            // Negative means the effective tick time is slightly earlier than
+            // compensated_sample; positive means slightly later.
+            let fractional_sample_offset = if self.frequency > FREQUENCY_EPSILON {
+                (-phase_error / self.frequency).clamp(
+                    -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
+                    MAX_PHASE_TIMING_CORRECTION_SAMPLES,
+                )
+            } else {
+                0.0
+            };
+
             // Update frequency and phase with PI controller
             self.frequency += self.ki * phase_error;
             self.phase += self.kp * phase_error;
@@ -175,6 +188,7 @@ impl DpllNorthTracker {
                 sample_index: compensated_sample,
                 period: Some(period),
                 lock_quality: self.lock_quality(),
+                fractional_sample_offset,
                 phase: 0.0,
                 frequency: self.frequency,
             });
@@ -323,6 +337,53 @@ mod tests {
                 "Tick sample_index {} too far from expected pulse {}",
                 tick.sample_index,
                 closest_pulse
+            );
+        }
+    }
+
+    #[test]
+    fn test_dpll_fractional_timing_correction_is_bounded() {
+        let sample_rate = 48_000.0;
+        let config = NorthTickConfig {
+            dpll: DpllConfig {
+                initial_frequency_hz: 1_602.0,
+                natural_frequency_hz: 15.0,
+                damping_ratio: 0.707,
+                frequency_min_hz: 1_400.0,
+                frequency_max_hz: 1_800.0,
+            },
+            ..Default::default()
+        };
+        let mut tracker = DpllNorthTracker::new(&config, sample_rate).unwrap();
+
+        let nominal_period = (sample_rate / config.dpll.initial_frequency_hz).round() as isize;
+        let mut signal = vec![0.0f32; 4096];
+        for k in 0..110isize {
+            let jitter = match k % 4 {
+                0 => -1,
+                1 => 0,
+                2 => 1,
+                _ => 0,
+            };
+            let idx = 60 + k * nominal_period + jitter;
+            if idx >= 0 && (idx as usize) < signal.len() {
+                signal[idx as usize] = config.expected_pulse_amplitude;
+            }
+        }
+
+        let ticks = tracker.process_buffer(&signal);
+        assert!(!ticks.is_empty(), "Expected at least one detected tick");
+
+        for tick in ticks {
+            assert!(
+                tick.fractional_sample_offset.is_finite(),
+                "fractional_sample_offset must be finite"
+            );
+            assert!(
+                tick.fractional_sample_offset.abs() <= MAX_PHASE_TIMING_CORRECTION_SAMPLES + 1e-6,
+                "fractional_sample_offset {} exceeds bound {}",
+                tick.fractional_sample_offset,
+                MAX_PHASE_TIMING_CORRECTION_SAMPLES
             );
         }
     }

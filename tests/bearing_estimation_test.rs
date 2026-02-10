@@ -144,6 +144,7 @@ fn test_correlation_bearing_with_correct_signal() {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: 2.0 * PI / samples_per_rotation,
         };
@@ -216,6 +217,7 @@ fn test_zero_crossing_bearing_with_correct_signal() {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: 2.0 * PI / samples_per_rotation,
         };
@@ -295,6 +297,7 @@ fn test_full_pipeline_with_north_tracker() {
                 sample_index: 0,
                 period: Some(period),
                 lock_quality: None,
+                fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: 2.0 * PI / period,
             };

@@ -117,6 +117,7 @@ impl SimpleNorthTracker {
                 sample_index: global_sample,
                 period: self.samples_per_rotation,
                 lock_quality: self.lock_quality(),
+                fractional_sample_offset: 0.0,
                 phase: 0.0, // By definition, tick = north = 0 radians
                 frequency,
             });

@@ -84,11 +84,13 @@ impl CorrelationBearingCalculator {
         let mut power_sum = 0.0;
         let group_delay = self.base.filter_group_delay() as f32;
         let tick_adjustment = self.base.north_tick_timing_adjustment();
+        let tick_fractional_offset = north_tick.fractional_sample_offset;
 
         for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
             // Samples since the north tick, compensated for filter delay
-            let samples_since_tick =
-                (base_offset + idx as isize) as f32 - group_delay + tick_adjustment;
+            let samples_since_tick = (base_offset + idx as isize) as f32 - group_delay
+                + tick_adjustment
+                - tick_fractional_offset;
             // Phase from DPLL: start at tick phase, advance by omega per sample
             let phase = north_tick.phase + samples_since_tick * omega;
 
@@ -161,6 +163,7 @@ impl CorrelationBearingCalculator {
         let base_offset = self.base.offset_from_north_tick(north_tick);
 
         let tick_adjustment = self.base.north_tick_timing_adjustment();
+        let tick_fractional_offset = north_tick.fractional_sample_offset;
         for (win_idx, phase) in phases.iter_mut().enumerate() {
             let start = win_idx * window_size;
             let end = start + window_size;
@@ -170,7 +173,8 @@ impl CorrelationBearingCalculator {
 
             for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
                 let samples_since_tick =
-                    (base_offset + (start + idx) as isize) as f32 - group_delay + tick_adjustment;
+                    (base_offset + (start + idx) as isize) as f32 - group_delay + tick_adjustment
+                        - tick_fractional_offset;
                 let p = north_tick.phase + samples_since_tick * omega;
                 i_win += sample * p.cos();
                 q_win += sample * p.sin();
@@ -277,6 +281,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
         };
@@ -301,6 +306,94 @@ mod tests {
             (bearing - 45.0).abs() < 5.0,
             "Bearing calculation was incorrect. Got {}, expected 45.0",
             bearing
+        );
+    }
+
+    #[test]
+    fn test_fractional_tick_offset_improves_alignment() {
+        let sample_rate = 48_000.0;
+        let doppler_config = DopplerConfig {
+            expected_freq: 1_602.0,
+            bandpass_low: 1_500.0,
+            bandpass_high: 1_700.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let mut calc_uncorrected = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
+        let mut calc_corrected = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
+
+        let samples_per_rotation = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / samples_per_rotation;
+        let true_fractional_offset = 0.4;
+        let expected_bearing = 120.0f32;
+        let bearing_radians = expected_bearing.to_radians();
+
+        // Signal is generated relative to a tick that lands at +0.4 samples.
+        let buffer: Vec<f32> = (0..4800)
+            .map(|i| (omega * (i as f32 - true_fractional_offset) - bearing_radians).sin())
+            .collect();
+
+        let tick_uncorrected = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+            lock_quality: None,
+            fractional_sample_offset: 0.0,
+            phase: 0.0,
+            frequency: omega,
+        };
+        let tick_corrected = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+            lock_quality: None,
+            fractional_sample_offset: true_fractional_offset,
+            phase: 0.0,
+            frequency: omega,
+        };
+
+        let m_uncorrected = calc_uncorrected
+            .process_buffer(&buffer, &tick_uncorrected)
+            .unwrap();
+        let m_corrected = calc_corrected
+            .process_buffer(&buffer, &tick_corrected)
+            .unwrap();
+
+        let angle_error = |measured: f32, expected: f32| {
+            let mut e = measured - expected;
+            if e > 180.0 {
+                e -= 360.0;
+            } else if e < -180.0 {
+                e += 360.0;
+            }
+            e.abs()
+        };
+
+        let err_uncorrected = angle_error(m_uncorrected.raw_bearing, expected_bearing);
+        let err_corrected = angle_error(m_corrected.raw_bearing, expected_bearing);
+
+        assert!(
+            err_corrected < err_uncorrected,
+            "Expected fractional offset correction to reduce error (uncorrected {}, corrected {})",
+            err_uncorrected,
+            err_corrected
+        );
+        assert!(
+            err_corrected < 10.0,
+            "Corrected bearing error too large: {}",
+            err_corrected
         );
     }
 
@@ -354,6 +447,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
         };
@@ -396,6 +490,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
         };

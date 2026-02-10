@@ -75,12 +75,14 @@ impl ZeroCrossingBearingCalculator {
         // Add the north tick timing adjustment for FIR highpass filter effects.
         let group_delay = self.base.filter_group_delay() as f32;
         let tick_adjustment = self.base.north_tick_timing_adjustment();
+        let tick_fractional_offset = north_tick.fractional_sample_offset;
         let (sum_x, sum_y) = self
             .crossings
             .iter()
             .map(|&crossing_idx| {
-                let samples_since_tick =
-                    base_offset as f32 + crossing_idx - group_delay + tick_adjustment;
+                let samples_since_tick = base_offset as f32 + crossing_idx - group_delay
+                    + tick_adjustment
+                    - tick_fractional_offset;
                 let phase_fraction = samples_since_tick / samples_per_rotation;
                 let angle = phase_fraction * 2.0 * PI;
                 (angle.cos(), angle.sin())
@@ -149,13 +151,15 @@ impl ZeroCrossingBearingCalculator {
             let base_offset = self.base.offset_from_north_tick(north_tick);
             let group_delay = self.base.filter_group_delay() as f32;
             let tick_adjustment = self.base.north_tick_timing_adjustment();
+            let tick_fractional_offset = north_tick.fractional_sample_offset;
 
             let mut projection_sum = 0.0f32;
             let mut power_sum = 0.0f32;
 
             for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
-                let samples_since_tick =
-                    (base_offset + idx as isize) as f32 - group_delay + tick_adjustment;
+                let samples_since_tick = (base_offset + idx as isize) as f32 - group_delay
+                    + tick_adjustment
+                    - tick_fractional_offset;
                 let phase = north_tick.phase + samples_since_tick * omega;
                 let ideal = (phase - avg_phase).sin();
                 projection_sum += sample * ideal;
