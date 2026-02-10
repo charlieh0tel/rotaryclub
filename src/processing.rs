@@ -67,8 +67,9 @@ impl RdfProcessor {
         self.ring_buffer.push_interleaved(interleaved);
 
         let samples = self.ring_buffer.latest(interleaved.len() / 2);
-        let stereo_pairs: Vec<(f32, f32)> = samples.iter().map(|s| (s.left, s.right)).collect();
-        let (mut doppler, mut north) = self.audio_config.split_channels(&stereo_pairs);
+        let (mut doppler, mut north) = self
+            .audio_config
+            .split_channels_iter(samples.iter().map(|s| (s.left, s.right)), samples.len());
 
         if self.remove_dc {
             self.dc_remover_doppler.process(&mut doppler);

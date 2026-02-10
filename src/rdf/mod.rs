@@ -3,6 +3,7 @@ mod bearing_calculator_base;
 mod bearing_correlation;
 mod bearing_zero_crossing;
 pub mod north_ref;
+mod north_ref_common;
 mod north_ref_dpll;
 mod north_ref_simple;
 

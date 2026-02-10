@@ -6,6 +6,10 @@ use crate::signal_processing::{FirHighpass, PeakDetector};
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
+use super::north_ref_common::{
+    derive_delay_compensation, derive_peak_timing, preprocess_north_buffer,
+};
+
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
 const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
@@ -106,6 +110,27 @@ pub struct DpllNorthTracker {
 }
 
 impl DpllNorthTracker {
+    #[inline]
+    fn wrap_phase(phase: f32) -> f32 {
+        phase.rem_euclid(2.0 * PI)
+    }
+
+    #[inline]
+    fn wrap_phase_error(phase_error: f32) -> f32 {
+        (phase_error + PI).rem_euclid(2.0 * PI) - PI
+    }
+
+    #[inline]
+    fn stable_enough_for_phase_correction(&self) -> bool {
+        if self.phase_error_stats.count() < MIN_PHASE_CORRECTION_SAMPLES {
+            return false;
+        }
+        self.phase_error_stats
+            .std_dev()
+            .map(|s| s.is_finite() && s <= MAX_PHASE_STD_FOR_CORRECTION_RAD)
+            .unwrap_or(false)
+    }
+
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
         let gain = 10.0_f32.powf(config.gain_db / 20.0);
@@ -132,11 +157,8 @@ impl DpllNorthTracker {
         )?;
 
         let effective_pulse_amplitude = (config.expected_pulse_amplitude * gain).max(f32::EPSILON);
-        let threshold_crossing_offset =
-            highpass.threshold_crossing_offset(config.threshold, effective_pulse_amplitude);
-        let pulse_peak_offset = highpass.peak_offset();
-        let peak_search_window_samples =
-            ((pulse_peak_offset - threshold_crossing_offset).max(0.0)).ceil() as usize + 3;
+        let peak_timing =
+            derive_peak_timing(&highpass, config.threshold, effective_pulse_amplitude);
 
         Ok(Self {
             gain,
@@ -144,9 +166,9 @@ impl DpllNorthTracker {
             peak_detector: PeakDetector::with_peak_search_window(
                 config.threshold,
                 min_samples,
-                peak_search_window_samples,
+                peak_timing.peak_search_window_samples,
             ),
-            pulse_peak_offset,
+            pulse_peak_offset: peak_timing.pulse_peak_offset,
             last_tick_sample: None,
             phase: 0.0,
             frequency: omega,
@@ -164,25 +186,18 @@ impl DpllNorthTracker {
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
-        self.filter_buffer.resize(buffer.len(), 0.0);
-        self.filter_buffer.copy_from_slice(buffer);
-        if self.gain != 1.0 {
-            for s in self.filter_buffer.iter_mut() {
-                *s *= self.gain;
-            }
-        }
-        self.highpass.process_buffer(&mut self.filter_buffer);
+        preprocess_north_buffer(
+            &mut self.filter_buffer,
+            buffer,
+            self.gain,
+            &mut self.highpass,
+        );
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
 
-        // Total delay compensation: group_delay + peak_offset.
-        let group_delay = self.highpass.group_delay_samples() as f32;
-        let total_delay = group_delay + self.pulse_peak_offset;
-        let delay_samples = total_delay.round().max(0.0) as usize;
-        let delay_fractional_offset = delay_samples as f32 - total_delay;
+        let delay = derive_delay_compensation(&self.highpass, self.pulse_peak_offset);
 
         let mut ticks = Vec::with_capacity(peaks.len());
-        let two_pi = 2.0 * PI;
 
         let mut last_sample_idx = 0;
         for &(peak_idx, _amplitude) in &peaks {
@@ -192,14 +207,11 @@ impl DpllNorthTracker {
             // Advance PLL phase from last_sample_idx to peak_idx
             let samples_to_advance = peak_idx - last_sample_idx;
             self.phase += self.frequency * samples_to_advance as f32;
-            // Wrap phase efficiently
-            if self.phase >= two_pi {
-                self.phase -= (self.phase / two_pi).floor() * two_pi;
-            }
+            self.phase = Self::wrap_phase(self.phase);
 
             let global_sample = self.sample_counter.saturating_add(peak_idx);
-            let compensated_sample = global_sample.saturating_sub(delay_samples);
-            let period_estimate = two_pi / self.frequency;
+            let compensated_sample = global_sample.saturating_sub(delay.delay_samples);
+            let period_estimate = 2.0 * PI / self.frequency;
             if let Some(last) = self.last_tick_sample {
                 let min_spacing = period_estimate * MIN_TICK_SPACING_FRACTION;
                 let delta = compensated_sample.saturating_sub(last) as f32;
@@ -211,38 +223,26 @@ impl DpllNorthTracker {
 
             // Phase error: how far are we from expected zero phase?
             // When we detect a tick, we expect phase to be near 0
-            let mut phase_error = -self.phase;
-
-            // Wrap phase error to [-π, π]
-            if phase_error > PI {
-                phase_error -= two_pi;
-            } else if phase_error < -PI {
-                phase_error += two_pi;
-            }
+            let phase_error = Self::wrap_phase_error(-self.phase);
 
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
 
             // Convert phase error to a bounded fractional timing correction,
             // but only once lock statistics indicate stable tracking.
-            let phase_std = self.phase_error_stats.std_dev();
-            let stable_enough_for_phase_correction = self.phase_error_stats.count()
-                >= MIN_PHASE_CORRECTION_SAMPLES
-                && phase_std
-                    .map(|s| s.is_finite() && s <= MAX_PHASE_STD_FOR_CORRECTION_RAD)
-                    .unwrap_or(false);
-            let phase_timing_correction =
-                if stable_enough_for_phase_correction && self.frequency > FREQUENCY_EPSILON {
-                    (-phase_error / self.frequency).clamp(
-                        -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
-                        MAX_PHASE_TIMING_CORRECTION_SAMPLES,
-                    )
-                } else {
-                    0.0
-                };
+            let phase_timing_correction = if self.stable_enough_for_phase_correction()
+                && self.frequency > FREQUENCY_EPSILON
+            {
+                (-phase_error / self.frequency).clamp(
+                    -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
+                    MAX_PHASE_TIMING_CORRECTION_SAMPLES,
+                )
+            } else {
+                0.0
+            };
 
-            let fractional_sample_offset = (delay_fractional_offset + phase_timing_correction)
-                .clamp(
+            let fractional_sample_offset =
+                (delay.fractional_sample_offset + phase_timing_correction).clamp(
                     -MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
                     MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
                 );
@@ -258,17 +258,14 @@ impl DpllNorthTracker {
             self.freq_stats.update(self.frequency);
 
             // Wrap phase after correction
-            if self.phase >= two_pi {
-                self.phase -= two_pi;
-            } else if self.phase < 0.0 {
-                self.phase += two_pi;
-            }
+            self.phase = Self::wrap_phase(self.phase);
 
             // Calculate period in samples from current frequency estimate
-            let period = two_pi / self.frequency;
+            let period = 2.0 * PI / self.frequency;
 
             // Compensate for filter delay: the filtered output at this sample
-            // corresponds to an input pulse that occurred total_delay samples earlier.
+            // corresponds to an input pulse that occurred earlier by the
+            // configured delay compensation.
             // For bearing calculation, the tick itself defines north reference (phase = 0).
             // Jitter is represented by sample_index timing; using absolute DPLL oscillator
             // phase here would introduce reference drift across rotations.
@@ -289,9 +286,7 @@ impl DpllNorthTracker {
         if last_sample_idx < buffer.len() {
             let remaining = buffer.len() - last_sample_idx;
             self.phase += self.frequency * remaining as f32;
-            if self.phase >= two_pi {
-                self.phase -= (self.phase / two_pi).floor() * two_pi;
-            }
+            self.phase = Self::wrap_phase(self.phase);
         }
 
         self.sample_counter += buffer.len();

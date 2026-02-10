@@ -348,13 +348,14 @@ pub struct AgcConfig {
 }
 
 impl AudioConfig {
-    /// Extract doppler and north tick channels from stereo samples
-    /// Returns (doppler_samples, north_tick_samples)
-    pub fn split_channels(&self, stereo_samples: &[(f32, f32)]) -> (Vec<f32>, Vec<f32>) {
-        let mut doppler = Vec::with_capacity(stereo_samples.len());
-        let mut north_tick = Vec::with_capacity(stereo_samples.len());
+    fn split_channels_internal<I>(&self, stereo_samples: I, capacity: usize) -> (Vec<f32>, Vec<f32>)
+    where
+        I: IntoIterator<Item = (f32, f32)>,
+    {
+        let mut doppler = Vec::with_capacity(capacity);
+        let mut north_tick = Vec::with_capacity(capacity);
 
-        for &(left, right) in stereo_samples {
+        for (left, right) in stereo_samples {
             let doppler_sample = match self.doppler_channel {
                 ChannelRole::Left => left,
                 ChannelRole::Right => right,
@@ -368,6 +369,20 @@ impl AudioConfig {
         }
 
         (doppler, north_tick)
+    }
+
+    /// Extract doppler and north tick channels from stereo samples
+    /// Returns (doppler_samples, north_tick_samples)
+    pub fn split_channels(&self, stereo_samples: &[(f32, f32)]) -> (Vec<f32>, Vec<f32>) {
+        self.split_channels_internal(stereo_samples.iter().copied(), stereo_samples.len())
+    }
+
+    /// Extract doppler and north tick channels from any stereo pair iterator
+    pub fn split_channels_iter<I>(&self, stereo_samples: I, capacity: usize) -> (Vec<f32>, Vec<f32>)
+    where
+        I: IntoIterator<Item = (f32, f32)>,
+    {
+        self.split_channels_internal(stereo_samples, capacity)
     }
 }
 

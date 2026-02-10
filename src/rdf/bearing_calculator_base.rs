@@ -81,21 +81,16 @@ impl BearingCalculatorBase {
         self.buffer_start_sample as isize - north_tick.sample_index as isize
     }
 
-    /// Get the fractional north tick timing adjustment in samples
+    /// Calculate samples elapsed since north tick for a buffer sample index.
     ///
-    /// This is a fine-trim applied after tracker compensation.
-    /// Default is 0.5 for backward-compatible calibration.
-    pub fn north_tick_timing_adjustment(&self) -> f32 {
-        self.north_tick_timing_adjustment
-    }
-
-    /// Get the filter group delay in samples
-    ///
-    /// The FIR bandpass filter introduces a group delay. When calculating phase,
-    /// the filtered output at buffer index `idx` corresponds to input sample
-    /// `(base_offset + idx - filter_group_delay)` relative to the north tick.
-    pub fn filter_group_delay(&self) -> usize {
-        self.filter_group_delay
+    /// `sample_index_in_buffer` can be fractional (for interpolated indices).
+    /// This includes FIR group-delay compensation, configured timing trim, and
+    /// tracker-provided fractional tick offset.
+    pub fn samples_since_tick(&self, north_tick: &NorthTick, sample_index_in_buffer: f32) -> f32 {
+        self.offset_from_north_tick(north_tick) as f32 + sample_index_in_buffer
+            - self.filter_group_delay as f32
+            + self.north_tick_timing_adjustment
+            - north_tick.fractional_sample_offset
     }
 
     /// Apply circular smoothing to a raw bearing value.

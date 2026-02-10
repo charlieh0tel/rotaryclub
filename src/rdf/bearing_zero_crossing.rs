@@ -60,10 +60,6 @@ impl ZeroCrossingBearingCalculator {
             return None;
         }
 
-        // Calculate base offset from north tick using buffered position
-        // Can be negative if tick is within the current buffer
-        let base_offset = self.base.offset_from_north_tick(north_tick);
-
         // Get rotation period
         let samples_per_rotation = north_tick.period?;
 
@@ -73,16 +69,11 @@ impl ZeroCrossingBearingCalculator {
         // Account for FIR filter group delay in timing calculation.
         // The zero crossing detector provides sub-sample interpolation.
         // Add the north tick timing adjustment for FIR highpass filter effects.
-        let group_delay = self.base.filter_group_delay() as f32;
-        let tick_adjustment = self.base.north_tick_timing_adjustment();
-        let tick_fractional_offset = north_tick.fractional_sample_offset;
         let (sum_x, sum_y) = self
             .crossings
             .iter()
             .map(|&crossing_idx| {
-                let samples_since_tick = base_offset as f32 + crossing_idx - group_delay
-                    + tick_adjustment
-                    - tick_fractional_offset;
+                let samples_since_tick = self.base.samples_since_tick(north_tick, crossing_idx);
                 let phase_fraction = samples_since_tick / samples_per_rotation;
                 let angle = phase_fraction * 2.0 * PI;
                 (angle.cos(), angle.sin())
@@ -128,16 +119,14 @@ impl ZeroCrossingBearingCalculator {
 
         let coherence = if crossings.len() >= 2 {
             let expected_interval = samples_per_rotation;
-            let mut interval_errors = Vec::with_capacity(crossings.len() - 1);
-
-            for window in crossings.windows(2) {
-                let interval = window[1] - window[0];
-                let error = ((interval - expected_interval) / expected_interval).abs();
-                interval_errors.push(error);
-            }
-
-            let mean_error: f32 =
-                interval_errors.iter().sum::<f32>() / interval_errors.len() as f32;
+            let mean_error: f32 = crossings
+                .windows(2)
+                .map(|window| {
+                    let interval = window[1] - window[0];
+                    ((interval - expected_interval) / expected_interval).abs()
+                })
+                .sum::<f32>()
+                / (crossings.len() - 1) as f32;
             (1.0 - mean_error.min(1.0)).clamp(0.0, 1.0)
         } else {
             DEFAULT_SINGLE_CROSSING_COHERENCE
@@ -148,18 +137,11 @@ impl ZeroCrossingBearingCalculator {
         // frequency, then measure how much of the actual signal correlates with it.
         let omega = north_tick.frequency;
         let snr_db = if omega > 0.0 {
-            let base_offset = self.base.offset_from_north_tick(north_tick);
-            let group_delay = self.base.filter_group_delay() as f32;
-            let tick_adjustment = self.base.north_tick_timing_adjustment();
-            let tick_fractional_offset = north_tick.fractional_sample_offset;
-
             let mut projection_sum = 0.0f32;
             let mut power_sum = 0.0f32;
 
             for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
-                let samples_since_tick = (base_offset + idx as isize) as f32 - group_delay
-                    + tick_adjustment
-                    - tick_fractional_offset;
+                let samples_since_tick = self.base.samples_since_tick(north_tick, idx as f32);
                 let phase = north_tick.phase + samples_since_tick * omega;
                 let ideal = (phase - avg_phase).sin();
                 projection_sum += sample * ideal;

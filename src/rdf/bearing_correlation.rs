@@ -66,10 +66,6 @@ impl CorrelationBearingCalculator {
     }
 
     fn process_tick_impl(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement> {
-        // Calculate base offset from north tick using buffered position
-        // Can be negative if tick is within the current buffer
-        let base_offset = self.base.offset_from_north_tick(north_tick);
-
         // Use DPLL's tracked frequency directly
         let omega = north_tick.frequency;
         if omega <= 0.0 {
@@ -82,15 +78,9 @@ impl CorrelationBearingCalculator {
         let mut i_sum = 0.0;
         let mut q_sum = 0.0;
         let mut power_sum = 0.0;
-        let group_delay = self.base.filter_group_delay() as f32;
-        let tick_adjustment = self.base.north_tick_timing_adjustment();
-        let tick_fractional_offset = north_tick.fractional_sample_offset;
 
         for (idx, &sample) in self.base.work_buffer.iter().enumerate() {
-            // Samples since the north tick, compensated for filter delay
-            let samples_since_tick = (base_offset + idx as isize) as f32 - group_delay
-                + tick_adjustment
-                - tick_fractional_offset;
+            let samples_since_tick = self.base.samples_since_tick(north_tick, idx as f32);
             // Phase from DPLL: start at tick phase, advance by omega per sample
             let phase = north_tick.phase + samples_since_tick * omega;
 
@@ -158,12 +148,7 @@ impl CorrelationBearingCalculator {
         // Split buffer into sub-windows and compute phase in each
         let window_size = n / COHERENCE_WINDOW_COUNT;
         let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
-        let group_delay = self.base.filter_group_delay() as f32;
         let omega = north_tick.frequency;
-        let base_offset = self.base.offset_from_north_tick(north_tick);
-
-        let tick_adjustment = self.base.north_tick_timing_adjustment();
-        let tick_fractional_offset = north_tick.fractional_sample_offset;
         for (win_idx, phase) in phases.iter_mut().enumerate() {
             let start = win_idx * window_size;
             let end = start + window_size;
@@ -172,9 +157,9 @@ impl CorrelationBearingCalculator {
             let mut q_win = 0.0;
 
             for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
-                let samples_since_tick =
-                    (base_offset + (start + idx) as isize) as f32 - group_delay + tick_adjustment
-                        - tick_fractional_offset;
+                let samples_since_tick = self
+                    .base
+                    .samples_since_tick(north_tick, (start + idx) as f32);
                 let p = north_tick.phase + samples_since_tick * omega;
                 i_win += sample * p.cos();
                 q_win += sample * p.sin();

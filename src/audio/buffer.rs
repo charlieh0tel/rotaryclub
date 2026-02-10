@@ -37,14 +37,10 @@ impl AudioRingBuffer {
     }
 
     /// Get latest N samples in chronological order (oldest to newest)
-    pub fn latest(&self, count: usize) -> Vec<StereoSample> {
+    pub fn latest(&self, count: usize) -> &[StereoSample] {
         let len = self.buffer.len().min(count);
-        if len == 0 {
-            return Vec::new();
-        }
-
         let start = self.buffer.len() - len;
-        self.buffer[start..].to_vec()
+        &self.buffer[start..]
     }
 
     /// Check buffer length
