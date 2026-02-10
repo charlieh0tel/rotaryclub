@@ -9,6 +9,7 @@
 pub struct PeakDetector {
     threshold: f32,
     min_samples_between_peaks: usize,
+    peak_search_window_samples: usize,
     samples_since_peak: usize,
     last_sample: f32,
     above_threshold: bool,
@@ -21,9 +22,22 @@ impl PeakDetector {
     /// * `threshold` - Amplitude threshold for peak detection (0-1 range)
     /// * `min_interval_samples` - Minimum samples between detected peaks
     pub fn new(threshold: f32, min_interval_samples: usize) -> Self {
+        Self::with_peak_search_window(threshold, min_interval_samples, min_interval_samples)
+    }
+
+    /// Create a peak detector with an explicit peak search window.
+    ///
+    /// `peak_search_window_samples` controls how far after a threshold crossing
+    /// the detector searches for the local peak index.
+    pub fn with_peak_search_window(
+        threshold: f32,
+        min_interval_samples: usize,
+        peak_search_window_samples: usize,
+    ) -> Self {
         Self {
             threshold,
             min_samples_between_peaks: min_interval_samples,
+            peak_search_window_samples: peak_search_window_samples.max(1),
             samples_since_peak: min_interval_samples, // Allow immediate first peak
             last_sample: 0.0,
             above_threshold: false,
@@ -60,8 +74,8 @@ impl PeakDetector {
     /// Find all peaks in a buffer
     ///
     /// Returns a vector of (sample_index, peak_amplitude) pairs.
-    /// The amplitude is the maximum absolute value in a window after the
-    /// threshold crossing.
+    /// The index and amplitude correspond to the maximum positive value in a
+    /// window after the threshold crossing.
     ///
     /// # Arguments
     /// * `buffer` - Audio samples to process
@@ -69,12 +83,16 @@ impl PeakDetector {
         let mut peaks = Vec::new();
         for (i, &sample) in buffer.iter().enumerate() {
             if self.detect_peak(sample) {
-                let window_end = (i + self.min_samples_between_peaks).min(buffer.len());
-                let amplitude = buffer[i..window_end]
-                    .iter()
-                    .map(|s| s.abs())
-                    .fold(sample.abs(), f32::max);
-                peaks.push((i, amplitude));
+                let window_end = (i + self.peak_search_window_samples).min(buffer.len());
+                let mut peak_idx = i;
+                let mut peak_amp = sample;
+                for (rel_idx, &candidate) in buffer[i..window_end].iter().enumerate() {
+                    if candidate > peak_amp {
+                        peak_amp = candidate;
+                        peak_idx = i + rel_idx;
+                    }
+                }
+                peaks.push((peak_idx, peak_amp));
             }
         }
         peaks
@@ -97,7 +115,7 @@ mod tests {
         let peaks = detector.find_all_peaks(&signal);
 
         assert_eq!(peaks.len(), 2);
-        assert_eq!(peaks[0].0, 20);
+        assert_eq!(peaks[0].0, 25);
         assert!((peaks[0].1 - 0.9).abs() < 0.01); // max in window includes sample[25]
         assert_eq!(peaks[1].0, 50);
         assert!((peaks[1].1 - 0.7).abs() < 0.01);
@@ -113,7 +131,7 @@ mod tests {
 
         // Should detect rising edges crossing threshold
         assert_eq!(peaks.len(), 2);
-        assert_eq!(peaks[0].0, 2); // Rising edge 0.4 -> 0.6
+        assert_eq!(peaks[0].0, 3); // Peak near first rising edge
         assert_eq!(peaks[1].0, 8); // Rising edge 0.4 -> 0.8 (after min_interval)
     }
 }

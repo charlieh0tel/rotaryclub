@@ -114,6 +114,24 @@ impl FirHighpass {
         // Fallback: threshold never exceeded (shouldn't happen with valid parameters)
         0.0
     }
+
+    /// Compute the filtered impulse peak offset for pulse detection
+    ///
+    /// Returns the sample offset from group delay to the maximum positive
+    /// impulse-response tap. This matches peak-index timing when the detector
+    /// reports local positive maxima instead of threshold crossings.
+    pub fn peak_offset(&self) -> f32 {
+        let group_delay = self.core.group_delay_samples();
+        let peak_idx = self
+            .core
+            .taps()
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i)
+            .unwrap_or(group_delay);
+        peak_idx as f32 - group_delay as f32
+    }
 }
 
 impl Filter for FirHighpass {
@@ -213,6 +231,17 @@ mod tests {
         // Total delay should equal group delay when offset is 0
         let total_delay = filter.group_delay_samples() as f32 + offset;
         assert_eq!(total_delay, 31.0);
+    }
+
+    #[test]
+    fn test_peak_offset() {
+        let filter = FirHighpass::new(5000.0, 48000.0, 63, 500.0).unwrap();
+        let offset = filter.peak_offset();
+        assert!(
+            offset.abs() <= 1.0,
+            "Peak offset should be near group delay, got {}",
+            offset
+        );
     }
 
     #[test]

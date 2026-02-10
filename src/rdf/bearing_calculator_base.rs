@@ -83,12 +83,8 @@ impl BearingCalculatorBase {
 
     /// Get the fractional north tick timing adjustment in samples
     ///
-    /// The north tick detector triggers when `sample > threshold`, which occurs
-    /// at the first integer sample above threshold. The actual threshold crossing
-    /// (the conceptual "tick" moment) happens somewhere in the previous inter-sample
-    /// interval. On average, this is 0.5 samples before the detection point.
-    ///
-    /// This adjustment compensates for that discrete-sampling effect.
+    /// This is a fine-trim applied after tracker compensation.
+    /// Default is 0.5 for backward-compatible calibration.
     pub fn north_tick_timing_adjustment(&self) -> f32 {
         self.north_tick_timing_adjustment
     }

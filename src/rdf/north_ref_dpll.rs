@@ -8,12 +8,15 @@ use std::f32::consts::PI;
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
 const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
+const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
+const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
+const MAX_PHASE_STD_FOR_CORRECTION_RAD: f32 = 0.25;
 
 pub struct DpllNorthTracker {
     gain: f32,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
-    threshold_crossing_offset: f32,
+    pulse_peak_offset: f32,
     last_tick_sample: Option<usize>,
 
     // PLL state
@@ -69,12 +72,19 @@ impl DpllNorthTracker {
         let effective_pulse_amplitude = (config.expected_pulse_amplitude * gain).max(f32::EPSILON);
         let threshold_crossing_offset =
             highpass.threshold_crossing_offset(config.threshold, effective_pulse_amplitude);
+        let pulse_peak_offset = highpass.peak_offset();
+        let peak_search_window_samples =
+            ((pulse_peak_offset - threshold_crossing_offset).max(0.0)).ceil() as usize + 3;
 
         Ok(Self {
             gain,
             highpass,
-            peak_detector: PeakDetector::new(config.threshold, min_samples),
-            threshold_crossing_offset,
+            peak_detector: PeakDetector::with_peak_search_window(
+                config.threshold,
+                min_samples,
+                peak_search_window_samples,
+            ),
+            pulse_peak_offset,
             last_tick_sample: None,
             phase: 0.0,
             frequency: omega,
@@ -103,15 +113,20 @@ impl DpllNorthTracker {
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
 
-        // Total delay compensation: group_delay + threshold_crossing_offset
+        // Total delay compensation: group_delay + peak_offset.
         let group_delay = self.highpass.group_delay_samples() as f32;
-        let total_delay = (group_delay + self.threshold_crossing_offset).round() as usize;
+        let total_delay = group_delay + self.pulse_peak_offset;
+        let delay_samples = total_delay.round().max(0.0) as usize;
+        let delay_fractional_offset = delay_samples as f32 - total_delay;
 
         let mut ticks = Vec::with_capacity(peaks.len());
         let two_pi = 2.0 * PI;
 
         let mut last_sample_idx = 0;
         for &(peak_idx, _amplitude) in &peaks {
+            if peak_idx < last_sample_idx {
+                continue;
+            }
             // Advance PLL phase from last_sample_idx to peak_idx
             let samples_to_advance = peak_idx - last_sample_idx;
             self.phase += self.frequency * samples_to_advance as f32;
@@ -121,7 +136,7 @@ impl DpllNorthTracker {
             }
 
             let global_sample = self.sample_counter + peak_idx;
-            let compensated_sample = global_sample.saturating_sub(total_delay);
+            let compensated_sample = global_sample.saturating_sub(delay_samples);
             let period_estimate = two_pi / self.frequency;
             if let Some(last) = self.last_tick_sample {
                 let min_spacing = period_estimate * MIN_TICK_SPACING_FRACTION;
@@ -146,17 +161,27 @@ impl DpllNorthTracker {
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
 
-            // Convert phase error to a bounded fractional timing correction.
-            // Negative means the effective tick time is slightly earlier than
-            // compensated_sample; positive means slightly later.
-            let fractional_sample_offset = if self.frequency > FREQUENCY_EPSILON {
-                (-phase_error / self.frequency).clamp(
-                    -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
-                    MAX_PHASE_TIMING_CORRECTION_SAMPLES,
-                )
-            } else {
-                0.0
-            };
+            // Convert phase error to a bounded fractional timing correction,
+            // but only once lock statistics indicate stable tracking.
+            let stable_enough_for_phase_correction = self.phase_error_stats.count
+                >= MIN_PHASE_CORRECTION_SAMPLES
+                && self.phase_error_stats.std_dev.is_finite()
+                && self.phase_error_stats.std_dev.abs() <= MAX_PHASE_STD_FOR_CORRECTION_RAD;
+            let phase_timing_correction =
+                if stable_enough_for_phase_correction && self.frequency > FREQUENCY_EPSILON {
+                    (-phase_error / self.frequency).clamp(
+                        -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
+                        MAX_PHASE_TIMING_CORRECTION_SAMPLES,
+                    )
+                } else {
+                    0.0
+                };
+
+            let fractional_sample_offset = (delay_fractional_offset + phase_timing_correction)
+                .clamp(
+                    -MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
+                    MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
+                );
 
             // Update frequency and phase with PI controller
             self.frequency += self.ki * phase_error;
@@ -380,10 +405,10 @@ mod tests {
                 "fractional_sample_offset must be finite"
             );
             assert!(
-                tick.fractional_sample_offset.abs() <= MAX_PHASE_TIMING_CORRECTION_SAMPLES + 1e-6,
+                tick.fractional_sample_offset.abs() <= MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES + 1e-6,
                 "fractional_sample_offset {} exceeds bound {}",
                 tick.fractional_sample_offset,
-                MAX_PHASE_TIMING_CORRECTION_SAMPLES
+                MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES
             );
         }
     }

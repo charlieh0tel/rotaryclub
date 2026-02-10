@@ -12,7 +12,7 @@ pub struct SimpleNorthTracker {
     gain: f32,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
-    threshold_crossing_offset: f32,
+    pulse_peak_offset: f32,
     nominal_period_samples: f32,
     last_tick_sample: Option<usize>,
     samples_per_rotation: Option<f32>,
@@ -36,6 +36,9 @@ impl SimpleNorthTracker {
         let effective_pulse_amplitude = (config.expected_pulse_amplitude * gain).max(f32::EPSILON);
         let threshold_crossing_offset =
             highpass.threshold_crossing_offset(config.threshold, effective_pulse_amplitude);
+        let pulse_peak_offset = highpass.peak_offset();
+        let peak_search_window_samples =
+            ((pulse_peak_offset - threshold_crossing_offset).max(0.0)).ceil() as usize + 3;
         let nominal_period_samples = if config.dpll.initial_frequency_hz > FREQUENCY_EPSILON {
             sample_rate / config.dpll.initial_frequency_hz
         } else {
@@ -45,8 +48,12 @@ impl SimpleNorthTracker {
         Ok(Self {
             gain,
             highpass,
-            peak_detector: PeakDetector::new(config.threshold, min_samples),
-            threshold_crossing_offset,
+            peak_detector: PeakDetector::with_peak_search_window(
+                config.threshold,
+                min_samples,
+                peak_search_window_samples,
+            ),
+            pulse_peak_offset,
             nominal_period_samples,
             last_tick_sample: None,
             samples_per_rotation: None,
@@ -68,9 +75,11 @@ impl SimpleNorthTracker {
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
 
-        // Total delay compensation: group_delay + threshold_crossing_offset
+        // Total delay compensation: group_delay + peak_offset.
         let group_delay = self.highpass.group_delay_samples() as f32;
-        let total_delay = (group_delay + self.threshold_crossing_offset).round() as usize;
+        let total_delay = group_delay + self.pulse_peak_offset;
+        let delay_samples = total_delay.round().max(0.0) as usize;
+        let delay_fractional_offset = delay_samples as f32 - total_delay;
 
         let mut ticks = Vec::new();
 
@@ -80,7 +89,7 @@ impl SimpleNorthTracker {
             let global_sample = self
                 .sample_counter
                 .saturating_add(peak_idx)
-                .saturating_sub(total_delay);
+                .saturating_sub(delay_samples);
 
             if let Some(last) = self.last_tick_sample {
                 let period_reference = self
@@ -117,7 +126,7 @@ impl SimpleNorthTracker {
                 sample_index: global_sample,
                 period: self.samples_per_rotation,
                 lock_quality: self.lock_quality(),
-                fractional_sample_offset: 0.0,
+                fractional_sample_offset: delay_fractional_offset,
                 phase: 0.0, // By definition, tick = north = 0 radians
                 frequency,
             });

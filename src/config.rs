@@ -193,9 +193,11 @@ pub struct DopplerConfig {
     /// Bearing calculation method to use
     pub method: BearingMethod,
     /// North tick timing adjustment in samples.
-    /// The north tick detector triggers at the first sample above threshold,
-    /// but the actual threshold crossing occurs in the previous inter-sample
-    /// interval. This adjustment (typically 0.5) compensates for that offset.
+    /// Fine adjustment applied to north tick timing in bearing calculation
+    /// after tracker delay compensation.
+    ///
+    /// Positive values shift the effective tick time later; negative values
+    /// shift it earlier. Default is 0.5 for backward-compatible calibration.
     pub north_tick_timing_adjustment: f32,
 }
 
