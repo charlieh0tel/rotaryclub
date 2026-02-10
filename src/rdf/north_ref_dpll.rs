@@ -3,7 +3,7 @@ use crate::constants::FREQUENCY_EPSILON;
 use crate::error::Result;
 use crate::rdf::NorthTick;
 use crate::signal_processing::{FirHighpass, PeakDetector};
-use rolling_stats::Stats;
+use std::collections::VecDeque;
 use std::f32::consts::PI;
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
@@ -11,6 +11,68 @@ const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
 const MAX_PHASE_STD_FOR_CORRECTION_RAD: f32 = 0.25;
+const LOCK_STATS_WINDOW_TICKS: usize = 128;
+
+struct RollingWindowStats {
+    window: VecDeque<f32>,
+    max_len: usize,
+    sum: f64,
+    sum_sq: f64,
+}
+
+impl RollingWindowStats {
+    fn new(max_len: usize) -> Self {
+        Self {
+            window: VecDeque::with_capacity(max_len),
+            max_len,
+            sum: 0.0,
+            sum_sq: 0.0,
+        }
+    }
+
+    fn update(&mut self, value: f32) {
+        if self.window.len() == self.max_len
+            && let Some(old) = self.window.pop_front()
+        {
+            let old = old as f64;
+            self.sum -= old;
+            self.sum_sq -= old * old;
+        }
+
+        self.window.push_back(value);
+        let v = value as f64;
+        self.sum += v;
+        self.sum_sq += v * v;
+    }
+
+    fn count(&self) -> usize {
+        self.window.len()
+    }
+
+    fn mean(&self) -> Option<f32> {
+        let n = self.window.len();
+        if n == 0 {
+            None
+        } else {
+            Some((self.sum / n as f64) as f32)
+        }
+    }
+
+    fn variance(&self) -> Option<f32> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f64 = n as f64;
+        let mean = self.sum / n_f64;
+        let var = (self.sum_sq / n_f64) - mean * mean;
+        Some(var.max(0.0) as f32)
+    }
+
+    fn std_dev(&self) -> Option<f32> {
+        self.variance().map(f32::sqrt)
+    }
+}
 
 pub struct DpllNorthTracker {
     gain: f32,
@@ -34,9 +96,9 @@ pub struct DpllNorthTracker {
     sample_counter: usize,
     sample_rate: f32,
 
-    // Statistics for lock quality
-    phase_error_stats: Stats<f32>,
-    freq_stats: Stats<f32>,
+    // Rolling statistics for lock quality
+    phase_error_stats: RollingWindowStats,
+    freq_stats: RollingWindowStats,
     lock_quality_weights: LockQualityWeights,
 
     // Pre-allocated buffer for filtering
@@ -94,8 +156,8 @@ impl DpllNorthTracker {
             max_omega,
             sample_counter: 0,
             sample_rate,
-            phase_error_stats: Stats::new(),
-            freq_stats: Stats::new(),
+            phase_error_stats: RollingWindowStats::new(LOCK_STATS_WINDOW_TICKS),
+            freq_stats: RollingWindowStats::new(LOCK_STATS_WINDOW_TICKS),
             lock_quality_weights: config.lock_quality_weights,
             filter_buffer: Vec::new(),
         })
@@ -163,10 +225,12 @@ impl DpllNorthTracker {
 
             // Convert phase error to a bounded fractional timing correction,
             // but only once lock statistics indicate stable tracking.
-            let stable_enough_for_phase_correction = self.phase_error_stats.count
+            let phase_std = self.phase_error_stats.std_dev();
+            let stable_enough_for_phase_correction = self.phase_error_stats.count()
                 >= MIN_PHASE_CORRECTION_SAMPLES
-                && self.phase_error_stats.std_dev.is_finite()
-                && self.phase_error_stats.std_dev.abs() <= MAX_PHASE_STD_FOR_CORRECTION_RAD;
+                && phase_std
+                    .map(|s| s.is_finite() && s <= MAX_PHASE_STD_FOR_CORRECTION_RAD)
+                    .unwrap_or(false);
             let phase_timing_correction =
                 if stable_enough_for_phase_correction && self.frequency > FREQUENCY_EPSILON {
                     (-phase_error / self.frequency).clamp(
@@ -243,27 +307,24 @@ impl DpllNorthTracker {
     }
 
     pub fn phase_error_variance(&self) -> Option<f32> {
-        if self.phase_error_stats.count < 2 {
-            None
-        } else {
-            let std_dev = self.phase_error_stats.std_dev;
-            Some(std_dev * std_dev)
-        }
+        self.phase_error_stats.variance()
     }
 
     pub fn lock_quality(&self) -> Option<f32> {
-        if self.phase_error_stats.count < 2 || self.freq_stats.count < 2 {
+        if self.phase_error_stats.count() < 2 || self.freq_stats.count() < 2 {
             return None;
         }
 
         // Phase error std dev in radians - lower is better
         // A well-locked PLL should have phase error < 0.1 rad (~6 degrees)
-        let phase_std = self.phase_error_stats.std_dev.abs();
+        let phase_std = self.phase_error_stats.std_dev()?.abs();
         let phase_score = (1.0 - phase_std / PI).clamp(0.0, 1.0);
 
         // Frequency stability - lower variance relative to mean is better
-        let freq_cv = if self.freq_stats.mean.abs() > FREQUENCY_EPSILON {
-            (self.freq_stats.std_dev / self.freq_stats.mean).abs()
+        let freq_mean = self.freq_stats.mean()?;
+        let freq_std = self.freq_stats.std_dev()?;
+        let freq_cv = if freq_mean.abs() > FREQUENCY_EPSILON {
+            (freq_std / freq_mean).abs()
         } else {
             1.0
         };
