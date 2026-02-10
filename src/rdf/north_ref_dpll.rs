@@ -197,7 +197,7 @@ impl DpllNorthTracker {
                 self.phase -= (self.phase / two_pi).floor() * two_pi;
             }
 
-            let global_sample = self.sample_counter + peak_idx;
+            let global_sample = self.sample_counter.saturating_add(peak_idx);
             let compensated_sample = global_sample.saturating_sub(delay_samples);
             let period_estimate = two_pi / self.frequency;
             if let Some(last) = self.last_tick_sample {
