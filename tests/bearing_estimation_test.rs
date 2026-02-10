@@ -1,4 +1,4 @@
-use rotaryclub::config::{AgcConfig, DopplerConfig, RdfConfig};
+use rotaryclub::config::{AgcConfig, ConfidenceWeights, DopplerConfig, RdfConfig};
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
     NorthTracker, ZeroCrossingBearingCalculator,
@@ -126,9 +126,14 @@ fn test_correlation_bearing_with_correct_signal() {
     println!("{}", "-".repeat(45));
 
     for &expected_bearing in &test_bearings {
-        let mut calc =
-            CorrelationBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1)
-                .unwrap();
+        let mut calc = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
 
         let num_samples = (sample_rate * 0.1) as usize; // 100ms of data
         let (doppler, _north_tick) =
@@ -193,9 +198,14 @@ fn test_zero_crossing_bearing_with_correct_signal() {
     println!("{}", "-".repeat(45));
 
     for &expected_bearing in &test_bearings {
-        let mut calc =
-            ZeroCrossingBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1)
-                .unwrap();
+        let mut calc = ZeroCrossingBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
 
         let num_samples = (sample_rate * 0.1) as usize; // 100ms of data
         let (doppler, _north_tick) =
@@ -253,8 +263,14 @@ fn test_full_pipeline_with_north_tracker() {
     println!("Generated {} north tick pulses", tick_count);
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-    let mut bearing_calc =
-        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 1).unwrap();
+    let mut bearing_calc = CorrelationBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence_weights,
+        sample_rate,
+        1,
+    )
+    .unwrap();
 
     let chunk_size = config.audio.buffer_size;
     let mut measurements = Vec::new();

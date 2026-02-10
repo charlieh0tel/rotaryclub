@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::ZeroCrossingDetector;
 use std::f32::consts::PI;
@@ -37,11 +37,18 @@ impl ZeroCrossingBearingCalculator {
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
+        confidence_weights: ConfidenceWeights,
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
         Ok(Self {
-            base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
+            base: BearingCalculatorBase::new(
+                doppler_config,
+                agc_config,
+                confidence_weights,
+                sample_rate,
+                smoothing,
+            )?,
             zero_detector: ZeroCrossingDetector::new(doppler_config.zero_cross_hysteresis),
             preprocessed_len: 0,
             crossings: Vec::new(),
@@ -211,7 +218,13 @@ mod tests {
 
         let sample_rate = 48000.0;
 
-        let calc = ZeroCrossingBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
+        let calc = ZeroCrossingBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        );
 
         assert!(
             calc.is_ok(),

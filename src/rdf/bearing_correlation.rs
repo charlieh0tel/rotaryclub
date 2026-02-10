@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
 use crate::error::Result;
 use std::f32::consts::PI;
 
@@ -49,11 +49,18 @@ impl CorrelationBearingCalculator {
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
+        confidence_weights: ConfidenceWeights,
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
         Ok(Self {
-            base: BearingCalculatorBase::new(doppler_config, agc_config, sample_rate, smoothing)?,
+            base: BearingCalculatorBase::new(
+                doppler_config,
+                agc_config,
+                confidence_weights,
+                sample_rate,
+                smoothing,
+            )?,
             preprocessed_len: 0,
         })
     }
@@ -139,7 +146,9 @@ impl CorrelationBearingCalculator {
         }
 
         // --- SNR Estimation ---
-        let correlated_power = correlation_magnitude * correlation_magnitude;
+        // For a clean sine, I^2 + Q^2 = A^2 / 4 while signal_power = A^2 / 2.
+        // Multiply by 2 to estimate full correlated signal power.
+        let correlated_power = 2.0 * correlation_magnitude * correlation_magnitude;
         let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
         let snr_db = 10.0 * (correlated_power / noise_power).log10();
 
@@ -186,7 +195,7 @@ impl CorrelationBearingCalculator {
 
         // --- Signal Strength ---
         let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
-            (correlation_magnitude / signal_power.sqrt()).clamp(0.0, 1.0)
+            (correlated_power / signal_power).sqrt().clamp(0.0, 1.0)
         } else {
             0.0
         };
@@ -229,7 +238,13 @@ mod tests {
         let doppler_config = DopplerConfig::default();
         let agc_config = AgcConfig::default();
         let sample_rate = 48000.0;
-        let calc = CorrelationBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1);
+        let calc = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        );
         assert!(
             calc.is_ok(),
             "Should be able to create CorrelationBearingCalculator"
@@ -247,9 +262,14 @@ mod tests {
         };
 
         let agc_config = AgcConfig::default();
-        let mut calc =
-            CorrelationBearingCalculator::new(&doppler_config, &agc_config, sample_rate, 1)
-                .unwrap();
+        let mut calc = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
 
         let samples_per_rotation = sample_rate / doppler_config.expected_freq; // 100.0
         let omega = 2.0 * PI / samples_per_rotation;
@@ -300,6 +320,101 @@ mod tests {
             "Expected circular mean near pi, got {} rad (error {})",
             mean,
             error_to_pi
+        );
+    }
+
+    #[test]
+    fn test_correlation_confidence_uses_configured_weights() {
+        let sample_rate = 48000.0;
+        let doppler_config = DopplerConfig {
+            expected_freq: 480.0,
+            bandpass_low: 400.0,
+            bandpass_high: 560.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let weights = ConfidenceWeights {
+            snr_weight: 0.0,
+            coherence_weight: 0.0,
+            signal_strength_weight: 0.0,
+            snr_normalization_db: 20.0,
+        };
+        let mut calc = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            weights,
+            sample_rate,
+            1,
+        )
+        .unwrap();
+
+        let samples_per_rotation = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / samples_per_rotation;
+        let north_tick = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+            lock_quality: None,
+            phase: 0.0,
+            frequency: omega,
+        };
+
+        let bearing_radians = 45.0f32.to_radians();
+        let buffer: Vec<f32> = (0..4800)
+            .map(|i| (omega * i as f32 - bearing_radians).sin())
+            .collect();
+
+        let measurement = calc.process_buffer(&buffer, &north_tick).unwrap();
+        assert!(
+            measurement.confidence.abs() < 1e-6,
+            "Expected confidence to respect zero weights, got {}",
+            measurement.confidence
+        );
+    }
+
+    #[test]
+    fn test_correlation_metrics_clean_signal() {
+        let sample_rate = 48000.0;
+        let doppler_config = DopplerConfig {
+            expected_freq: 480.0,
+            bandpass_low: 400.0,
+            bandpass_high: 560.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let mut calc = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
+
+        let samples_per_rotation = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / samples_per_rotation;
+        let north_tick = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+            lock_quality: None,
+            phase: 0.0,
+            frequency: omega,
+        };
+
+        let bearing_radians = 45.0f32.to_radians();
+        let buffer: Vec<f32> = (0..4800)
+            .map(|i| (omega * i as f32 - bearing_radians).sin())
+            .collect();
+
+        let measurement = calc.process_buffer(&buffer, &north_tick).unwrap();
+        assert!(
+            measurement.metrics.signal_strength > 0.95,
+            "Expected near-unit signal strength for clean sine, got {}",
+            measurement.metrics.signal_strength
+        );
+        assert!(
+            measurement.metrics.snr_db > 5.0,
+            "Expected high SNR for clean sine, got {} dB",
+            measurement.metrics.snr_db
         );
     }
 }

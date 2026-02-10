@@ -38,8 +38,14 @@ fn measure_bearing_with_noise(
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).ok()?;
-    let mut corr_calc =
-        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).ok()?;
+    let mut corr_calc = CorrelationBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence_weights,
+        sample_rate,
+        3,
+    )
+    .ok()?;
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();

@@ -167,8 +167,9 @@ impl DpllNorthTracker {
 
             // Compensate for filter delay: the filtered output at this sample
             // corresponds to an input pulse that occurred total_delay samples earlier.
-            // For bearing calculation, tick defines north (phase=0).
-            // The DPLL's internal phase tracks jitter, but the reference is the tick itself.
+            // For bearing calculation, the tick itself defines north reference (phase = 0).
+            // Jitter is represented by sample_index timing; using absolute DPLL oscillator
+            // phase here would introduce reference drift across rotations.
             self.last_tick_sample = Some(compensated_sample);
             ticks.push(NorthTick {
                 sample_index: compensated_sample,

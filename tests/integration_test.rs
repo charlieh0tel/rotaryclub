@@ -65,10 +65,20 @@ fn calculate_bearing_from_synthetic(
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
-    let mut zc_calc =
-        ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
-    let mut corr_calc =
-        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)?;
+    let mut zc_calc = ZeroCrossingBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence_weights,
+        sample_rate,
+        3,
+    )?;
+    let mut corr_calc = CorrelationBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence_weights,
+        sample_rate,
+        3,
+    )?;
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut zc_measurements = Vec::new();
@@ -147,14 +157,24 @@ fn test_bearing_with_perfect_north_tick() {
             frequency: 2.0 * PI / samples_per_rotation,
         };
 
-        let mut zc_calc =
-            ZeroCrossingBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 1)
-                .unwrap();
+        let mut zc_calc = ZeroCrossingBearingCalculator::new(
+            &config.doppler,
+            &config.agc,
+            config.bearing.confidence_weights,
+            sample_rate,
+            1,
+        )
+        .unwrap();
         let zc_result = zc_calc.process_buffer(&doppler, &perfect_tick);
 
-        let mut corr_calc =
-            CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 1)
-                .unwrap();
+        let mut corr_calc = CorrelationBearingCalculator::new(
+            &config.doppler,
+            &config.agc,
+            config.bearing.confidence_weights,
+            sample_rate,
+            1,
+        )
+        .unwrap();
         let corr_result = corr_calc.process_buffer(&doppler, &perfect_tick);
 
         // Verify both methods produce valid bearings in [0, 360)
@@ -219,8 +239,14 @@ fn test_real_wav_file() {
     let sample_rate = spec.sample_rate as f32;
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-    let mut correlation_calc =
-        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3).unwrap();
+    let mut correlation_calc = CorrelationBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence_weights,
+        sample_rate,
+        3,
+    )
+    .unwrap();
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements = Vec::new();
@@ -387,8 +413,14 @@ fn test_rotating_bearing_through_zero() {
     );
 
     let mut north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-    let mut corr_calc =
-        CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 1).unwrap();
+    let mut corr_calc = CorrelationBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence_weights,
+        sample_rate,
+        1,
+    )
+    .unwrap();
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut measurements: Vec<(f32, f32)> = Vec::new(); // (time, bearing)
@@ -469,9 +501,14 @@ fn test_dc_offset_removal() {
         let bearing_without_removal = {
             let mut north_tracker =
                 NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-            let mut corr_calc =
-                CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)
-                    .unwrap();
+            let mut corr_calc = CorrelationBearingCalculator::new(
+                &config.doppler,
+                &config.agc,
+                config.bearing.confidence_weights,
+                sample_rate,
+                3,
+            )
+            .unwrap();
 
             let chunk_size = config.audio.buffer_size * 2;
             let mut measurements = Vec::new();
@@ -515,9 +552,14 @@ fn test_dc_offset_removal() {
         let bearing_with_removal = {
             let mut north_tracker =
                 NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-            let mut corr_calc =
-                CorrelationBearingCalculator::new(&config.doppler, &config.agc, sample_rate, 3)
-                    .unwrap();
+            let mut corr_calc = CorrelationBearingCalculator::new(
+                &config.doppler,
+                &config.agc,
+                config.bearing.confidence_weights,
+                sample_rate,
+                3,
+            )
+            .unwrap();
             let mut dc_remover_doppler = DcRemover::with_cutoff(sample_rate, 1.0);
             let mut dc_remover_north = DcRemover::with_cutoff(sample_rate, 1.0);
 

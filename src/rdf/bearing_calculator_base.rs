@@ -1,5 +1,5 @@
 use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
-use crate::error::Result;
+use crate::error::{RdfError, Result};
 use crate::signal_processing::{AutomaticGainControl, FirBandpass, MovingAverage};
 
 use super::NorthTick;
@@ -26,9 +26,16 @@ impl BearingCalculatorBase {
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
+        confidence_weights: ConfidenceWeights,
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
+        if smoothing == 0 {
+            return Err(RdfError::Config(
+                "bearing smoothing_window must be at least 1".to_string(),
+            ));
+        }
+
         let bandpass = FirBandpass::new(
             doppler_config.bandpass_low,
             doppler_config.bandpass_high,
@@ -43,7 +50,7 @@ impl BearingCalculatorBase {
             bandpass,
             filter_group_delay,
             north_tick_timing_adjustment: doppler_config.north_tick_timing_adjustment,
-            confidence_weights: ConfidenceWeights::default(),
+            confidence_weights,
             sample_counter: 0,
             buffer_start_sample: 0,
             bearing_smoother_cos: MovingAverage::new(smoothing),

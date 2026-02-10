@@ -34,12 +34,14 @@ impl RdfProcessor {
                 BearingMethod::ZeroCrossing => Box::new(ZeroCrossingBearingCalculator::new(
                     &config.doppler,
                     &config.agc,
+                    config.bearing.confidence_weights,
                     sample_rate,
                     config.bearing.smoothing_window,
                 )?),
                 BearingMethod::Correlation => Box::new(CorrelationBearingCalculator::new(
                     &config.doppler,
                     &config.agc,
+                    config.bearing.confidence_weights,
                     sample_rate,
                     config.bearing.smoothing_window,
                 )?),
@@ -407,5 +409,25 @@ mod tests {
             processor.last_north_tick().is_none(),
             "No north tick expected for empty input"
         );
+    }
+
+    #[test]
+    fn test_smoothing_window_zero_rejected() {
+        let mut config = default_config();
+        config.bearing.smoothing_window = 0;
+
+        match RdfProcessor::new(&config, false, true) {
+            Err(err) => match err {
+                crate::error::RdfError::Config(msg) => {
+                    assert!(
+                        msg.contains("smoothing_window"),
+                        "Unexpected config error message: {}",
+                        msg
+                    );
+                }
+                _ => panic!("Expected configuration error for zero smoothing window"),
+            },
+            Ok(_) => panic!("Expected zero smoothing window to be rejected"),
+        }
     }
 }
