@@ -52,22 +52,44 @@ impl ZeroCrossingDetector {
     /// * `buffer` - Audio samples to process
     pub fn find_all_crossings(&mut self, buffer: &[f32]) -> Vec<f32> {
         let mut crossings = Vec::new();
-        let mut prev_sample = if !buffer.is_empty() {
-            buffer[0]
-        } else {
+        if buffer.is_empty() {
             return crossings;
-        };
+        }
+
+        let mut prev_sample = buffer[0];
+        let mut pending_crossing: Option<f32> = None;
+
+        if prev_sample < -self.hysteresis {
+            self.armed = true;
+        }
+        if self.armed && prev_sample > self.hysteresis {
+            crossings.push(0.0);
+            self.armed = false;
+        }
 
         for (i, &sample) in buffer.iter().enumerate().skip(1) {
-            if self.detect_crossing(sample) {
-                let denominator = sample - prev_sample;
-                if denominator.abs() > INTERPOLATION_EPSILON {
-                    let fraction = sample / denominator;
-                    crossings.push(i as f32 - fraction);
-                } else {
-                    crossings.push(i as f32);
-                }
+            if sample < -self.hysteresis {
+                self.armed = true;
+                pending_crossing = None;
             }
+
+            if self.armed && pending_crossing.is_none() && prev_sample <= 0.0 && sample > 0.0 {
+                let denominator = sample - prev_sample;
+                let crossing = if denominator.abs() > INTERPOLATION_EPSILON {
+                    let fraction = sample / denominator;
+                    i as f32 - fraction
+                } else {
+                    i as f32
+                };
+                pending_crossing = Some(crossing);
+            }
+
+            if self.armed && sample > self.hysteresis {
+                crossings.push(pending_crossing.unwrap_or(i as f32));
+                self.armed = false;
+                pending_crossing = None;
+            }
+
             prev_sample = sample;
         }
 
@@ -121,6 +143,37 @@ mod tests {
         let expected = 2.0 - 0.2 / (0.2 - (-0.1));
         assert!(
             (crossings[0] - expected).abs() < 0.001,
+            "Expected {}, got {}",
+            expected,
+            crossings[0]
+        );
+    }
+
+    #[test]
+    fn test_zero_crossing_first_sample_arms_detector() {
+        let mut detector = ZeroCrossingDetector::new(0.1);
+
+        let signal = vec![-0.5, 0.5];
+        let crossings = detector.find_all_crossings(&signal);
+
+        assert_eq!(crossings.len(), 1);
+        let expected = 1.0 - 0.5 / (0.5 - (-0.5));
+        assert!((crossings[0] - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_zero_crossing_interpolation_uses_zero_crossing_not_threshold_crossing() {
+        let mut detector = ZeroCrossingDetector::new(0.1);
+
+        // Zero crossing happens between samples 0 and 1, but hysteresis threshold is
+        // only exceeded at sample 2.
+        let signal = vec![-0.3, 0.05, 0.2, 0.4];
+        let crossings = detector.find_all_crossings(&signal);
+
+        assert_eq!(crossings.len(), 1);
+        let expected = 1.0 - 0.05 / (0.05 - (-0.3));
+        assert!(
+            (crossings[0] - expected).abs() < 0.01,
             "Expected {}, got {}",
             expected,
             crossings[0]

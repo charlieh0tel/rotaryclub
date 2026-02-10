@@ -11,6 +11,20 @@ use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
 use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick};
 
+fn circular_mean_phase(phases: &[f32]) -> f32 {
+    let (sum_sin, sum_cos) = phases
+        .iter()
+        .fold((0.0_f32, 0.0_f32), |(acc_sin, acc_cos), &p| {
+            (acc_sin + p.sin(), acc_cos + p.cos())
+        });
+    sum_sin.atan2(sum_cos)
+}
+
+fn wrap_phase_diff(phase: f32, reference: f32) -> f32 {
+    let diff = (phase - reference).rem_euclid(2.0 * PI);
+    if diff > PI { diff - 2.0 * PI } else { diff }
+}
+
 /// Correlation-based bearing calculator using I/Q demodulation
 ///
 /// Calculates bearing by correlating the filtered Doppler tone with sin/cos
@@ -157,12 +171,11 @@ impl CorrelationBearingCalculator {
         }
 
         // Calculate phase variance (circular variance)
-        let mean_phase = phases.iter().sum::<f32>() / COHERENCE_WINDOW_COUNT as f32;
+        let mean_phase = circular_mean_phase(&phases);
         let phase_variance: f32 = phases
             .iter()
             .map(|p| {
-                let diff = (p - mean_phase).rem_euclid(2.0 * PI);
-                let wrapped = if diff > PI { diff - 2.0 * PI } else { diff };
+                let wrapped = wrap_phase_diff(*p, mean_phase);
                 wrapped * wrapped
             })
             .sum::<f32>()
@@ -268,6 +281,25 @@ mod tests {
             (bearing - 45.0).abs() < 5.0,
             "Bearing calculation was incorrect. Got {}, expected 45.0",
             bearing
+        );
+    }
+
+    #[test]
+    fn test_circular_phase_mean_wraparound() {
+        let phases = [
+            179.0_f32.to_radians(),
+            -179.0_f32.to_radians(),
+            178.0_f32.to_radians(),
+            -178.0_f32.to_radians(),
+        ];
+
+        let mean = circular_mean_phase(&phases);
+        let error_to_pi = wrap_phase_diff(mean, PI).abs();
+        assert!(
+            error_to_pi < 0.1,
+            "Expected circular mean near pi, got {} rad (error {})",
+            mean,
+            error_to_pi
         );
     }
 }
