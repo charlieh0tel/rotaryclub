@@ -2,6 +2,8 @@
 
 Rust implementation of a pseudo doppler RDF system that calculates bearing angles (0-360°) from stereo audio.
 
+Now includes a gui:  [Video](https://youtu.be/nQoKVjQKTF8)
+
 ## Installation
 
 ### From Debian Package
