@@ -151,6 +151,52 @@ fn load_toml_config(path: &PathBuf) -> Result<TomlConfig> {
     toml::from_str(&content).context("Failed to parse config file")
 }
 
+fn compact_float(v: f32) -> String {
+    if v.fract() == 0.0 {
+        format!("{}", v as i32)
+    } else {
+        format!("{:.1}", v)
+    }
+}
+
+fn noise_tag(config: &NoiseConfig) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(ref a) = config.additive {
+        parts.push(format!("snr{}", compact_float(a.snr_db)));
+    }
+    if let Some(ref f) = config.fading {
+        let prefix = match f.fading_type {
+            FadingType::Rayleigh => "ray",
+            FadingType::Rician { .. } => "ric",
+        };
+        parts.push(format!("{}{}", prefix, compact_float(f.doppler_spread_hz)));
+    }
+    if let Some(ref mp) = config.multipath {
+        let delays: Vec<String> = mp
+            .components
+            .iter()
+            .map(|c| format!("{}x{}", c.delay_samples, compact_float(c.amplitude)))
+            .collect();
+        parts.push(format!("mp{}", delays.join("+")));
+    }
+    if let Some(ref imp) = config.impulse {
+        parts.push(format!("imp{}", compact_float(imp.rate_hz)));
+    }
+    if let Some(ref d) = config.doubling {
+        parts.push(format!(
+            "dbl{}x{}",
+            compact_float(d.second_bearing_degrees),
+            compact_float(d.amplitude_ratio)
+        ));
+    }
+    if let Some(ref fd) = config.frequency_drift {
+        parts.push(format!("drift{}", compact_float(fd.max_deviation_hz)));
+    }
+
+    parts.join("_")
+}
+
 fn build_noise_config(toml: &TomlConfig, args: &Args, seed: u64) -> NoiseConfig {
     let mut config = NoiseConfig::default().with_seed(seed);
 
@@ -226,6 +272,14 @@ fn main() -> Result<()> {
     let bearings = parse_bearings(&args.bearings)?;
     let base_seed = args.seed.unwrap_or(0);
 
+    let representative_config = build_noise_config(&toml_config, &args, 0);
+    let tag = noise_tag(&representative_config);
+    let file_prefix = if tag.is_empty() {
+        args.prefix.clone()
+    } else {
+        format!("{}_{}", args.prefix, tag)
+    };
+
     let mut manifest_entries = Vec::new();
     let total_files = bearings.len() * args.trials as usize;
     let mut file_count = 0;
@@ -243,7 +297,7 @@ fn main() -> Result<()> {
                 &noise_config,
             );
 
-            let filename = format!("{}_b{:03}_t{:02}.wav", args.prefix, bearing as i32, trial);
+            let filename = format!("{}_b{:03}_t{:02}.wav", file_prefix, bearing as i32, trial);
             let filepath = args.output_dir.join(&filename);
 
             save_wav(filepath.to_str().unwrap(), &signal, args.sample_rate)
