@@ -139,11 +139,15 @@ impl DpllNorthTracker {
         let initial_freq = config.dpll.initial_frequency_hz;
         let omega = 2.0 * PI * initial_freq / sample_rate;
 
-        // PLL gains - calculated from natural frequency and damping ratio
-        let wn = 2.0 * PI * config.dpll.natural_frequency_hz / sample_rate;
+        // PLL gains — the loop updates once per detected tick, not once per
+        // sample. Normalize the natural frequency to the tick rate and scale
+        // the integral gain by the expected update interval in samples.
+        let tick_rate = initial_freq;
+        let samples_per_tick = sample_rate / tick_rate;
+        let wn = 2.0 * PI * config.dpll.natural_frequency_hz / tick_rate;
         let zeta = config.dpll.damping_ratio;
         let kp = 2.0 * zeta * wn;
-        let ki = wn * wn;
+        let ki = wn * wn / samples_per_tick;
 
         // Calculate frequency limits in radians/sample
         let min_omega = 2.0 * PI * config.dpll.frequency_min_hz / sample_rate;

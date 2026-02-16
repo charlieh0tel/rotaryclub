@@ -229,7 +229,7 @@ impl Default for DpllConfig {
     fn default() -> Self {
         Self {
             initial_frequency_hz: 1_000_000.0 / 624.0, // 624 μs period
-            natural_frequency_hz: 10.0,
+            natural_frequency_hz: 1.0,
             damping_ratio: 0.707,
             frequency_min_hz: 1400.0,
             frequency_max_hz: 1800.0,
