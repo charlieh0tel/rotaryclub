@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Normal};
@@ -122,7 +122,7 @@ pub struct FrequencyDriftConfig {
 fn create_rng(seed: Option<u64>) -> ChaCha8Rng {
     match seed {
         Some(s) => ChaCha8Rng::seed_from_u64(s),
-        None => ChaCha8Rng::from_entropy(),
+        None => rand::make_rng(),
     }
 }
 
@@ -167,9 +167,9 @@ fn apply_fading(signal: &mut [f32], config: &FadingConfig, sample_rate: f32, rng
         let mut imag_part = vec![0.0f32; n];
 
         for _ in 0..num_sinusoids {
-            let theta: f32 = rng.r#gen::<f32>() * 2.0 * PI;
+            let theta: f32 = rng.random::<f32>() * 2.0 * PI;
             let freq = fd * theta.cos();
-            let phi: f32 = rng.r#gen::<f32>() * 2.0 * PI;
+            let phi: f32 = rng.random::<f32>() * 2.0 * PI;
 
             for (i, (real, imag)) in real_part.iter_mut().zip(imag_part.iter_mut()).enumerate() {
                 let t = i as f32 / sample_rate;
@@ -290,14 +290,14 @@ fn apply_impulse_noise(
 
     let mut pos = 0usize;
     loop {
-        let interval = (rng.r#gen::<f32>() * 2.0 * avg_samples_between_impulses) as usize;
+        let interval = (rng.random::<f32>() * 2.0 * avg_samples_between_impulses) as usize;
         pos += interval.max(1);
 
         if pos >= n {
             break;
         }
 
-        let sign = if rng.r#gen::<bool>() { 1.0 } else { -1.0 };
+        let sign = if rng.random::<bool>() { 1.0 } else { -1.0 };
         let end = (pos + config.duration_samples).min(n);
 
         for sample in signal[pos..end].iter_mut() {

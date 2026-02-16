@@ -1,6 +1,6 @@
 [package]
 name = "rotaryclub"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2024"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
 license = "Apache-2.0"
@@ -28,7 +28,7 @@ thiserror = "2.0"
 log = "0.4"
 env_logger = "0.11"
 hound = "3.5"  # WAV file I/O
-rolling-stats = "0.5"
+rolling-stats = "0.8"
 clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4"
 num-complex = "0.4"
@@ -61,7 +61,7 @@ version = "1.0"
 features = ["derive"]
 
 [dependencies.toml]
-version = "0.8"
+version = "1.0"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -75,15 +75,15 @@ version = "0.34"
 optional = true
 
 [dependencies.rand]
-version = "0.8"
+version = "0.10"
 optional = true
 
 [dependencies.rand_distr]
-version = "0.4"
+version = "0.6"
 optional = true
 
 [dependencies.rand_chacha]
-version = "0.3"
+version = "0.10"
 optional = true
 
 [profile.release]
