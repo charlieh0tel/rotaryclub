@@ -286,7 +286,9 @@ fn main() -> Result<()> {
 
     for &bearing in &bearings {
         for trial in 0..args.trials {
-            let seed = base_seed + trial as u64 * 1000 + bearing as u64;
+            let seed = base_seed
+                .wrapping_add(trial as u64 * 1000)
+                .wrapping_add(bearing.to_bits() as u64);
             let noise_config = build_noise_config(&toml_config, &args, seed);
 
             let signal = generate_noisy_test_signal(
