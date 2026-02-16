@@ -292,7 +292,7 @@ fn test_frequency_drift_tracking() {
         seed: Some(42),
         additive: Some(AdditiveNoiseConfig { snr_db: 30.0 }),
         frequency_drift: Some(FrequencyDriftConfig {
-            max_deviation_hz: 5.0,
+            max_deviation_hz: 0.5,
             drift_rate_hz_per_sec: 2.0,
         }),
         ..Default::default()

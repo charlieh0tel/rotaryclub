@@ -331,14 +331,41 @@ fn apply_frequency_drift(
         return;
     }
 
-    let max_phase_error_radians = 2.0 * PI * config.max_deviation_hz / rotation_hz;
+    // Build a quadrature version via quarter-period delay (Hilbert
+    // approximation for a narrowband Doppler signal).
+    let quarter_period = (sample_rate / rotation_hz / 4.0).round() as usize;
+    let original = signal.to_vec();
+    let quadrature: Vec<f32> = (0..n)
+        .map(|i| {
+            if i >= quarter_period {
+                original[i - quarter_period]
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
+    // Integrate the sinusoidal frequency deviation into an instantaneous
+    // phase offset: φ(t) = ∫ 2π·Δf(t) dt where Δf(t) = max_dev · sin(2π·rate·t).
+    // The integral is -max_dev/(rate) · cos(2π·rate·t) + const.
     let modulation_rate = config.drift_rate_hz_per_sec;
+    let max_dev = config.max_deviation_hz;
 
     for (i, s) in signal.iter_mut().enumerate() {
         let t = i as f32 / sample_rate;
-        let phase_error = max_phase_error_radians * (2.0 * PI * modulation_rate * t).sin();
-        let amplitude_reduction = 1.0 - 0.3 * (phase_error / max_phase_error_radians).abs();
-        *s *= amplitude_reduction;
+        let phase_offset = if modulation_rate > 0.0 {
+            -(max_dev / modulation_rate) * (2.0 * PI * modulation_rate * t).cos()
+                + (max_dev / modulation_rate)
+        } else {
+            2.0 * PI * max_dev * t
+        };
+
+        // Apply phase rotation to the analytic signal:
+        // s_drifted = Re{(s + j·s_q) · e^(j·phase_offset)}
+        //           = s·cos(φ) - s_q·sin(φ)
+        let cos_p = phase_offset.cos();
+        let sin_p = phase_offset.sin();
+        *s = original[i] * cos_p - quadrature[i] * sin_p;
     }
 }
 
