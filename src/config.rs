@@ -335,9 +335,9 @@ impl Default for LockQualityWeights {
 pub struct AgcConfig {
     /// Target RMS signal level (0-1 range, typically 0.5)
     pub target_rms: f32,
-    /// Attack time constant in milliseconds (how fast gain increases)
+    /// Attack time constant in milliseconds (how fast gain decreases for loud signals)
     pub attack_time_ms: f32,
-    /// Release time constant in milliseconds (how fast gain decreases)
+    /// Release time constant in milliseconds (how fast gain recovers for quiet signals)
     pub release_time_ms: f32,
     /// Measurement window for RMS calculation in milliseconds
     pub measurement_window_ms: f32,
