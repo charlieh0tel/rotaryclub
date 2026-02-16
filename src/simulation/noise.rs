@@ -235,21 +235,42 @@ fn apply_fading(signal: &mut [f32], config: &FadingConfig, sample_rate: f32, rng
     }
 }
 
-fn apply_multipath(signal: &mut [f32], config: &MultipathConfig) {
+fn apply_multipath(
+    signal: &mut [f32],
+    config: &MultipathConfig,
+    sample_rate: f32,
+    rotation_hz: f32,
+) {
     if config.components.is_empty() {
         return;
     }
 
     let original = signal.to_vec();
 
+    // Build a quadrature (90°-shifted) version of the signal by delaying
+    // it by one quarter of the Doppler period. For a narrowband signal at
+    // the rotation frequency this is an accurate Hilbert approximation.
+    let quarter_period = (sample_rate / rotation_hz / 4.0).round() as usize;
+    let quadrature: Vec<f32> = (0..original.len())
+        .map(|i| {
+            if i >= quarter_period {
+                original[i - quarter_period]
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
     for component in &config.components {
         let delay = component.delay_samples;
         let amp = component.amplitude;
         let phase = component.phase_offset;
+        let cos_p = phase.cos();
+        let sin_p = phase.sin();
 
         for (i, s) in signal.iter_mut().enumerate().skip(delay) {
-            let original_idx = i - delay;
-            *s += amp * original[original_idx] * phase.cos();
+            let orig_idx = i - delay;
+            *s += amp * (original[orig_idx] * cos_p + quadrature[orig_idx] * sin_p);
         }
     }
 }
@@ -339,7 +360,7 @@ pub fn apply_noise(
     }
 
     if let Some(ref multipath_config) = config.multipath {
-        apply_multipath(&mut signal, multipath_config);
+        apply_multipath(&mut signal, multipath_config, sample_rate, rotation_hz);
     }
 
     if let Some(ref fading_config) = config.fading {
@@ -461,6 +482,64 @@ mod tests {
 
         assert!(result[10].abs() > 0.9);
         assert!(result[15].abs() > 0.4);
+    }
+
+    #[test]
+    fn test_multipath_phase_offset_rotates_signal() {
+        let sample_rate = 48000.0;
+        let rotation_hz = 500.0;
+        let num_samples = 4800;
+
+        let clean = generate_doppler_signal_for_bearing(num_samples, sample_rate, rotation_hz, 0.0);
+
+        let config_zero_phase = NoiseConfig {
+            multipath: Some(MultipathConfig {
+                components: vec![MultipathComponent {
+                    delay_samples: 0,
+                    amplitude: 1.0,
+                    phase_offset: 0.0,
+                }],
+            }),
+            ..Default::default()
+        };
+        let config_quarter_phase = NoiseConfig {
+            multipath: Some(MultipathConfig {
+                components: vec![MultipathComponent {
+                    delay_samples: 0,
+                    amplitude: 1.0,
+                    phase_offset: std::f32::consts::FRAC_PI_2,
+                }],
+            }),
+            ..Default::default()
+        };
+
+        let result_zero = apply_noise(&clean, &config_zero_phase, sample_rate, rotation_hz);
+        let result_quarter = apply_noise(&clean, &config_quarter_phase, sample_rate, rotation_hz);
+
+        // With phase_offset=0, the reflected copy doubles the signal (same phase).
+        // With phase_offset=π/2, the reflected copy is 90° shifted, so the
+        // combined signal should have a different phase than the zero case.
+        // Verify they are materially different (old bug: cos(π/2)≈0 zeroed the copy).
+        let power_zero = signal_power(&result_zero);
+        let power_quarter = signal_power(&result_quarter);
+        assert!(
+            power_quarter > power_zero * 0.3,
+            "π/2 phase offset should NOT zero out the reflected path (power {:.4} vs {:.4})",
+            power_quarter,
+            power_zero,
+        );
+
+        // The quarter-phase result should differ from the zero-phase result
+        let diff_power: f32 = result_zero
+            .iter()
+            .zip(result_quarter.iter())
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            / num_samples as f32;
+        assert!(
+            diff_power > 0.01,
+            "Different phase offsets should produce different signals"
+        );
     }
 
     #[test]
