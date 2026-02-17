@@ -42,6 +42,39 @@ fn make_signal_aligned_to_tick(
         .collect()
 }
 
+fn make_signal_with_am_and_fade(
+    sample_rate: f32,
+    rotation_freq: f32,
+    bearing_degrees: f32,
+    len: usize,
+    am_depth: f32,
+    am_rate_hz: f32,
+    fade_start_frac: f32,
+    fade_width_frac: f32,
+    fade_gain: f32,
+) -> Vec<f32> {
+    let omega = 2.0 * PI * rotation_freq / sample_rate;
+    let bearing_radians = bearing_degrees.to_radians();
+    let fade_start = (len as f32 * fade_start_frac.clamp(0.0, 1.0)) as usize;
+    let fade_width = (len as f32 * fade_width_frac.clamp(0.0, 1.0)).max(1.0) as usize;
+    let fade_end = (fade_start + fade_width).min(len);
+    let two_pi = 2.0 * PI;
+
+    (0..len)
+        .map(|i| {
+            let carrier = (omega * i as f32 - bearing_radians).sin();
+            let t = i as f32 / sample_rate;
+            let env = 1.0 + am_depth.clamp(0.0, 0.95) * (two_pi * am_rate_hz * t).sin();
+            let fade = if i >= fade_start && i < fade_end {
+                fade_gain.clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            carrier * env * fade
+        })
+        .collect()
+}
+
 fn angular_error_deg(measured: f32, expected: f32) -> f32 {
     let mut err = (measured - expected).abs();
     if err > 180.0 {
@@ -371,6 +404,92 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
                 center,
                 err,
                 delta
+            );
+        }
+    }
+}
+
+#[test]
+fn test_bearing_am_depth_and_brief_fade_sweep() {
+    let sample_rate = 48_000.0;
+    let rotation_hz = 1_602.0;
+    let expected_bearing = 218.0;
+    let len = 4096usize;
+    let samples_per_rotation = sample_rate / rotation_hz;
+
+    // Perturbation: AM depth sweep and brief fades.
+    let cases = [
+        ("am_depth_0.2_no_fade", 0.2_f32, 0.0_f32, 0.0_f32, 1.0_f32),
+        ("am_depth_0.5_no_fade", 0.5_f32, 0.0_f32, 0.0_f32, 1.0_f32),
+        ("am_depth_0.8_no_fade", 0.8_f32, 0.0_f32, 0.0_f32, 1.0_f32),
+        (
+            "am_depth_0.5_short_fade_5pct_gain_0.2_at_20pct",
+            0.5_f32,
+            0.20_f32,
+            0.05_f32,
+            0.2_f32,
+        ),
+        (
+            "am_depth_0.8_short_fade_5pct_gain_0.0_at_70pct",
+            0.8_f32,
+            0.70_f32,
+            0.05_f32,
+            0.0_f32,
+        ),
+    ];
+
+    for method in [Method::Correlation, Method::ZeroCrossing] {
+        let doppler_config = DopplerConfig {
+            expected_freq: rotation_hz,
+            bandpass_low: 1500.0,
+            bandpass_high: 1700.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let mut baseline_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+        let baseline_signal = make_signal(sample_rate, rotation_hz, expected_bearing, len);
+        let tick = make_north_tick(samples_per_rotation);
+        let baseline = baseline_calc
+            .process_buffer(&baseline_signal, &tick)
+            .expect("baseline AM/fade reference should produce measurement");
+        let baseline_err = angular_error_deg(baseline.raw_bearing, expected_bearing);
+
+        for (name, am_depth, fade_start, fade_width, fade_gain) in cases {
+            let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+            let signal = make_signal_with_am_and_fade(
+                sample_rate,
+                rotation_hz,
+                expected_bearing,
+                len,
+                am_depth,
+                8.0,
+                fade_start,
+                fade_width,
+                fade_gain,
+            );
+
+            let m = calc
+                .process_buffer(&signal, &tick)
+                .expect("AM/fade perturbation should still produce a measurement");
+            let err = angular_error_deg(m.raw_bearing, expected_bearing);
+            let method_name = match method {
+                Method::Correlation => "correlation",
+                Method::ZeroCrossing => "zero_crossing",
+            };
+
+            assert!(
+                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                "perturbation={} method={} should keep finite outputs",
+                name,
+                method_name
+            );
+            assert!(
+                (err - baseline_err).abs() <= 120.0,
+                "perturbation={} method={} baseline_err={:.2} deg perturb_err={:.2} deg",
+                name,
+                method_name,
+                baseline_err,
+                err
             );
         }
     }
