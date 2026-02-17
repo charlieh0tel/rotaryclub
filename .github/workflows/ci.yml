@@ -56,7 +56,12 @@ jobs:
 
     - name: Publish north tick timing summary
       if: always()
-      run: cat target/timing-metrics/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
+      run: |
+        if [ -f target/timing-metrics/north_tick_timing_metrics_summary.md ]; then
+          cat target/timing-metrics/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "north_tick_timing_metrics_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
+        fi
 
   clippy:
     name: Clippy
@@ -141,4 +146,9 @@ jobs:
 
     - name: Publish north tick timing strict summary
       if: always()
-      run: cat target/timing-metrics-strict/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
+      run: |
+        if [ -f target/timing-metrics-strict/north_tick_timing_metrics_summary.md ]; then
+          cat target/timing-metrics-strict/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "north_tick_timing_metrics_summary.md (strict) not found" >> "$GITHUB_STEP_SUMMARY"
+        fi

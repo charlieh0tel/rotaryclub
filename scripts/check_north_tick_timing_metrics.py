@@ -58,9 +58,9 @@ def main() -> int:
     if args.override_max_p95 is not None:
         thresholds_cmd.extend(["--override-max-p95", str(args.override_max_p95)])
 
-    run(thresholds_cmd)
     run(["python3", "scripts/north_tick_timing_summary.py", str(csv_path), str(summary_path)])
     print(f"Wrote {summary_path}")
+    run(thresholds_cmd)
     print(f"North tick timing metrics thresholds ({profile}): PASS")
     return 0
 
