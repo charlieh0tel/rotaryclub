@@ -3194,7 +3194,7 @@ dependencies = [
 
 [[package]]
 name = "rotaryclub"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "anyhow",
  "approx",
