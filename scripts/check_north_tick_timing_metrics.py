@@ -55,8 +55,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     csv_path = out_dir / "north_tick_timing_metrics.csv"
-    summary_path = out_dir / "north_tick_timing_metrics_summary.md"
-    failed_rows_path = out_dir / "north_tick_timing_failed_rows.csv"
+    summary_path = out_dir / f"north_tick_timing_{profile}_summary.md"
+    failed_rows_path = out_dir / f"north_tick_timing_{profile}_failed_rows.csv"
 
     print("Running north tick timing metrics example...")
     with csv_path.open("w", encoding="utf-8") as out:
@@ -86,7 +86,16 @@ def main() -> int:
     if args.override_max_p95 is not None:
         thresholds_cmd.extend(["--override-max-p95", str(args.override_max_p95)])
 
-    run(["python3", "scripts/north_tick_timing_summary.py", str(csv_path), str(summary_path)])
+    run(
+        [
+            "python3",
+            "scripts/north_tick_timing_summary.py",
+            str(csv_path),
+            str(summary_path),
+            "--profile",
+            profile,
+        ]
+    )
     print(f"Wrote {summary_path}")
     threshold_result = subprocess.run(thresholds_cmd)
     append_failed_rows_section(summary_path, failed_rows_path)

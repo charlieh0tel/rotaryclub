@@ -53,16 +53,16 @@ jobs:
         name: north-tick-timing-metrics
         path: |
           target/timing-metrics/north_tick_timing_metrics.csv
-          target/timing-metrics/north_tick_timing_metrics_summary.md
-          target/timing-metrics/north_tick_timing_failed_rows.csv
+          target/timing-metrics/north_tick_timing_baseline_summary.md
+          target/timing-metrics/north_tick_timing_baseline_failed_rows.csv
 
     - name: Publish north tick timing summary
       if: always()
       run: |
-        if [ -f target/timing-metrics/north_tick_timing_metrics_summary.md ]; then
-          cat target/timing-metrics/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
+        if [ -f target/timing-metrics/north_tick_timing_baseline_summary.md ]; then
+          cat target/timing-metrics/north_tick_timing_baseline_summary.md >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "north_tick_timing_metrics_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
+          echo "north_tick_timing_baseline_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
         fi
 
   clippy:
@@ -152,14 +152,14 @@ jobs:
         name: north-tick-timing-metrics-strict
         path: |
           target/timing-metrics-strict/north_tick_timing_metrics.csv
-          target/timing-metrics-strict/north_tick_timing_metrics_summary.md
-          target/timing-metrics-strict/north_tick_timing_failed_rows.csv
+          target/timing-metrics-strict/north_tick_timing_strict_summary.md
+          target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv
 
     - name: Publish north tick timing strict summary
       if: always()
       run: |
-        if [ -f target/timing-metrics-strict/north_tick_timing_metrics_summary.md ]; then
-          cat target/timing-metrics-strict/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
+        if [ -f target/timing-metrics-strict/north_tick_timing_strict_summary.md ]; then
+          cat target/timing-metrics-strict/north_tick_timing_strict_summary.md >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "north_tick_timing_metrics_summary.md (strict) not found" >> "$GITHUB_STEP_SUMMARY"
+          echo "north_tick_timing_strict_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
         fi
