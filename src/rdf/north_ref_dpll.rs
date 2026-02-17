@@ -1,6 +1,6 @@
 use crate::config::{LockQualityWeights, NorthTickConfig};
 use crate::constants::FREQUENCY_EPSILON;
-use crate::error::Result;
+use crate::error::{RdfError, Result};
 use crate::rdf::NorthTick;
 use crate::signal_processing::{FirHighpass, PeakDetector};
 use std::collections::VecDeque;
@@ -132,11 +132,62 @@ impl DpllNorthTracker {
     }
 
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
+        if !sample_rate.is_finite() || sample_rate <= FREQUENCY_EPSILON {
+            return Err(RdfError::Config(format!(
+                "north_tick sample_rate must be finite and > {}, got {}",
+                FREQUENCY_EPSILON, sample_rate
+            )));
+        }
+
+        let initial_freq = config.dpll.initial_frequency_hz;
+        if !initial_freq.is_finite() || initial_freq <= FREQUENCY_EPSILON {
+            return Err(RdfError::Config(format!(
+                "north_tick.dpll.initial_frequency_hz must be finite and > {}, got {}",
+                FREQUENCY_EPSILON, initial_freq
+            )));
+        }
+
+        let natural_frequency_hz = config.dpll.natural_frequency_hz;
+        if !natural_frequency_hz.is_finite() || natural_frequency_hz <= FREQUENCY_EPSILON {
+            return Err(RdfError::Config(format!(
+                "north_tick.dpll.natural_frequency_hz must be finite and > {}, got {}",
+                FREQUENCY_EPSILON, natural_frequency_hz
+            )));
+        }
+
+        let damping_ratio = config.dpll.damping_ratio;
+        if !damping_ratio.is_finite() || damping_ratio < 0.0 {
+            return Err(RdfError::Config(format!(
+                "north_tick.dpll.damping_ratio must be finite and >= 0, got {}",
+                damping_ratio
+            )));
+        }
+
+        let frequency_min_hz = config.dpll.frequency_min_hz;
+        let frequency_max_hz = config.dpll.frequency_max_hz;
+        if !frequency_min_hz.is_finite() || frequency_min_hz <= FREQUENCY_EPSILON {
+            return Err(RdfError::Config(format!(
+                "north_tick.dpll.frequency_min_hz must be finite and > {}, got {}",
+                FREQUENCY_EPSILON, frequency_min_hz
+            )));
+        }
+        if !frequency_max_hz.is_finite() || frequency_max_hz <= FREQUENCY_EPSILON {
+            return Err(RdfError::Config(format!(
+                "north_tick.dpll.frequency_max_hz must be finite and > {}, got {}",
+                FREQUENCY_EPSILON, frequency_max_hz
+            )));
+        }
+        if frequency_min_hz >= frequency_max_hz {
+            return Err(RdfError::Config(format!(
+                "north_tick.dpll.frequency_min_hz ({}) must be < north_tick.dpll.frequency_max_hz ({})",
+                frequency_min_hz, frequency_max_hz
+            )));
+        }
+
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
         let gain = 10.0_f32.powf(config.gain_db / 20.0);
 
         // Initial frequency estimate from config
-        let initial_freq = config.dpll.initial_frequency_hz;
         let omega = 2.0 * PI * initial_freq / sample_rate;
 
         // PLL gains — the loop updates once per detected tick, not once per
@@ -470,6 +521,40 @@ mod tests {
                 tick.fractional_sample_offset,
                 MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES
             );
+        }
+    }
+
+    #[test]
+    fn test_dpll_rejects_non_positive_initial_frequency() {
+        let sample_rate = 48_000.0;
+        let mut config = NorthTickConfig::default();
+        config.dpll.initial_frequency_hz = 0.0;
+
+        match DpllNorthTracker::new(&config, sample_rate) {
+            Err(RdfError::Config(msg)) => {
+                assert!(msg.contains("initial_frequency_hz"), "Unexpected message: {msg}");
+            }
+            Err(err) => panic!("Expected configuration error, got {err}"),
+            Ok(_) => panic!("Expected configuration error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_dpll_rejects_invalid_frequency_bounds() {
+        let sample_rate = 48_000.0;
+        let mut config = NorthTickConfig::default();
+        config.dpll.frequency_min_hz = 1800.0;
+        config.dpll.frequency_max_hz = 1400.0;
+
+        match DpllNorthTracker::new(&config, sample_rate) {
+            Err(RdfError::Config(msg)) => {
+                assert!(
+                    msg.contains("frequency_min_hz") && msg.contains("frequency_max_hz"),
+                    "Unexpected message: {msg}"
+                );
+            }
+            Err(err) => panic!("Expected configuration error, got {err}"),
+            Ok(_) => panic!("Expected configuration error, got Ok"),
         }
     }
 }
