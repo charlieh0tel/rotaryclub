@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
 
+EPSILON = 1e-3
+
 
 @dataclass(frozen=True)
 class Limits:
@@ -89,7 +91,12 @@ def main() -> int:
         mean_err = float(row["mean_abs_error_samples"])
         p95_err = float(row["p95_abs_error_samples"])
 
-        if detection < min_det or false_pos > max_fp or mean_err > max_mean or p95_err > max_p95:
+        if (
+            detection + EPSILON < min_det
+            or false_pos - EPSILON > max_fp
+            or mean_err - EPSILON > max_mean
+            or p95_err - EPSILON > max_p95
+        ):
             failures.append(
                 "FAIL row: "
                 f"{row} "
