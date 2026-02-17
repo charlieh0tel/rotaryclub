@@ -174,7 +174,7 @@ cargo build --release
 cargo test
 
 # Run north-tick timing gate (writes CSV + Markdown summary under target/timing-metrics/)
-python3 scripts/check_north_tick_timing_metrics.py --profile baseline
+python3 scripts/north_tick_timing_report.py ci --profile baseline
 
 # Baseline artifacts:
 # - target/timing-metrics/north_tick_timing_metrics.csv

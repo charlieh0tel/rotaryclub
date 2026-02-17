@@ -44,10 +44,10 @@ jobs:
       run: cargo test --test bearing_regression_test --verbose
 
     - name: Check bearing performance metrics
-      run: python3 scripts/check_bearing_performance_metrics.py --profile baseline
+      run: python3 scripts/bearing_performance_report.py ci --profile baseline
 
     - name: Check north tick timing metrics
-      run: python3 scripts/check_north_tick_timing_metrics.py --profile baseline
+      run: python3 scripts/north_tick_timing_report.py ci --profile baseline
 
     - name: Build examples
       run: cargo build --examples --verbose
@@ -84,7 +84,7 @@ jobs:
     - name: Publish bearing performance failing rows
       if: always()
       run: |
-        python3 scripts/bearing_performance_failed_rows_md.py \
+        python3 scripts/bearing_performance_report.py failed-rows \
           target/bearing-perf/bearing_performance_baseline_failed_rows.csv \
           --title "Bearing Performance Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
@@ -101,7 +101,7 @@ jobs:
     - name: Publish north tick timing failing rows
       if: always()
       run: |
-        python3 scripts/north_tick_timing_failed_rows_md.py \
+        python3 scripts/north_tick_timing_report.py failed-rows \
           target/timing-metrics/north_tick_timing_baseline_failed_rows.csv \
           --title "Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
@@ -177,7 +177,7 @@ jobs:
     - name: Check north tick timing metrics (strict profile)
       run: |
         set +e
-        python3 scripts/check_north_tick_timing_metrics.py --profile strict --out-dir target/timing-metrics-strict
+        python3 scripts/north_tick_timing_report.py ci --profile strict --out-dir target/timing-metrics-strict
         status=$?
         if [ $status -ne 0 ]; then
           echo "Strict north-timing thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
@@ -208,7 +208,7 @@ jobs:
     - name: Publish north tick timing strict failing rows
       if: always()
       run: |
-        python3 scripts/north_tick_timing_failed_rows_md.py \
+        python3 scripts/north_tick_timing_report.py failed-rows \
           target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv \
           --title "Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
@@ -240,7 +240,7 @@ jobs:
     - name: Check bearing performance metrics (strict profile)
       run: |
         set +e
-        python3 scripts/check_bearing_performance_metrics.py --profile strict --out-dir target/bearing-perf-strict
+        python3 scripts/bearing_performance_report.py ci --profile strict --out-dir target/bearing-perf-strict
         status=$?
         if [ $status -ne 0 ]; then
           echo "Strict bearing-performance thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
@@ -271,7 +271,7 @@ jobs:
     - name: Publish bearing performance strict failing rows
       if: always()
       run: |
-        python3 scripts/bearing_performance_failed_rows_md.py \
+        python3 scripts/bearing_performance_report.py failed-rows \
           target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv \
           --title "Bearing Performance Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"

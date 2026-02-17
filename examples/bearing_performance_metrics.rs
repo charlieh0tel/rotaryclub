@@ -43,6 +43,24 @@ fn percentile_us(values_us: &[f64], p: f64) -> f64 {
     sorted[idx]
 }
 
+fn percentile_deg(values_deg: &[f64], p: f64) -> f64 {
+    if values_deg.is_empty() {
+        return 360.0;
+    }
+    let mut sorted = values_deg.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let idx = ((sorted.len() as f64 - 1.0) * p.clamp(0.0, 1.0)).round() as usize;
+    sorted[idx]
+}
+
+fn angle_error_deg(measured: f32, expected: f32) -> f64 {
+    let mut err = (measured - expected).abs();
+    if err > 180.0 {
+        err = 360.0 - err;
+    }
+    err as f64
+}
+
 fn make_north_tick(sample_index: usize, samples_per_rotation: f32) -> NorthTick {
     NorthTick {
         sample_index,
@@ -83,7 +101,12 @@ fn make_doppler_buffer(
         .collect()
 }
 
-fn run_case(method: Method, scenario: Scenario, buffer_size: usize) -> (usize, Vec<f64>) {
+fn run_case(
+    method: Method,
+    scenario: Scenario,
+    buffer_size: usize,
+    expected_bearing_deg: f32,
+) -> (usize, Vec<f64>, Vec<f64>) {
     let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
     let rotation_hz = config.doppler.expected_freq;
@@ -116,7 +139,7 @@ fn run_case(method: Method, scenario: Scenario, buffer_size: usize) -> (usize, V
     };
 
     for step in 0..WARMUP_ITERATIONS {
-        let tick = make_north_tick(step * buffer_size, samples_per_rotation);
+        let tick = make_north_tick(0, samples_per_rotation);
         let buffer = make_doppler_buffer(scenario, buffer_size, omega, phase_offset, step);
         calc.preprocess(&buffer);
         let _ = calc.process_tick(&tick);
@@ -125,8 +148,9 @@ fn run_case(method: Method, scenario: Scenario, buffer_size: usize) -> (usize, V
 
     let mut measured_count = 0usize;
     let mut times_us = Vec::with_capacity(ITERATIONS);
+    let mut errors_deg = Vec::with_capacity(ITERATIONS);
     for step in WARMUP_ITERATIONS..(WARMUP_ITERATIONS + ITERATIONS) {
-        let tick = make_north_tick(step * buffer_size, samples_per_rotation);
+        let tick = make_north_tick(0, samples_per_rotation);
         let buffer = make_doppler_buffer(scenario, buffer_size, omega, phase_offset, step);
 
         let start = Instant::now();
@@ -136,11 +160,12 @@ fn run_case(method: Method, scenario: Scenario, buffer_size: usize) -> (usize, V
         let elapsed_us = start.elapsed().as_secs_f64() * 1_000_000.0;
         times_us.push(elapsed_us);
 
-        if measurement.is_some() {
+        if let Some(m) = measurement {
             measured_count += 1;
+            errors_deg.push(angle_error_deg(m.raw_bearing, expected_bearing_deg));
         }
     }
-    (measured_count, times_us)
+    (measured_count, times_us, errors_deg)
 }
 
 fn main() {
@@ -175,14 +200,16 @@ fn main() {
         },
     ];
     let methods = [Method::Correlation, Method::ZeroCrossing];
+    let expected_bearing_deg = 62.0f32;
 
     println!(
-        "method,scenario,buffer_size,iterations,measured_count,success_rate,mean_us,p95_us,max_us,mean_us_per_sample,p95_us_per_sample"
+        "method,scenario,buffer_size,iterations,measured_count,success_rate,mean_us,p95_us,max_us,mean_us_per_sample,p95_us_per_sample,mean_abs_bearing_error_deg,p95_abs_bearing_error_deg,max_abs_bearing_error_deg"
     );
     for method in methods {
         for scenario in scenarios {
             for &buffer_size in BUFFER_SIZES {
-                let (measured_count, times_us) = run_case(method, scenario, buffer_size);
+                let (measured_count, times_us, errors_deg) =
+                    run_case(method, scenario, buffer_size, expected_bearing_deg);
                 let iterations = times_us.len();
                 let sum_us: f64 = times_us.iter().sum();
                 let mean_us = if iterations > 0 {
@@ -199,8 +226,15 @@ fn main() {
                 };
                 let mean_us_per_sample = mean_us / buffer_size as f64;
                 let p95_us_per_sample = p95_us / buffer_size as f64;
+                let mean_abs_bearing_error_deg = if errors_deg.is_empty() {
+                    360.0
+                } else {
+                    errors_deg.iter().sum::<f64>() / errors_deg.len() as f64
+                };
+                let p95_abs_bearing_error_deg = percentile_deg(&errors_deg, 0.95);
+                let max_abs_bearing_error_deg = errors_deg.iter().copied().fold(0.0, f64::max);
                 println!(
-                    "{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.9},{:.9}",
+                    "{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.9},{:.9},{:.6},{:.6},{:.6}",
                     method.as_str(),
                     scenario.name,
                     buffer_size,
@@ -211,7 +245,10 @@ fn main() {
                     p95_us,
                     max_us,
                     mean_us_per_sample,
-                    p95_us_per_sample
+                    p95_us_per_sample,
+                    mean_abs_bearing_error_deg,
+                    p95_abs_bearing_error_deg,
+                    max_abs_bearing_error_deg
                 );
             }
         }
