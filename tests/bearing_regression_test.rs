@@ -152,6 +152,102 @@ enum Method {
     ZeroCrossing,
 }
 
+#[derive(Clone, Copy)]
+struct RotationMismatchCase {
+    mismatch_fraction: f32,
+}
+
+impl RotationMismatchCase {
+    fn label(self) -> String {
+        format!(
+            "rotation_mismatch_{:+.1}pct",
+            self.mismatch_fraction * 100.0
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BoundaryPhaseCase {
+    label: &'static str,
+    offset_samples: usize,
+}
+
+#[derive(Clone, Copy)]
+struct AmFadeCase {
+    am_depth: f32,
+    fade_start_frac: f32,
+    fade_width_frac: f32,
+    fade_gain: f32,
+}
+
+impl AmFadeCase {
+    fn label(self) -> String {
+        if self.fade_width_frac <= 0.0 {
+            format!("am_depth_{:.1}_no_fade", self.am_depth)
+        } else {
+            format!(
+                "am_depth_{:.1}_short_fade_{:.1}pct_gain_{:.1}_at_{:.0}pct",
+                self.am_depth,
+                self.fade_width_frac * 100.0,
+                self.fade_gain,
+                self.fade_start_frac * 100.0
+            )
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct HarmonicCase {
+    second_ratio: f32,
+    third_ratio: f32,
+}
+
+impl HarmonicCase {
+    fn label(self) -> String {
+        format!(
+            "harmonic_2f_{:.2}_3f_{:.2}",
+            self.second_ratio, self.third_ratio
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ChannelImbalanceCase {
+    gain_imbalance: f32,
+    phase_imbalance_deg: f32,
+}
+
+impl ChannelImbalanceCase {
+    fn label(self) -> String {
+        format!(
+            "channel_imbalance_gain_{:+.2}_phase_{:+.0}deg",
+            self.gain_imbalance, self.phase_imbalance_deg
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ImpulseCase {
+    burst_start_frac: f32,
+    burst_width_frac: f32,
+    burst_amplitude: f32,
+}
+
+impl ImpulseCase {
+    fn label(self) -> String {
+        if self.burst_amplitude == 0.0 {
+            "impulse_none_reference".to_string()
+        } else {
+            format!(
+                "impulse_{:.0}pct_width_{:.1}pct_amp_{:.1}",
+                self.burst_start_frac * 100.0,
+                self.burst_width_frac * 100.0,
+                self.burst_amplitude
+            )
+        }
+    }
+}
+
 fn new_calculator(
     method: Method,
     doppler_config: &DopplerConfig,
@@ -324,10 +420,18 @@ fn test_bearing_rotation_rate_mismatch_sweep() {
 
     // Perturbation: rotation-rate mismatch between signal and north-tick model.
     let mismatches = [
-        ("rotation_mismatch_-2.0pct", -0.02_f32),
-        ("rotation_mismatch_-1.0pct", -0.01_f32),
-        ("rotation_mismatch_+1.0pct", 0.01_f32),
-        ("rotation_mismatch_+2.0pct", 0.02_f32),
+        RotationMismatchCase {
+            mismatch_fraction: -0.02,
+        },
+        RotationMismatchCase {
+            mismatch_fraction: -0.01,
+        },
+        RotationMismatchCase {
+            mismatch_fraction: 0.01,
+        },
+        RotationMismatchCase {
+            mismatch_fraction: 0.02,
+        },
     ];
 
     for method in [Method::Correlation, Method::ZeroCrossing] {
@@ -346,8 +450,8 @@ fn test_bearing_rotation_rate_mismatch_sweep() {
             .expect("nominal case should yield a measurement");
         let nominal_err = angular_error_deg(nominal.raw_bearing, expected_bearing);
 
-        for (name, frac) in mismatches {
-            let model_rotation_hz = true_rotation_hz * (1.0 + frac);
+        for case in mismatches {
+            let model_rotation_hz = true_rotation_hz * (1.0 + case.mismatch_fraction);
             let doppler_config = DopplerConfig {
                 expected_freq: model_rotation_hz,
                 bandpass_low: 1500.0,
@@ -367,10 +471,11 @@ fn test_bearing_rotation_rate_mismatch_sweep() {
                 Method::Correlation => "correlation",
                 Method::ZeroCrossing => "zero_crossing",
             };
+            let label = case.label();
             assert!(
                 (err - nominal_err).abs() <= 120.0,
                 "perturbation={} method={} nominal_err={:.2} deg mismatch_err={:.2} deg",
-                name,
+                label,
                 method_name,
                 nominal_err,
                 err
@@ -378,7 +483,7 @@ fn test_bearing_rotation_rate_mismatch_sweep() {
             assert!(
                 m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
-                name,
+                label,
                 method_name
             );
         }
@@ -396,9 +501,18 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
 
     // Perturbation: window-boundary phase jumps by placing north tick near buffer edges.
     let boundary_cases = [
-        ("tick_at_center", chunk_size / 2),
-        ("tick_at_start_edge", 0usize),
-        ("tick_at_end_edge", chunk_size - 1),
+        BoundaryPhaseCase {
+            label: "tick_at_center",
+            offset_samples: chunk_size / 2,
+        },
+        BoundaryPhaseCase {
+            label: "tick_at_start_edge",
+            offset_samples: 0,
+        },
+        BoundaryPhaseCase {
+            label: "tick_at_end_edge",
+            offset_samples: chunk_size - 1,
+        },
     ];
 
     for method in [Method::Correlation, Method::ZeroCrossing] {
@@ -411,9 +525,9 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
         let agc_config = AgcConfig::default();
 
         let mut errs: Vec<(&str, f32)> = Vec::new();
-        for (case_name, offset) in boundary_cases {
+        for case in boundary_cases {
             let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
-            let tick_sample = start_sample + offset;
+            let tick_sample = start_sample + case.offset_samples;
             let signal = make_signal_aligned_to_tick(
                 sample_rate,
                 rotation_hz,
@@ -434,7 +548,7 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
                 .process_buffer(&signal, &tick)
                 .expect("boundary-phase-jump case should produce a measurement");
             let err = angular_error_deg(m.raw_bearing, expected_bearing);
-            errs.push((case_name, err));
+            errs.push((case.label, err));
 
             let method_name = match method {
                 Method::Correlation => "correlation",
@@ -443,7 +557,7 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
             assert!(
                 m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
-                case_name,
+                case.label,
                 method_name,
             );
         }
@@ -482,23 +596,36 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
 
     // Perturbation: AM depth sweep and brief fades.
     let cases = [
-        ("am_depth_0.2_no_fade", 0.2_f32, 0.0_f32, 0.0_f32, 1.0_f32),
-        ("am_depth_0.5_no_fade", 0.5_f32, 0.0_f32, 0.0_f32, 1.0_f32),
-        ("am_depth_0.8_no_fade", 0.8_f32, 0.0_f32, 0.0_f32, 1.0_f32),
-        (
-            "am_depth_0.5_short_fade_5pct_gain_0.2_at_20pct",
-            0.5_f32,
-            0.20_f32,
-            0.05_f32,
-            0.2_f32,
-        ),
-        (
-            "am_depth_0.8_short_fade_5pct_gain_0.0_at_70pct",
-            0.8_f32,
-            0.70_f32,
-            0.05_f32,
-            0.0_f32,
-        ),
+        AmFadeCase {
+            am_depth: 0.2,
+            fade_start_frac: 0.0,
+            fade_width_frac: 0.0,
+            fade_gain: 1.0,
+        },
+        AmFadeCase {
+            am_depth: 0.5,
+            fade_start_frac: 0.0,
+            fade_width_frac: 0.0,
+            fade_gain: 1.0,
+        },
+        AmFadeCase {
+            am_depth: 0.8,
+            fade_start_frac: 0.0,
+            fade_width_frac: 0.0,
+            fade_gain: 1.0,
+        },
+        AmFadeCase {
+            am_depth: 0.5,
+            fade_start_frac: 0.20,
+            fade_width_frac: 0.05,
+            fade_gain: 0.2,
+        },
+        AmFadeCase {
+            am_depth: 0.8,
+            fade_start_frac: 0.70,
+            fade_width_frac: 0.05,
+            fade_gain: 0.0,
+        },
     ];
 
     for method in [Method::Correlation, Method::ZeroCrossing] {
@@ -517,18 +644,18 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
             .expect("baseline AM/fade reference should produce measurement");
         let baseline_err = angular_error_deg(baseline.raw_bearing, expected_bearing);
 
-        for (name, am_depth, fade_start, fade_width, fade_gain) in cases {
+        for case in cases {
             let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
             let signal = make_signal_with_am_and_fade(
                 sample_rate,
                 rotation_hz,
                 expected_bearing,
                 len,
-                am_depth,
+                case.am_depth,
                 8.0,
-                fade_start,
-                fade_width,
-                fade_gain,
+                case.fade_start_frac,
+                case.fade_width_frac,
+                case.fade_gain,
             );
 
             let m = calc
@@ -539,17 +666,18 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
                 Method::Correlation => "correlation",
                 Method::ZeroCrossing => "zero_crossing",
             };
+            let label = case.label();
 
             assert!(
                 m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
-                name,
+                label,
                 method_name
             );
             assert!(
                 (err - baseline_err).abs() <= 120.0,
                 "perturbation={} method={} baseline_err={:.2} deg perturb_err={:.2} deg",
-                name,
+                label,
                 method_name,
                 baseline_err,
                 err
@@ -568,13 +696,34 @@ fn test_bearing_harmonic_contamination_sweep() {
 
     // Perturbation: harmonic contamination (2f/3f leakage).
     let cases = [
-        ("harmonic_clean_reference", 0.0_f32, 0.0_f32),
-        ("harmonic_2f_0.10_3f_0.00", 0.10_f32, 0.00_f32),
-        ("harmonic_2f_0.20_3f_0.00", 0.20_f32, 0.00_f32),
-        ("harmonic_2f_0.00_3f_0.10", 0.00_f32, 0.10_f32),
-        ("harmonic_2f_0.00_3f_0.20", 0.00_f32, 0.20_f32),
-        ("harmonic_2f_0.15_3f_0.10", 0.15_f32, 0.10_f32),
-        ("harmonic_2f_0.25_3f_0.15", 0.25_f32, 0.15_f32),
+        HarmonicCase {
+            second_ratio: 0.0,
+            third_ratio: 0.0,
+        },
+        HarmonicCase {
+            second_ratio: 0.10,
+            third_ratio: 0.00,
+        },
+        HarmonicCase {
+            second_ratio: 0.20,
+            third_ratio: 0.00,
+        },
+        HarmonicCase {
+            second_ratio: 0.00,
+            third_ratio: 0.10,
+        },
+        HarmonicCase {
+            second_ratio: 0.00,
+            third_ratio: 0.20,
+        },
+        HarmonicCase {
+            second_ratio: 0.15,
+            third_ratio: 0.10,
+        },
+        HarmonicCase {
+            second_ratio: 0.25,
+            third_ratio: 0.15,
+        },
     ];
 
     for method in [Method::Correlation, Method::ZeroCrossing] {
@@ -601,15 +750,15 @@ fn test_bearing_harmonic_contamination_sweep() {
             .expect("harmonic reference should produce measurement");
         let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
 
-        for (name, second_ratio, third_ratio) in cases {
+        for case in cases {
             let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
             let signal = make_signal_with_harmonics(
                 sample_rate,
                 rotation_hz,
                 expected_bearing,
                 len,
-                second_ratio,
-                third_ratio,
+                case.second_ratio,
+                case.third_ratio,
             );
             let m = calc
                 .process_buffer(&signal, &tick)
@@ -619,17 +768,18 @@ fn test_bearing_harmonic_contamination_sweep() {
                 Method::Correlation => "correlation",
                 Method::ZeroCrossing => "zero_crossing",
             };
+            let label = case.label();
 
             assert!(
                 m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
-                name,
+                label,
                 method_name
             );
             assert!(
                 (err - reference_err).abs() <= 120.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
-                name,
+                label,
                 method_name,
                 reference_err,
                 err
@@ -648,12 +798,30 @@ fn test_bearing_channel_gain_phase_imbalance_sweep() {
 
     // Perturbation: channel gain/phase imbalance proxy.
     let cases = [
-        ("channel_imbalance_clean_reference", 0.0_f32, 0.0_f32),
-        ("channel_imbalance_gain_+0.05_phase_5deg", 0.05_f32, 5.0_f32),
-        ("channel_imbalance_gain_-0.05_phase_-5deg", -0.05_f32, -5.0_f32),
-        ("channel_imbalance_gain_+0.10_phase_10deg", 0.10_f32, 10.0_f32),
-        ("channel_imbalance_gain_-0.10_phase_-10deg", -0.10_f32, -10.0_f32),
-        ("channel_imbalance_gain_+0.15_phase_15deg", 0.15_f32, 15.0_f32),
+        ChannelImbalanceCase {
+            gain_imbalance: 0.0,
+            phase_imbalance_deg: 0.0,
+        },
+        ChannelImbalanceCase {
+            gain_imbalance: 0.05,
+            phase_imbalance_deg: 5.0,
+        },
+        ChannelImbalanceCase {
+            gain_imbalance: -0.05,
+            phase_imbalance_deg: -5.0,
+        },
+        ChannelImbalanceCase {
+            gain_imbalance: 0.10,
+            phase_imbalance_deg: 10.0,
+        },
+        ChannelImbalanceCase {
+            gain_imbalance: -0.10,
+            phase_imbalance_deg: -10.0,
+        },
+        ChannelImbalanceCase {
+            gain_imbalance: 0.15,
+            phase_imbalance_deg: 15.0,
+        },
     ];
 
     for method in [Method::Correlation, Method::ZeroCrossing] {
@@ -680,15 +848,15 @@ fn test_bearing_channel_gain_phase_imbalance_sweep() {
             .expect("channel-imbalance reference should produce measurement");
         let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
 
-        for (name, gain_imbalance, phase_imbalance_deg) in cases {
+        for case in cases {
             let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
             let signal = make_signal_with_channel_imbalance(
                 sample_rate,
                 rotation_hz,
                 expected_bearing,
                 len,
-                gain_imbalance,
-                phase_imbalance_deg,
+                case.gain_imbalance,
+                case.phase_imbalance_deg,
             );
             let m = calc
                 .process_buffer(&signal, &tick)
@@ -698,17 +866,18 @@ fn test_bearing_channel_gain_phase_imbalance_sweep() {
                 Method::Correlation => "correlation",
                 Method::ZeroCrossing => "zero_crossing",
             };
+            let label = case.label();
 
             assert!(
                 m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
-                name,
+                label,
                 method_name
             );
             assert!(
                 (err - reference_err).abs() <= 120.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
-                name,
+                label,
                 method_name,
                 reference_err,
                 err
@@ -727,12 +896,36 @@ fn test_bearing_impulsive_burst_offset_sweep() {
 
     // Perturbation: short impulsive burst at varying offsets.
     let cases = [
-        ("impulse_none_reference", 0.0_f32, 0.0_f32, 0.0_f32),
-        ("impulse_start_5pct_width_0.5pct_amp_2.0", 0.05_f32, 0.005_f32, 2.0_f32),
-        ("impulse_mid_50pct_width_0.5pct_amp_2.0", 0.50_f32, 0.005_f32, 2.0_f32),
-        ("impulse_late_90pct_width_0.5pct_amp_2.0", 0.90_f32, 0.005_f32, 2.0_f32),
-        ("impulse_start_10pct_width_1.0pct_amp_3.0", 0.10_f32, 0.010_f32, 3.0_f32),
-        ("impulse_mid_60pct_width_1.0pct_amp_3.0", 0.60_f32, 0.010_f32, 3.0_f32),
+        ImpulseCase {
+            burst_start_frac: 0.0,
+            burst_width_frac: 0.0,
+            burst_amplitude: 0.0,
+        },
+        ImpulseCase {
+            burst_start_frac: 0.05,
+            burst_width_frac: 0.005,
+            burst_amplitude: 2.0,
+        },
+        ImpulseCase {
+            burst_start_frac: 0.50,
+            burst_width_frac: 0.005,
+            burst_amplitude: 2.0,
+        },
+        ImpulseCase {
+            burst_start_frac: 0.90,
+            burst_width_frac: 0.005,
+            burst_amplitude: 2.0,
+        },
+        ImpulseCase {
+            burst_start_frac: 0.10,
+            burst_width_frac: 0.010,
+            burst_amplitude: 3.0,
+        },
+        ImpulseCase {
+            burst_start_frac: 0.60,
+            burst_width_frac: 0.010,
+            burst_amplitude: 3.0,
+        },
     ];
 
     for method in [Method::Correlation, Method::ZeroCrossing] {
@@ -752,16 +945,16 @@ fn test_bearing_impulsive_burst_offset_sweep() {
             .expect("impulse reference should produce measurement");
         let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
 
-        for (name, start_frac, width_frac, amp) in cases {
+        for case in cases {
             let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
             let signal = make_signal_with_impulsive_burst(
                 sample_rate,
                 rotation_hz,
                 expected_bearing,
                 len,
-                start_frac,
-                width_frac,
-                amp,
+                case.burst_start_frac,
+                case.burst_width_frac,
+                case.burst_amplitude,
             );
             let m = calc
                 .process_buffer(&signal, &tick)
@@ -771,17 +964,18 @@ fn test_bearing_impulsive_burst_offset_sweep() {
                 Method::Correlation => "correlation",
                 Method::ZeroCrossing => "zero_crossing",
             };
+            let label = case.label();
 
             assert!(
                 m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
-                name,
+                label,
                 method_name
             );
             assert!(
                 (err - reference_err).abs() <= 120.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
-                name,
+                label,
                 method_name,
                 reference_err,
                 err
