@@ -1,6 +1,6 @@
 [package]
 name = "rotaryclub"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2024"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
 license = "Apache-2.0"
