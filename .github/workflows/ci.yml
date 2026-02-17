@@ -65,6 +65,14 @@ jobs:
           echo "north_tick_timing_baseline_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
         fi
 
+    - name: Publish north tick timing failing rows
+      if: always()
+      run: |
+        python3 scripts/north_tick_timing_failed_rows_md.py \
+          target/timing-metrics/north_tick_timing_baseline_failed_rows.csv \
+          --title "Baseline Threshold Failures (Top Rows)" \
+          --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -163,3 +171,11 @@ jobs:
         else
           echo "north_tick_timing_strict_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
         fi
+
+    - name: Publish north tick timing strict failing rows
+      if: always()
+      run: |
+        python3 scripts/north_tick_timing_failed_rows_md.py \
+          target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv \
+          --title "Strict Threshold Failures (Top Rows)" \
+          --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
