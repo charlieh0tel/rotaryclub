@@ -16,6 +16,7 @@ struct Scenario {
     noise_peak: f32,
     dc_offset: f32,
     second_tone_ratio: f32,
+    third_tone_ratio: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -86,15 +87,18 @@ fn make_doppler_buffer(
     phase_offset: f32,
     step_index: usize,
 ) -> Vec<f32> {
-    let second_omega = omega * 1.01;
+    let second_omega = omega * 2.0;
+    let third_omega = omega * 3.0;
     (0..buffer_size)
         .map(|i| {
             let t = (step_index * buffer_size + i) as f32;
             let fundamental = (omega * t - phase_offset).sin();
             let second_tone = (second_omega * t - (phase_offset * 0.7)).sin();
+            let third_tone = (third_omega * t - (phase_offset * 0.5)).sin();
             let noise = deterministic_noise_at(i + step_index * buffer_size, 0xA5A5_1234_5EED_1111);
             scenario.amplitude * fundamental
                 + scenario.second_tone_ratio * second_tone
+                + scenario.third_tone_ratio * third_tone
                 + scenario.noise_peak * noise
                 + scenario.dc_offset
         })
@@ -176,6 +180,7 @@ fn main() {
             noise_peak: 0.0,
             dc_offset: 0.0,
             second_tone_ratio: 0.0,
+            third_tone_ratio: 0.0,
         },
         Scenario {
             name: "noisy",
@@ -183,6 +188,7 @@ fn main() {
             noise_peak: 0.08,
             dc_offset: 0.0,
             second_tone_ratio: 0.0,
+            third_tone_ratio: 0.0,
         },
         Scenario {
             name: "dc_offset",
@@ -190,6 +196,7 @@ fn main() {
             noise_peak: 0.03,
             dc_offset: 0.2,
             second_tone_ratio: 0.0,
+            third_tone_ratio: 0.0,
         },
         Scenario {
             name: "multipath_like",
@@ -197,6 +204,23 @@ fn main() {
             noise_peak: 0.04,
             dc_offset: 0.0,
             second_tone_ratio: 0.35,
+            third_tone_ratio: 0.0,
+        },
+        Scenario {
+            name: "harmonic_contaminated",
+            amplitude: 0.9,
+            noise_peak: 0.04,
+            dc_offset: 0.0,
+            second_tone_ratio: 0.20,
+            third_tone_ratio: 0.12,
+        },
+        Scenario {
+            name: "low_snr_dc",
+            amplitude: 0.45,
+            noise_peak: 0.40,
+            dc_offset: 0.20,
+            second_tone_ratio: 0.0,
+            third_tone_ratio: 0.0,
         },
     ];
     let methods = [Method::Correlation, Method::ZeroCrossing];

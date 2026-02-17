@@ -74,6 +74,10 @@ METHOD_SCENARIO_OVERRIDES: Dict[Tuple[str, str], Dict[str, float]] = {
         "p95_abs_bearing_error_deg": 34.0,
         "max_abs_bearing_error_deg": 37.0,
     },
+    ("correlation", "low_snr_dc"): {
+        "p95_abs_bearing_error_deg": 9.8,
+        "max_abs_bearing_error_deg": 12.6,
+    },
     ("zero_crossing", "noisy"): {
         "mean_abs_bearing_error_deg": 6.5,
         "p95_abs_bearing_error_deg": 7.5,
@@ -88,11 +92,27 @@ METHOD_SCENARIO_OVERRIDES: Dict[Tuple[str, str], Dict[str, float]] = {
         "p95_abs_bearing_error_deg": 34.0,
         "max_abs_bearing_error_deg": 36.0,
     },
+    ("zero_crossing", "harmonic_contaminated"): {
+        "mean_abs_bearing_error_deg": 9.5,
+        "p95_abs_bearing_error_deg": 10.0,
+        "max_abs_bearing_error_deg": 12.0,
+    },
+    ("zero_crossing", "low_snr_dc"): {
+        "p95_abs_bearing_error_deg": 9.5,
+        "max_abs_bearing_error_deg": 12.5,
+    },
 }
 
 BASELINE_LIMITS: Dict[Tuple[str, str], Dict[str, float]] = {}
 for method in ("correlation", "zero_crossing"):
-    for scenario in ("clean", "noisy", "dc_offset", "multipath_like"):
+    for scenario in (
+        "clean",
+        "noisy",
+        "dc_offset",
+        "multipath_like",
+        "harmonic_contaminated",
+        "low_snr_dc",
+    ):
         merged = dict(METHOD_DEFAULTS[method])
         merged.update(METHOD_SCENARIO_OVERRIDES.get((method, scenario), {}))
         BASELINE_LIMITS[(method, scenario)] = merged
