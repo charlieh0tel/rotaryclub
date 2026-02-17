@@ -96,6 +96,29 @@ fn make_signal_with_harmonics(
         .collect()
 }
 
+fn make_signal_with_channel_imbalance(
+    sample_rate: f32,
+    rotation_freq: f32,
+    bearing_degrees: f32,
+    len: usize,
+    gain_imbalance: f32,
+    phase_imbalance_deg: f32,
+) -> Vec<f32> {
+    let omega = 2.0 * PI * rotation_freq / sample_rate;
+    let bearing_radians = bearing_degrees.to_radians();
+    let phase_imbalance = phase_imbalance_deg.to_radians();
+    let g = gain_imbalance.clamp(-0.9, 0.9);
+
+    (0..len)
+        .map(|i| {
+            let p = omega * i as f32 - bearing_radians;
+            // Proxy perturbation for channel gain/phase imbalance:
+            // scale in-phase component and leak a phase-skewed quadrature component.
+            (1.0 + g) * p.sin() + g * (p + phase_imbalance).cos()
+        })
+        .collect()
+}
+
 fn angular_error_deg(measured: f32, expected: f32) -> f32 {
     let mut err = (measured - expected).abs();
     if err > 180.0 {
@@ -572,6 +595,85 @@ fn test_bearing_harmonic_contamination_sweep() {
             let m = calc
                 .process_buffer(&signal, &tick)
                 .expect("harmonic perturbation should still produce a measurement");
+            let err = angular_error_deg(m.raw_bearing, expected_bearing);
+            let method_name = match method {
+                Method::Correlation => "correlation",
+                Method::ZeroCrossing => "zero_crossing",
+            };
+
+            assert!(
+                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                "perturbation={} method={} should keep finite outputs",
+                name,
+                method_name
+            );
+            assert!(
+                (err - reference_err).abs() <= 120.0,
+                "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
+                name,
+                method_name,
+                reference_err,
+                err
+            );
+        }
+    }
+}
+
+#[test]
+fn test_bearing_channel_gain_phase_imbalance_sweep() {
+    let sample_rate = 48_000.0;
+    let rotation_hz = 1_602.0;
+    let expected_bearing = 25.0;
+    let len = 4096usize;
+    let samples_per_rotation = sample_rate / rotation_hz;
+
+    // Perturbation: channel gain/phase imbalance proxy.
+    let cases = [
+        ("channel_imbalance_clean_reference", 0.0_f32, 0.0_f32),
+        ("channel_imbalance_gain_+0.05_phase_5deg", 0.05_f32, 5.0_f32),
+        ("channel_imbalance_gain_-0.05_phase_-5deg", -0.05_f32, -5.0_f32),
+        ("channel_imbalance_gain_+0.10_phase_10deg", 0.10_f32, 10.0_f32),
+        ("channel_imbalance_gain_-0.10_phase_-10deg", -0.10_f32, -10.0_f32),
+        ("channel_imbalance_gain_+0.15_phase_15deg", 0.15_f32, 15.0_f32),
+    ];
+
+    for method in [Method::Correlation, Method::ZeroCrossing] {
+        let doppler_config = DopplerConfig {
+            expected_freq: rotation_hz,
+            bandpass_low: 1500.0,
+            bandpass_high: 1700.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let tick = make_north_tick(samples_per_rotation);
+
+        let mut ref_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+        let ref_signal = make_signal_with_channel_imbalance(
+            sample_rate,
+            rotation_hz,
+            expected_bearing,
+            len,
+            0.0,
+            0.0,
+        );
+        let reference = ref_calc
+            .process_buffer(&ref_signal, &tick)
+            .expect("channel-imbalance reference should produce measurement");
+        let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
+
+        for (name, gain_imbalance, phase_imbalance_deg) in cases {
+            let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+            let signal = make_signal_with_channel_imbalance(
+                sample_rate,
+                rotation_hz,
+                expected_bearing,
+                len,
+                gain_imbalance,
+                phase_imbalance_deg,
+            );
+            let m = calc
+                .process_buffer(&signal, &tick)
+                .expect("channel imbalance perturbation should still produce a measurement");
             let err = angular_error_deg(m.raw_bearing, expected_bearing);
             let method_name = match method {
                 Method::Correlation => "correlation",
