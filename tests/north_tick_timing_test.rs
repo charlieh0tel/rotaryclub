@@ -32,6 +32,36 @@ fn build_north_signal(num_samples: usize, pulse_positions: &[usize], amplitude: 
     signal
 }
 
+fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32) -> i32 {
+    if max_abs_jitter <= 0 {
+        0
+    } else {
+        ((index as f32 * 0.37).sin() * max_abs_jitter as f32).round() as i32
+    }
+}
+
+fn jittered_positions(base: &[usize], max_abs_jitter: i32, max_index: usize) -> Vec<usize> {
+    let mut out = Vec::with_capacity(base.len());
+    for (k, &pos) in base.iter().enumerate() {
+        let jitter = deterministic_jitter_samples(k, max_abs_jitter) as isize;
+        let idx = (pos as isize + jitter).clamp(0, max_index as isize) as usize;
+        out.push(idx);
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+fn add_deterministic_noise(signal: &mut [f32], noise_peak: f32) {
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    for sample in signal.iter_mut() {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let u = (((x >> 33) as u32) as f32) / (u32::MAX as f32);
+        let noise = (2.0 * u - 1.0) * noise_peak;
+        *sample += noise;
+    }
+}
+
 fn match_timing_errors_samples(expected: &[usize], ticks: &[NorthTick], tolerance: f32) -> Vec<f32> {
     let expected: Vec<f32> = expected.iter().map(|&s| s as f32).collect();
     let detected: Vec<f32> = ticks
@@ -117,6 +147,55 @@ fn test_north_tick_timing_error_across_chunk_sizes() {
             );
             assert!(
                 p95_abs_error <= 2.0,
+                "chunk_size={chunk_size}, start={start_time_secs:.3}s p95_abs_error={p95_abs_error:.3} samples",
+            );
+        }
+    }
+}
+
+#[test]
+fn test_north_tick_timing_with_jitter_and_noise() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+    let duration_secs = 1.2f32;
+    let num_samples = (duration_secs * sample_rate) as usize;
+    let pulse_amplitude = config.north_tick.expected_pulse_amplitude;
+
+    let chunk_sizes = [64usize, 256, 1024];
+    let start_offsets = [0.011f32, 0.023, 0.031];
+
+    for &chunk_size in &chunk_sizes {
+        for &start_time_secs in &start_offsets {
+            let base = generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
+            let expected = jittered_positions(&base, 1, num_samples.saturating_sub(1));
+            let mut north = build_north_signal(num_samples, &expected, pulse_amplitude * 0.85);
+            add_deterministic_noise(&mut north, 0.025);
+            let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+            let mut detected = Vec::new();
+
+            for chunk in north.chunks(chunk_size) {
+                detected.extend(tracker.process_buffer(chunk));
+            }
+
+            let errors = match_timing_errors_samples(&expected, &detected, 3.0);
+            let expected_count = expected.len().max(1);
+            let detection_rate = errors.len() as f32 / expected_count as f32;
+            let mean_abs_error = mean(&errors);
+            let p95_abs_error = percentile(&errors, 0.95);
+
+            assert!(
+                detection_rate >= 0.90,
+                "chunk_size={chunk_size}, start={start_time_secs:.3}s detection_rate={detection_rate:.3} (matched={} expected={})",
+                errors.len(),
+                expected.len()
+            );
+            assert!(
+                mean_abs_error <= 1.3,
+                "chunk_size={chunk_size}, start={start_time_secs:.3}s mean_abs_error={mean_abs_error:.3} samples",
+            );
+            assert!(
+                p95_abs_error <= 2.5,
                 "chunk_size={chunk_size}, start={start_time_secs:.3}s p95_abs_error={p95_abs_error:.3} samples",
             );
         }
