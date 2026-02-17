@@ -116,14 +116,14 @@ fn expected_tick_positions(
     jittered.sort_unstable();
     jittered.dedup();
 
-    if let Some(stride) = scenario.north_dropout_stride {
-        if stride > 1 {
-            return jittered
-                .iter()
-                .enumerate()
-                .filter_map(|(i, p)| if i % stride == 0 { None } else { Some(*p) })
-                .collect();
-        }
+    if let Some(stride) = scenario.north_dropout_stride
+        && stride > 1
+    {
+        return jittered
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| if i % stride == 0 { None } else { Some(*p) })
+            .collect();
     }
 
     jittered
@@ -165,10 +165,11 @@ fn build_chunk(
         north +=
             deterministic_noise_at(global, 0xFEED_9876_5432_1001) * (scenario.noise_peak * 0.35);
         north += scenario.dc_offset * 0.25;
-        if let Some(stride) = scenario.north_impulse_stride {
-            if stride > 0 && global % stride == stride / 2 {
-                north += scenario.north_impulse_amplitude;
-            }
+        if let Some(stride) = scenario.north_impulse_stride
+            && stride > 0
+            && global % stride == stride / 2
+        {
+            north += scenario.north_impulse_amplitude;
         }
 
         out.push(doppler);
