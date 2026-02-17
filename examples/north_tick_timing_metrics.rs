@@ -1,6 +1,12 @@
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTick, NorthTracker};
 
+const DEFAULT_DURATION_SECS: f32 = 1.2;
+const DEFAULT_CHUNK_SIZES: &[usize] = &[32usize, 64, 128, 256, 512, 1024];
+const DEFAULT_START_OFFSETS: &[f32] = &[0.011f32, 0.023, 0.031];
+const LONG_DRIFT_CHUNK_SIZES: &[usize] = &[256usize, 1024];
+const LONG_DRIFT_START_OFFSETS: &[f32] = &[0.017f32];
+
 struct Scenario {
     name: &'static str,
     jitter_samples: i32,
@@ -9,6 +15,9 @@ struct Scenario {
     dropout_stride: Option<usize>,
     impulse_stride: Option<usize>,
     impulse_amplitude: f32,
+    duration_secs: f32,
+    chunk_sizes: &'static [usize],
+    start_offsets: &'static [f32],
 }
 
 #[derive(Clone, Copy)]
@@ -165,12 +174,7 @@ fn main() {
     let base_config = RdfConfig::default();
     let sample_rate = base_config.audio.sample_rate as f32;
     let rotation_hz = base_config.doppler.expected_freq;
-    let duration_secs = 1.2f32;
-    let num_samples = (duration_secs * sample_rate) as usize;
     let pulse_amplitude = base_config.north_tick.expected_pulse_amplitude;
-
-    let chunk_sizes = [32usize, 64, 128, 256, 512, 1024];
-    let start_offsets = [0.011f32, 0.023, 0.031];
 
     let modes = [
         ("dpll", NorthTrackingMode::Dpll),
@@ -186,6 +190,9 @@ fn main() {
             dropout_stride: None,
             impulse_stride: None,
             impulse_amplitude: 0.0,
+            duration_secs: DEFAULT_DURATION_SECS,
+            chunk_sizes: DEFAULT_CHUNK_SIZES,
+            start_offsets: DEFAULT_START_OFFSETS,
         },
         Scenario {
             name: "noisy_jittered",
@@ -195,6 +202,9 @@ fn main() {
             dropout_stride: None,
             impulse_stride: None,
             impulse_amplitude: 0.0,
+            duration_secs: DEFAULT_DURATION_SECS,
+            chunk_sizes: DEFAULT_CHUNK_SIZES,
+            start_offsets: DEFAULT_START_OFFSETS,
         },
         Scenario {
             name: "dropout_burst",
@@ -204,6 +214,9 @@ fn main() {
             dropout_stride: Some(14),
             impulse_stride: None,
             impulse_amplitude: 0.0,
+            duration_secs: DEFAULT_DURATION_SECS,
+            chunk_sizes: DEFAULT_CHUNK_SIZES,
+            start_offsets: DEFAULT_START_OFFSETS,
         },
         Scenario {
             name: "impulsive_interference",
@@ -213,6 +226,21 @@ fn main() {
             dropout_stride: None,
             impulse_stride: Some(211),
             impulse_amplitude: 0.23,
+            duration_secs: DEFAULT_DURATION_SECS,
+            chunk_sizes: DEFAULT_CHUNK_SIZES,
+            start_offsets: DEFAULT_START_OFFSETS,
+        },
+        Scenario {
+            name: "long_drift",
+            jitter_samples: 0,
+            noise_peak: 0.0,
+            amplitude_scale: 1.0,
+            dropout_stride: None,
+            impulse_stride: None,
+            impulse_amplitude: 0.0,
+            duration_secs: 12.0,
+            chunk_sizes: LONG_DRIFT_CHUNK_SIZES,
+            start_offsets: LONG_DRIFT_START_OFFSETS,
         },
     ];
 
@@ -222,11 +250,12 @@ fn main() {
 
     for &(mode_name, mode) in &modes {
         for scenario in &scenarios {
-            for &chunk_size in &chunk_sizes {
-                for &start_time_secs in &start_offsets {
+            let num_samples = (scenario.duration_secs * sample_rate) as usize;
+            for &chunk_size in scenario.chunk_sizes {
+                for &start_time_secs in scenario.start_offsets {
                     let base = generate_truth_pulses(
                         sample_rate,
-                        duration_secs,
+                        scenario.duration_secs,
                         start_time_secs,
                         rotation_hz,
                     );

@@ -298,3 +298,56 @@ fn test_north_tick_timing_with_dropouts_and_impulses_across_modes() {
         }
     }
 }
+
+#[test]
+fn test_north_tick_timing_long_duration_drift_across_modes() {
+    let base_config = RdfConfig::default();
+    let sample_rate = base_config.audio.sample_rate as f32;
+    let rotation_hz = base_config.doppler.expected_freq;
+    let duration_secs = 10.0f32;
+    let num_samples = (duration_secs * sample_rate) as usize;
+    let pulse_amplitude = base_config.north_tick.expected_pulse_amplitude;
+    let chunk_sizes = [256usize, 1024];
+    let start_time_secs = 0.017f32;
+    let modes = [NorthTrackingMode::Dpll, NorthTrackingMode::Simple];
+
+    for &mode in &modes {
+        for &chunk_size in &chunk_sizes {
+            let expected =
+                generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
+            let north = build_north_signal(num_samples, &expected, pulse_amplitude);
+
+            let mut config = base_config.clone();
+            config.north_tick.mode = mode;
+
+            let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+            let mut detected = Vec::new();
+            for chunk in north.chunks(chunk_size) {
+                detected.extend(tracker.process_buffer(chunk));
+            }
+
+            let errors = match_timing_errors_samples(&expected, &detected, 3.0);
+            let detection_rate = errors.len() as f32 / expected.len().max(1) as f32;
+            let fp_rate = false_positive_rate(&expected, &detected, errors.len());
+            let mean_abs_error = mean(&errors);
+            let p95_abs_error = percentile(&errors, 0.95);
+
+            assert!(
+                detection_rate >= 0.97,
+                "mode={mode:?}, chunk_size={chunk_size} long_drift detection_rate={detection_rate:.3}",
+            );
+            assert!(
+                fp_rate <= 0.03,
+                "mode={mode:?}, chunk_size={chunk_size} long_drift false_positive_rate={fp_rate:.3}",
+            );
+            assert!(
+                mean_abs_error <= 0.8,
+                "mode={mode:?}, chunk_size={chunk_size} long_drift mean_abs_error={mean_abs_error:.3} samples",
+            );
+            assert!(
+                p95_abs_error <= 1.5,
+                "mode={mode:?}, chunk_size={chunk_size} long_drift p95_abs_error={p95_abs_error:.3} samples",
+            );
+        }
+    }
+}

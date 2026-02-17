@@ -40,6 +40,8 @@ BASELINE_LIMITS: Dict[Tuple[str, str], Limits] = {
     ("simple", "dropout_burst"): Limits(0.88, 0.10, 1.4, 2.6),
     ("dpll", "impulsive_interference"): Limits(0.85, 0.15, 1.5, 2.8),
     ("simple", "impulsive_interference"): Limits(0.30, 0.15, 1.5, 2.8),
+    ("dpll", "long_drift"): Limits(0.97, 0.03, 0.8, 1.5),
+    ("simple", "long_drift"): Limits(0.97, 0.03, 0.8, 1.5),
 }
 
 
