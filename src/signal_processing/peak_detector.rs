@@ -13,6 +13,10 @@ pub struct PeakDetector {
     samples_since_peak: usize,
     last_sample: f32,
     above_threshold: bool,
+    crossing_indices: Vec<usize>,
+    window_max_indices: Vec<usize>,
+    suffix_max_indices: Vec<usize>,
+    deque_indices: Vec<usize>,
 }
 
 impl PeakDetector {
@@ -41,6 +45,60 @@ impl PeakDetector {
             samples_since_peak: min_interval_samples, // Allow immediate first peak
             last_sample: 0.0,
             above_threshold: false,
+            crossing_indices: Vec::new(),
+            window_max_indices: Vec::new(),
+            suffix_max_indices: Vec::new(),
+            deque_indices: Vec::new(),
+        }
+    }
+
+    fn precompute_window_max_indices(&mut self, buffer: &[f32]) {
+        let n = buffer.len();
+        self.window_max_indices.resize(n, 0);
+        if n == 0 {
+            return;
+        }
+
+        let w = self.peak_search_window_samples.max(1).min(n);
+
+        self.suffix_max_indices.resize(n, 0);
+        self.suffix_max_indices[n - 1] = n - 1;
+        for i in (0..(n - 1)).rev() {
+            let next = self.suffix_max_indices[i + 1];
+            self.suffix_max_indices[i] = if buffer[i] >= buffer[next] { i } else { next };
+        }
+
+        self.deque_indices.clear();
+        let mut head = 0usize;
+
+        for i in 0..n {
+            let min_idx = i.saturating_add(1).saturating_sub(w);
+            while head < self.deque_indices.len() && self.deque_indices[head] < min_idx {
+                head += 1;
+            }
+
+            while self.deque_indices.len() > head {
+                let back = *self
+                    .deque_indices
+                    .last()
+                    .expect("deque should be non-empty when len > head");
+                if buffer[back] < buffer[i] {
+                    self.deque_indices.pop();
+                } else {
+                    break;
+                }
+            }
+            self.deque_indices.push(i);
+
+            if i + 1 >= w {
+                let start = i + 1 - w;
+                self.window_max_indices[start] = self.deque_indices[head];
+            }
+        }
+
+        let full_window_limit = n.saturating_sub(w);
+        for start in (full_window_limit + 1)..n {
+            self.window_max_indices[start] = self.suffix_max_indices[start];
         }
     }
 
@@ -80,22 +138,45 @@ impl PeakDetector {
     /// # Arguments
     /// * `buffer` - Audio samples to process
     pub fn find_all_peaks(&mut self, buffer: &[f32]) -> Vec<(usize, f32)> {
-        let mut peaks = Vec::new();
+        self.crossing_indices.clear();
         for (i, &sample) in buffer.iter().enumerate() {
             if self.detect_peak(sample) {
-                let window_end = (i + self.peak_search_window_samples).min(buffer.len());
-                let mut peak_idx = i;
-                let mut peak_amp = sample;
-                for (rel_idx, &candidate) in buffer[i..window_end].iter().enumerate() {
+                self.crossing_indices.push(i);
+            }
+        }
+
+        if self.crossing_indices.is_empty() {
+            return Vec::new();
+        }
+
+        let w = self.peak_search_window_samples.max(1);
+        let estimated_rescan_work = self.crossing_indices.len().saturating_mul(w);
+        if estimated_rescan_work <= buffer.len() {
+            let mut peaks = Vec::with_capacity(self.crossing_indices.len());
+            for &start in &self.crossing_indices {
+                let end = (start + w).min(buffer.len());
+                let mut peak_idx = start;
+                let mut peak_amp = buffer[start];
+                for (rel_idx, &candidate) in buffer[start..end].iter().enumerate() {
                     if candidate > peak_amp {
                         peak_amp = candidate;
-                        peak_idx = i + rel_idx;
+                        peak_idx = start + rel_idx;
                     }
                 }
                 peaks.push((peak_idx, peak_amp));
             }
+            return peaks;
         }
-        peaks
+
+        self.precompute_window_max_indices(buffer);
+        self.crossing_indices
+            .iter()
+            .copied()
+            .map(|start| {
+                let peak_idx = self.window_max_indices[start];
+                (peak_idx, buffer[peak_idx])
+            })
+            .collect()
     }
 }
 

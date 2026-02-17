@@ -23,15 +23,26 @@ impl FirFilterCore {
     pub fn process(&mut self, sample: f32) -> f32 {
         self.delay_line[self.pos] = sample as f64;
 
-        let mut output = 0.0;
+        let mut output = 0.0f64;
         let n = self.taps.len();
 
-        for i in 0..n {
-            let delay_idx = (self.pos + n - i) % n;
-            output += self.taps[i] * self.delay_line[delay_idx];
+        // Iterate the ring buffer in two contiguous reverse ranges to avoid
+        // modulo arithmetic in the inner convolution loop.
+        let mut tap_i = 0usize;
+        for delay_idx in (0..=self.pos).rev() {
+            output += self.taps[tap_i] * self.delay_line[delay_idx];
+            tap_i += 1;
         }
+        for delay_idx in ((self.pos + 1)..n).rev() {
+            output += self.taps[tap_i] * self.delay_line[delay_idx];
+            tap_i += 1;
+        }
+        debug_assert_eq!(tap_i, n);
 
-        self.pos = (self.pos + 1) % n;
+        self.pos += 1;
+        if self.pos == n {
+            self.pos = 0;
+        }
         output as f32
     }
 
