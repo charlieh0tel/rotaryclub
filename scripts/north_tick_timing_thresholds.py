@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--override-max-fp", type=float, default=None)
     parser.add_argument("--override-max-mean", type=float, default=None)
     parser.add_argument("--override-max-p95", type=float, default=None)
+    parser.add_argument("--failed-rows-out", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -54,6 +55,7 @@ def main() -> int:
     args = parse_args()
     rows = list(csv.DictReader(args.csv_path.open(newline="", encoding="utf-8")))
     failures = []
+    failed_rows = []
 
     for row in rows:
         mode = row["mode"]
@@ -61,6 +63,16 @@ def main() -> int:
         key = (mode, scenario)
         if key not in BASELINE_LIMITS:
             failures.append(f"FAIL unknown mode/scenario row: {row}")
+            failed_rows.append(
+                {
+                    **row,
+                    "min_detection": "",
+                    "max_false_positive": "",
+                    "max_mean_error": "",
+                    "max_p95_error": "",
+                    "reason": "unknown mode/scenario",
+                }
+            )
             continue
 
         limits = BASELINE_LIMITS[key]
@@ -84,6 +96,41 @@ def main() -> int:
                 f"(det={detection:.6f} fp={false_pos:.6f} mean={mean_err:.6f} p95={p95_err:.6f}; "
                 f"limits det>={min_det:.2f} fp<={max_fp:.2f} mean<={max_mean:.2f} p95<={max_p95:.2f})"
             )
+            failed_rows.append(
+                {
+                    **row,
+                    "min_detection": f"{min_det:.6f}",
+                    "max_false_positive": f"{max_fp:.6f}",
+                    "max_mean_error": f"{max_mean:.6f}",
+                    "max_p95_error": f"{max_p95:.6f}",
+                    "reason": "threshold exceeded",
+                }
+            )
+
+    if args.failed_rows_out is not None:
+        args.failed_rows_out.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = [
+            "mode",
+            "scenario",
+            "chunk_size",
+            "start_offset_s",
+            "expected",
+            "matched",
+            "detection_rate",
+            "false_positive_rate",
+            "mean_abs_error_samples",
+            "p95_abs_error_samples",
+            "min_detection",
+            "max_false_positive",
+            "max_mean_error",
+            "max_p95_error",
+            "reason",
+        ]
+        with args.failed_rows_out.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            for failed in failed_rows:
+                writer.writerow(failed)
 
     if failures:
         for failure in failures:

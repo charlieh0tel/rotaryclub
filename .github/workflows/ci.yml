@@ -47,12 +47,14 @@ jobs:
       run: cargo build --examples --verbose
 
     - name: Upload north tick timing metrics
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: north-tick-timing-metrics
         path: |
           target/timing-metrics/north_tick_timing_metrics.csv
           target/timing-metrics/north_tick_timing_metrics_summary.md
+          target/timing-metrics/north_tick_timing_failed_rows.csv
 
     - name: Publish north tick timing summary
       if: always()
@@ -151,6 +153,7 @@ jobs:
         path: |
           target/timing-metrics-strict/north_tick_timing_metrics.csv
           target/timing-metrics-strict/north_tick_timing_metrics_summary.md
+          target/timing-metrics-strict/north_tick_timing_failed_rows.csv
 
     - name: Publish north tick timing strict summary
       if: always()
