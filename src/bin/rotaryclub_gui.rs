@@ -369,6 +369,12 @@ const NEEDLE_STROKE_BASE: f32 = 1.0;
 const NEEDLE_STROKE_SCALE: f32 = 2.5;
 const NEEDLE_TIP_BASE: f32 = 2.0;
 const NEEDLE_TIP_SCALE: f32 = 3.0;
+const COMPASS_HELP_TEXT: &str = "Compass rose encoding:
+- Needle brightness = confidence
+- Needle width/tip size = coherence
+- Needle length/radius = signal strength
+- Trail = recent bearings with phosphor decay
+- Trail points require confidence >= 0.5";
 
 struct TrailEntry {
     bearing: f32,
@@ -618,6 +624,7 @@ impl RdfGuiApp {
     fn draw_compass(&mut self, ui: &mut egui::Ui) {
         let desired = egui::vec2(300.0, 300.0);
         let (response, painter) = ui.allocate_painter(desired, egui::Sense::hover());
+        let response = response.on_hover_text(COMPASS_HELP_TEXT);
         let rect = response.rect;
         let center = rect.center();
         let radius = rect.width().min(rect.height()) / 2.0 - 15.0;
