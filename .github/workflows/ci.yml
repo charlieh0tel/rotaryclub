@@ -38,10 +38,7 @@ jobs:
       run: cargo build --verbose
 
     - name: Run tests
-      run: cargo test --verbose
-
-    - name: Run bearing regression tests
-      run: cargo test --test bearing_regression_test --verbose
+      run: cargo test --all-features --verbose
 
     - name: Check bearing performance metrics
       run: python3 scripts/bearing_performance_report.py ci --profile baseline
