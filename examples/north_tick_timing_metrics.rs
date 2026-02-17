@@ -18,6 +18,8 @@ struct Scenario {
     duration_secs: f32,
     chunk_sizes: &'static [usize],
     start_offsets: &'static [f32],
+    step_at_secs: Option<f32>,
+    step_to_frequency_hz: Option<f32>,
 }
 
 #[derive(Clone, Copy)]
@@ -193,6 +195,8 @@ fn main() {
             duration_secs: DEFAULT_DURATION_SECS,
             chunk_sizes: DEFAULT_CHUNK_SIZES,
             start_offsets: DEFAULT_START_OFFSETS,
+            step_at_secs: None,
+            step_to_frequency_hz: None,
         },
         Scenario {
             name: "noisy_jittered",
@@ -205,6 +209,8 @@ fn main() {
             duration_secs: DEFAULT_DURATION_SECS,
             chunk_sizes: DEFAULT_CHUNK_SIZES,
             start_offsets: DEFAULT_START_OFFSETS,
+            step_at_secs: None,
+            step_to_frequency_hz: None,
         },
         Scenario {
             name: "dropout_burst",
@@ -217,6 +223,8 @@ fn main() {
             duration_secs: DEFAULT_DURATION_SECS,
             chunk_sizes: DEFAULT_CHUNK_SIZES,
             start_offsets: DEFAULT_START_OFFSETS,
+            step_at_secs: None,
+            step_to_frequency_hz: None,
         },
         Scenario {
             name: "impulsive_interference",
@@ -229,6 +237,8 @@ fn main() {
             duration_secs: DEFAULT_DURATION_SECS,
             chunk_sizes: DEFAULT_CHUNK_SIZES,
             start_offsets: DEFAULT_START_OFFSETS,
+            step_at_secs: None,
+            step_to_frequency_hz: None,
         },
         Scenario {
             name: "long_drift",
@@ -241,6 +251,22 @@ fn main() {
             duration_secs: 12.0,
             chunk_sizes: LONG_DRIFT_CHUNK_SIZES,
             start_offsets: LONG_DRIFT_START_OFFSETS,
+            step_at_secs: None,
+            step_to_frequency_hz: None,
+        },
+        Scenario {
+            name: "freq_step",
+            jitter_samples: 0,
+            noise_peak: 0.01,
+            amplitude_scale: 0.95,
+            dropout_stride: None,
+            impulse_stride: None,
+            impulse_amplitude: 0.0,
+            duration_secs: 4.0,
+            chunk_sizes: LONG_DRIFT_CHUNK_SIZES,
+            start_offsets: LONG_DRIFT_START_OFFSETS,
+            step_at_secs: Some(2.0),
+            step_to_frequency_hz: Some(rotation_hz + 48.0),
         },
     ];
 
@@ -253,12 +279,30 @@ fn main() {
             let num_samples = (scenario.duration_secs * sample_rate) as usize;
             for &chunk_size in scenario.chunk_sizes {
                 for &start_time_secs in scenario.start_offsets {
-                    let base = generate_truth_pulses(
-                        sample_rate,
-                        scenario.duration_secs,
-                        start_time_secs,
-                        rotation_hz,
-                    );
+                    let base = if let (Some(step_t), Some(step_hz)) =
+                        (scenario.step_at_secs, scenario.step_to_frequency_hz)
+                    {
+                        let mut positions = Vec::new();
+                        let mut t = start_time_secs;
+                        while t < scenario.duration_secs {
+                            let hz = if t < step_t { rotation_hz } else { step_hz };
+                            let idx = (t * sample_rate).round() as isize;
+                            if idx >= 0 && (idx as usize) < num_samples {
+                                positions.push(idx as usize);
+                            }
+                            t += 1.0 / hz;
+                        }
+                        positions.sort_unstable();
+                        positions.dedup();
+                        positions
+                    } else {
+                        generate_truth_pulses(
+                            sample_rate,
+                            scenario.duration_secs,
+                            start_time_secs,
+                            rotation_hz,
+                        )
+                    };
                     let mut expected = jittered_positions(
                         &base,
                         scenario.jitter_samples,

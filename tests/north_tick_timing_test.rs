@@ -351,3 +351,72 @@ fn test_north_tick_timing_long_duration_drift_across_modes() {
         }
     }
 }
+
+#[test]
+fn test_north_tick_timing_frequency_step_across_modes() {
+    let base_config = RdfConfig::default();
+    let sample_rate = base_config.audio.sample_rate as f32;
+    let f1 = base_config.doppler.expected_freq;
+    let f2 = f1 + 48.0;
+    let duration_secs = 4.0f32;
+    let step_time_secs = 2.0f32;
+    let num_samples = (duration_secs * sample_rate) as usize;
+    let pulse_amplitude = base_config.north_tick.expected_pulse_amplitude;
+    let chunk_sizes = [256usize, 1024];
+    let start_time_secs = 0.013f32;
+    let modes = [NorthTrackingMode::Dpll, NorthTrackingMode::Simple];
+
+    for &mode in &modes {
+        for &chunk_size in &chunk_sizes {
+            let expected = {
+                let mut positions = Vec::new();
+                let mut t = start_time_secs;
+                while t < duration_secs {
+                    let hz = if t < step_time_secs { f1 } else { f2 };
+                    let idx = (t * sample_rate).round() as isize;
+                    if idx >= 0 && (idx as usize) < num_samples {
+                        positions.push(idx as usize);
+                    }
+                    t += 1.0 / hz;
+                }
+                positions.sort_unstable();
+                positions.dedup();
+                positions
+            };
+
+            let mut north = build_north_signal(num_samples, &expected, pulse_amplitude * 0.95);
+            add_deterministic_noise(&mut north, 0.01);
+
+            let mut config = base_config.clone();
+            config.north_tick.mode = mode;
+            let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+            let mut detected = Vec::new();
+            for chunk in north.chunks(chunk_size) {
+                detected.extend(tracker.process_buffer(chunk));
+            }
+
+            let errors = match_timing_errors_samples(&expected, &detected, 3.0);
+            let detection_rate = errors.len() as f32 / expected.len().max(1) as f32;
+            let fp_rate = false_positive_rate(&expected, &detected, errors.len());
+            let mean_abs_error = mean(&errors);
+            let p95_abs_error = percentile(&errors, 0.95);
+
+            assert!(
+                detection_rate >= 0.93,
+                "mode={mode:?}, chunk_size={chunk_size} freq_step detection_rate={detection_rate:.3}",
+            );
+            assert!(
+                fp_rate <= 0.08,
+                "mode={mode:?}, chunk_size={chunk_size} freq_step false_positive_rate={fp_rate:.3}",
+            );
+            assert!(
+                mean_abs_error <= 1.2,
+                "mode={mode:?}, chunk_size={chunk_size} freq_step mean_abs_error={mean_abs_error:.3} samples",
+            );
+            assert!(
+                p95_abs_error <= 2.3,
+                "mode={mode:?}, chunk_size={chunk_size} freq_step p95_abs_error={p95_abs_error:.3} samples",
+            );
+        }
+    }
+}
