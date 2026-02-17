@@ -6,7 +6,11 @@
 
 ## North Tick Tracking
 
-- [ ] Measure end-to-end north tick timing latency/jitter vs synthetic ground truth across chunk sizes and chunk-boundary phase offsets
-- [ ] Add realistic false-positive sweeps (impulsive noise, hum, clipping, DC drift) with separate detection/FP metrics
+- [x] Measure end-to-end north tick timing latency/jitter vs synthetic ground truth across chunk sizes and chunk-boundary phase offsets
+- [x] Add CSV + markdown timing artifacts and CI reporting for threshold failures (including failed-row artifact)
+- [x] Add realistic false-positive sweeps for impulsive interference/dropout/noise with separate detection/FP metrics
+- [ ] Extend false-positive sweeps to hum, clipping, and DC drift variants
+- [x] Add long-duration drift timing scenario
+- [x] Add frequency-step timing scenario
 - [ ] Add config guardrails for threshold/min_interval/FIR/gain ranges with actionable error messages
 - [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)
