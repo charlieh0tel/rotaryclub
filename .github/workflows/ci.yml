@@ -40,8 +40,17 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
+    - name: Check north tick timing metrics
+      run: scripts/check_north_tick_timing_metrics.sh
+
     - name: Build examples
       run: cargo build --examples --verbose
+
+    - name: Upload north tick timing metrics
+      uses: actions/upload-artifact@v4
+      with:
+        name: north-tick-timing-metrics
+        path: target/timing-metrics/north_tick_timing_metrics.csv
 
   clippy:
     name: Clippy
