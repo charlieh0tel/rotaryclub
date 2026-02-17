@@ -173,6 +173,9 @@ cargo build --release
 # Run tests
 cargo test
 
+# Run north-tick timing gate (writes CSV + Markdown summary under target/timing-metrics/)
+python3 scripts/check_north_tick_timing_metrics.py --profile baseline
+
 # Build Debian package (requires cargo-deb)
 cargo install cargo-deb
 cargo deb

@@ -41,7 +41,7 @@ jobs:
       run: cargo test --verbose
 
     - name: Check north tick timing metrics
-      run: scripts/check_north_tick_timing_metrics.sh
+      run: python3 scripts/check_north_tick_timing_metrics.py --profile baseline
 
     - name: Build examples
       run: cargo build --examples --verbose
@@ -50,7 +50,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: north-tick-timing-metrics
-        path: target/timing-metrics/north_tick_timing_metrics.csv
+        path: |
+          target/timing-metrics/north_tick_timing_metrics.csv
+          target/timing-metrics/north_tick_timing_metrics_summary.md
+
+    - name: Publish north tick timing summary
+      if: always()
+      run: cat target/timing-metrics/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
 
   clippy:
     name: Clippy
