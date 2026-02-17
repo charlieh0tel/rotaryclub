@@ -6,11 +6,7 @@ Now includes a gui:  [Video](https://youtu.be/nQoKVjQKTF8)
 
 ## Installation
 
-### From Debian Package
-
-```bash
-sudo apt install ./rotaryclub_1.3.0-1_amd64.deb
-```
+Prebuilt Debian (`.deb`) packages are available on [GitHub Releases](https://github.com/charlieh0tel/rotaryclub/releases).
 
 ### From Source
 
@@ -46,8 +42,11 @@ rotaryclub --output-rate 20
 # Apply north offset calibration (e.g., antenna rotated 45° from true north)
 rotaryclub --north-offset 45
 
-# Enable debug logging
+# Enable info logging
 rotaryclub -v
+
+# Enable debug logging
+rotaryclub -vv
 
 # Combine options
 rotaryclub --method correlation --north-mode dpll --north-offset 45 -v
@@ -59,9 +58,11 @@ rotaryclub --method correlation --north-mode dpll --north-offset 45 -v
 # Test with WAV file
 rotaryclub -i data/doppler-test-2023-04-10-ft-70d.wav
 
-# Generate synthetic test signals
+# Generate synthetic test signals (example utility)
 cargo run --example generate_test_wav
-rotaryclub -i test_bearing_090.wav
+
+# End-to-end synthetic pipeline test
+cargo run --example synthetic_rdf
 ```
 
 ## Usage
@@ -74,6 +75,25 @@ Output:
 ```
 Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 ```
+
+#### Output Measures
+
+- `bearing`: Smoothed azimuth estimate in degrees, wrapped to `[0, 360)`.
+- `raw`: Instantaneous unsmoothed azimuth estimate in degrees, wrapped to `[0, 360)`.
+- `confidence`: Combined quality score in `[0, 1]` from weighted normalized SNR, coherence, and signal strength.
+- `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
+- `coherence`: Phase-consistency metric in `[0, 1]` (correlation: sub-window circular phase variance; zero-crossing: crossing-interval regularity).
+- `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
+
+#### North Tracking Quality Measures
+
+- `lock_quality`: DPLL-only lock score in `[0, 1]`, computed as weighted phase and frequency stability:
+  `phase_weight * phase_score + frequency_weight * freq_score`.
+- `phase_score`: `1 - (phase_error_std_dev / pi)`, clamped to `[0, 1]`.
+- `freq_score`: `1 - (100 * freq_coeff_of_variation)`, clamped to `[0, 1]`, where `freq_coeff_of_variation = freq_std_dev / freq_mean`.
+- `phase_error_variance`: Rolling variance (rad^2) of DPLL phase error; lower indicates tighter phase lock.
+- Windowing: rolling statistics are computed over the last 128 detected ticks.
+- Availability: in `--north-mode dpll` these fields are populated; in `--north-mode simple` they are not produced (`null`/empty in JSON/CSV).
 
 ### CLI Options
 
@@ -96,7 +116,19 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 
 -i, --input <INPUT>              Input WAV file (default: live device capture)
 
--v, --verbose                    Increase logging (-v=debug, -vv=trace)
+-v, --verbose                    Increase logging (-v=info, -vv=debug, -vvv=trace)
+
+    --rotation <ROTATION>        Rotation frequency (e.g. 1602, 1602hz, 624us)
+
+    --remove-dc                  Remove DC offset from audio
+
+    --dump-audio <PATH>          Dump captured audio to WAV file
+
+    --north-tick-gain <DB>       North tick input gain in dB [default: 0]
+
+    --device <NAME>              Select input device by substring match
+
+    --list-devices               List available input devices and exit
 
 -h, --help                       Print help
 ```
@@ -144,11 +176,11 @@ cargo test
 # Build Debian package (requires cargo-deb)
 cargo install cargo-deb
 cargo deb
-# Creates target/debian/rotaryclub_1.3.0-1_amd64.deb
+# Creates target/debian/rotaryclub_*.deb
 ```
 
 **Requirements:**
-- Rust 1.70+
+- Rust 1.85+ (edition 2024)
 - Linux with ALSA support
 - libasound2-dev (for building)
 
