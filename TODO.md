@@ -14,3 +14,9 @@
 - [x] Add frequency-step timing scenario
 - [ ] Add config guardrails for threshold/min_interval/FIR/gain ranges with actionable error messages
 - [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)
+
+## Bearing Calculator
+
+- [x] Add guardrails for degenerate bearing inputs (empty buffer and non-finite north-tick fields) to avoid NaN outputs
+- [x] Add dedicated bearing regression tests for degenerate inputs and bounded/finiteness metrics
+- [x] Run bearing regression tests explicitly in CI

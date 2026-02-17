@@ -66,9 +66,13 @@ impl CorrelationBearingCalculator {
     }
 
     fn process_tick_impl(&mut self, north_tick: &NorthTick) -> Option<BearingMeasurement> {
+        if self.base.work_buffer.is_empty() {
+            return None;
+        }
+
         // Use DPLL's tracked frequency directly
         let omega = north_tick.frequency;
-        if omega <= 0.0 {
+        if !omega.is_finite() || omega <= 0.0 || !north_tick.phase.is_finite() {
             return None;
         }
 
@@ -133,14 +137,20 @@ impl CorrelationBearingCalculator {
         correlation_magnitude: f32,
     ) -> ConfidenceMetrics {
         let n = self.base.work_buffer.len();
-        if n < COHERENCE_WINDOW_COUNT || signal_power < MIN_POWER_THRESHOLD {
+        if n < COHERENCE_WINDOW_COUNT
+            || !signal_power.is_finite()
+            || !correlation_magnitude.is_finite()
+            || signal_power < MIN_POWER_THRESHOLD
+        {
             return ConfidenceMetrics::default();
         }
 
         // --- SNR Estimation ---
         // For a clean sine, I^2 + Q^2 = A^2 / 4 while signal_power = A^2 / 2.
         // Multiply by 2 to estimate full correlated signal power.
-        let correlated_power = 2.0 * correlation_magnitude * correlation_magnitude;
+        let correlated_power = (2.0 * correlation_magnitude * correlation_magnitude)
+            .max(0.0)
+            .min(signal_power);
         let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
         let snr_db = 10.0 * (correlated_power / noise_power).log10();
 

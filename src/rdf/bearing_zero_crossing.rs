@@ -62,6 +62,12 @@ impl ZeroCrossingBearingCalculator {
 
         // Get rotation period
         let samples_per_rotation = north_tick.period?;
+        if !samples_per_rotation.is_finite()
+            || samples_per_rotation <= 0.0
+            || !north_tick.phase.is_finite()
+        {
+            return None;
+        }
 
         // To robustly calculate the bearing, we average the phase of all detected
         // crossings. This is done by converting each phase angle to a vector,
@@ -154,7 +160,7 @@ impl ZeroCrossingBearingCalculator {
 
             // projection ≈ A/2 for signal A*sin(ωt - φ), since sin² averages to 1/2.
             // Correlated power = 2 * projection² reconstructs the full signal power.
-            let correlated_power = 2.0 * projection * projection;
+            let correlated_power = (2.0 * projection * projection).max(0.0).min(signal_power);
             let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
             10.0 * (correlated_power / noise_power).log10()
         } else {
