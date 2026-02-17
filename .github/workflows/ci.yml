@@ -110,7 +110,6 @@ jobs:
   north-timing-strict:
     name: North Timing Strict (Informational)
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
     - uses: actions/checkout@v4
@@ -133,7 +132,16 @@ jobs:
         sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
 
     - name: Check north tick timing metrics (strict profile)
-      run: python3 scripts/check_north_tick_timing_metrics.py --profile strict --out-dir target/timing-metrics-strict
+      run: |
+        set +e
+        python3 scripts/check_north_tick_timing_metrics.py --profile strict --out-dir target/timing-metrics-strict
+        status=$?
+        if [ $status -ne 0 ]; then
+          echo "Strict north-timing thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Strict north-timing thresholds passed." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit 0
 
     - name: Upload north tick timing strict metrics
       if: always()
