@@ -75,6 +75,27 @@ fn make_signal_with_am_and_fade(
         .collect()
 }
 
+fn make_signal_with_harmonics(
+    sample_rate: f32,
+    rotation_freq: f32,
+    bearing_degrees: f32,
+    len: usize,
+    second_ratio: f32,
+    third_ratio: f32,
+) -> Vec<f32> {
+    let omega = 2.0 * PI * rotation_freq / sample_rate;
+    let bearing_radians = bearing_degrees.to_radians();
+    (0..len)
+        .map(|i| {
+            let p = omega * i as f32 - bearing_radians;
+            let fundamental = p.sin();
+            let second = (2.0 * p).sin();
+            let third = (3.0 * p).sin();
+            fundamental + second_ratio * second + third_ratio * third
+        })
+        .collect()
+}
+
 fn angular_error_deg(measured: f32, expected: f32) -> f32 {
     let mut err = (measured - expected).abs();
     if err > 180.0 {
@@ -489,6 +510,86 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
                 name,
                 method_name,
                 baseline_err,
+                err
+            );
+        }
+    }
+}
+
+#[test]
+fn test_bearing_harmonic_contamination_sweep() {
+    let sample_rate = 48_000.0;
+    let rotation_hz = 1_602.0;
+    let expected_bearing = 301.0;
+    let len = 4096usize;
+    let samples_per_rotation = sample_rate / rotation_hz;
+
+    // Perturbation: harmonic contamination (2f/3f leakage).
+    let cases = [
+        ("harmonic_clean_reference", 0.0_f32, 0.0_f32),
+        ("harmonic_2f_0.10_3f_0.00", 0.10_f32, 0.00_f32),
+        ("harmonic_2f_0.20_3f_0.00", 0.20_f32, 0.00_f32),
+        ("harmonic_2f_0.00_3f_0.10", 0.00_f32, 0.10_f32),
+        ("harmonic_2f_0.00_3f_0.20", 0.00_f32, 0.20_f32),
+        ("harmonic_2f_0.15_3f_0.10", 0.15_f32, 0.10_f32),
+        ("harmonic_2f_0.25_3f_0.15", 0.25_f32, 0.15_f32),
+    ];
+
+    for method in [Method::Correlation, Method::ZeroCrossing] {
+        let doppler_config = DopplerConfig {
+            expected_freq: rotation_hz,
+            bandpass_low: 1500.0,
+            bandpass_high: 1700.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let tick = make_north_tick(samples_per_rotation);
+
+        let mut ref_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+        let ref_signal = make_signal_with_harmonics(
+            sample_rate,
+            rotation_hz,
+            expected_bearing,
+            len,
+            0.0,
+            0.0,
+        );
+        let reference = ref_calc
+            .process_buffer(&ref_signal, &tick)
+            .expect("harmonic reference should produce measurement");
+        let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
+
+        for (name, second_ratio, third_ratio) in cases {
+            let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+            let signal = make_signal_with_harmonics(
+                sample_rate,
+                rotation_hz,
+                expected_bearing,
+                len,
+                second_ratio,
+                third_ratio,
+            );
+            let m = calc
+                .process_buffer(&signal, &tick)
+                .expect("harmonic perturbation should still produce a measurement");
+            let err = angular_error_deg(m.raw_bearing, expected_bearing);
+            let method_name = match method {
+                Method::Correlation => "correlation",
+                Method::ZeroCrossing => "zero_crossing",
+            };
+
+            assert!(
+                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                "perturbation={} method={} should keep finite outputs",
+                name,
+                method_name
+            );
+            assert!(
+                (err - reference_err).abs() <= 120.0,
+                "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
+                name,
+                method_name,
+                reference_err,
                 err
             );
         }
