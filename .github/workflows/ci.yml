@@ -177,8 +177,8 @@ jobs:
     - name: Check formatting
       run: cargo fmt -- --check
 
-  north-timing-strict:
-    name: North Timing Strict (Informational)
+  strict-informational:
+    name: Strict Thresholds (Informational)
     runs-on: ubuntu-latest
 
     steps:
@@ -194,7 +194,7 @@ jobs:
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-cargo-north-timing-strict-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-strict-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Install build dependencies
       run: |
@@ -213,15 +213,45 @@ jobs:
         fi
         exit 0
 
-    - name: Upload north tick timing strict metrics
+    - name: Check bearing performance metrics (strict profile)
+      run: |
+        set +e
+        python3 scripts/bearing_performance_report.py ci --profile strict --out-dir target/bearing-perf-strict
+        status=$?
+        if [ $status -ne 0 ]; then
+          echo "Strict bearing-performance thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Strict bearing-performance thresholds passed." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit 0
+
+    - name: Check system pipeline performance metrics (strict profile)
+      run: |
+        set +e
+        python3 scripts/system_pipeline_report.py ci --profile strict --out-dir target/system-pipeline-perf-strict
+        status=$?
+        if [ $status -ne 0 ]; then
+          echo "Strict system-pipeline thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Strict system-pipeline thresholds passed." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit 0
+
+    - name: Upload strict metrics
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: north-tick-timing-metrics-strict
+        name: strict-metrics
         path: |
           target/timing-metrics-strict/north_tick_timing_metrics.csv
           target/timing-metrics-strict/north_tick_timing_strict_summary.md
           target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv
+          target/bearing-perf-strict/bearing_performance_metrics.csv
+          target/bearing-perf-strict/bearing_performance_strict_summary.md
+          target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv
+          target/system-pipeline-perf-strict/system_pipeline_performance_metrics.csv
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_summary.md
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.csv
 
     - name: Publish north tick timing strict summary
       if: always()
@@ -240,52 +270,6 @@ jobs:
           --title "Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
-  bearing-performance-strict:
-    name: Bearing Performance Strict (Informational)
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache cargo
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-bearing-performance-strict-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
-
-    - name: Check bearing performance metrics (strict profile)
-      run: |
-        set +e
-        python3 scripts/bearing_performance_report.py ci --profile strict --out-dir target/bearing-perf-strict
-        status=$?
-        if [ $status -ne 0 ]; then
-          echo "Strict bearing-performance thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
-        else
-          echo "Strict bearing-performance thresholds passed." >> "$GITHUB_STEP_SUMMARY"
-        fi
-        exit 0
-
-    - name: Upload bearing performance strict metrics
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: bearing-performance-metrics-strict
-        path: |
-          target/bearing-perf-strict/bearing_performance_metrics.csv
-          target/bearing-perf-strict/bearing_performance_strict_summary.md
-          target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv
-
     - name: Publish bearing performance strict summary
       if: always()
       run: |
@@ -302,52 +286,6 @@ jobs:
           target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv \
           --title "Bearing Performance Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
-
-  system-pipeline-strict:
-    name: System Pipeline Strict (Informational)
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache cargo
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-system-pipeline-strict-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
-
-    - name: Check system pipeline performance metrics (strict profile)
-      run: |
-        set +e
-        python3 scripts/system_pipeline_report.py ci --profile strict --out-dir target/system-pipeline-perf-strict
-        status=$?
-        if [ $status -ne 0 ]; then
-          echo "Strict system-pipeline thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
-        else
-          echo "Strict system-pipeline thresholds passed." >> "$GITHUB_STEP_SUMMARY"
-        fi
-        exit 0
-
-    - name: Upload system pipeline strict metrics
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: system-pipeline-performance-metrics-strict
-        path: |
-          target/system-pipeline-perf-strict/system_pipeline_performance_metrics.csv
-          target/system-pipeline-perf-strict/system_pipeline_performance_strict_summary.md
-          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.csv
 
     - name: Publish system pipeline strict summary
       if: always()
