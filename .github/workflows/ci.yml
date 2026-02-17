@@ -163,7 +163,7 @@ jobs:
         sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
 
     - name: Run clippy
-      run: cargo clippy --all-targets -- -D warnings
+      run: cargo clippy --all-features --all-targets -- -D warnings
 
   fmt:
     name: Formatting
