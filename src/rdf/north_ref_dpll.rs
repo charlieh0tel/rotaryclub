@@ -532,7 +532,10 @@ mod tests {
 
         match DpllNorthTracker::new(&config, sample_rate) {
             Err(RdfError::Config(msg)) => {
-                assert!(msg.contains("initial_frequency_hz"), "Unexpected message: {msg}");
+                assert!(
+                    msg.contains("initial_frequency_hz"),
+                    "Unexpected message: {msg}"
+                );
             }
             Err(err) => panic!("Expected configuration error, got {err}"),
             Ok(_) => panic!("Expected configuration error, got Ok"),

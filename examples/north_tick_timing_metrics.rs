@@ -119,7 +119,11 @@ fn percentile(values: &[f32], p: f32) -> f32 {
     sorted[idx]
 }
 
-fn compute_timing_metrics(expected: &[usize], ticks: &[NorthTick], tolerance: f32) -> TimingMetrics {
+fn compute_timing_metrics(
+    expected: &[usize],
+    ticks: &[NorthTick],
+    tolerance: f32,
+) -> TimingMetrics {
     let expected: Vec<f32> = expected.iter().map(|&s| s as f32).collect();
     let detected: Vec<f32> = ticks
         .iter()
@@ -226,8 +230,11 @@ fn main() {
                         start_time_secs,
                         rotation_hz,
                     );
-                    let mut expected =
-                        jittered_positions(&base, scenario.jitter_samples, num_samples.saturating_sub(1));
+                    let mut expected = jittered_positions(
+                        &base,
+                        scenario.jitter_samples,
+                        num_samples.saturating_sub(1),
+                    );
                     if let Some(stride) = scenario.dropout_stride {
                         expected = apply_deterministic_dropouts(&expected, stride);
                     }

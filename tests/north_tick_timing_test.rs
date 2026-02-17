@@ -82,7 +82,11 @@ fn apply_deterministic_dropouts(positions: &[usize], stride: usize) -> Vec<usize
         .collect()
 }
 
-fn match_timing_errors_samples(expected: &[usize], ticks: &[NorthTick], tolerance: f32) -> Vec<f32> {
+fn match_timing_errors_samples(
+    expected: &[usize],
+    ticks: &[NorthTick],
+    tolerance: f32,
+) -> Vec<f32> {
     let expected: Vec<f32> = expected.iter().map(|&s| s as f32).collect();
     let detected: Vec<f32> = ticks
         .iter()
@@ -146,7 +150,8 @@ fn test_north_tick_timing_error_across_chunk_sizes() {
 
     for &chunk_size in &chunk_sizes {
         for &start_time_secs in &start_offsets {
-            let expected = generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
+            let expected =
+                generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
             let north = build_north_signal(num_samples, &expected, pulse_amplitude);
             let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
             let mut detected = Vec::new();
@@ -193,7 +198,8 @@ fn test_north_tick_timing_with_jitter_and_noise() {
 
     for &chunk_size in &chunk_sizes {
         for &start_time_secs in &start_offsets {
-            let base = generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
+            let base =
+                generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
             let expected = jittered_positions(&base, 1, num_samples.saturating_sub(1));
             let mut north = build_north_signal(num_samples, &expected, pulse_amplitude * 0.85);
             add_deterministic_noise(&mut north, 0.025);
@@ -244,7 +250,8 @@ fn test_north_tick_timing_with_dropouts_and_impulses_across_modes() {
     for &mode in &modes {
         for &chunk_size in &chunk_sizes {
             for &start_time_secs in &start_offsets {
-                let base = generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
+                let base =
+                    generate_truth_pulses(sample_rate, duration_secs, start_time_secs, rotation_hz);
                 let jittered = jittered_positions(&base, 1, num_samples.saturating_sub(1));
                 let expected = apply_deterministic_dropouts(&jittered, 14);
                 let mut north = build_north_signal(num_samples, &expected, pulse_amplitude * 0.9);
@@ -253,7 +260,8 @@ fn test_north_tick_timing_with_dropouts_and_impulses_across_modes() {
 
                 let mut config = base_config.clone();
                 config.north_tick.mode = mode;
-                let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+                let mut tracker =
+                    NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
                 let mut detected = Vec::new();
                 for chunk in north.chunks(chunk_size) {
                     detected.extend(tracker.process_buffer(chunk));

@@ -137,7 +137,10 @@ fn bench_peak_detector() {
 
         let old_once = old.find_all_peaks(&buffer);
         let new_once = new.find_all_peaks(&buffer);
-        assert_eq!(old_once, new_once, "Peak detector output mismatch for {label}");
+        assert_eq!(
+            old_once, new_once,
+            "Peak detector output mismatch for {label}"
+        );
 
         let t0 = Instant::now();
         for _ in 0..iters {
@@ -179,7 +182,10 @@ fn bench_fir_core() {
         .zip(new_buf.iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
-    assert!(max_abs_err < 1e-6, "FIR output mismatch: max_abs_err={max_abs_err}");
+    assert!(
+        max_abs_err < 1e-6,
+        "FIR output mismatch: max_abs_err={max_abs_err}"
+    );
 
     let t0 = Instant::now();
     let mut checksum = 0.0f32;
