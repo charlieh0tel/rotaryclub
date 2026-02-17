@@ -20,3 +20,6 @@
 - [x] Add guardrails for degenerate bearing inputs (empty buffer and non-finite north-tick fields) to avoid NaN outputs
 - [x] Add dedicated bearing regression tests for degenerate inputs and bounded/finiteness metrics
 - [x] Run bearing regression tests explicitly in CI
+- [x] Add bearing-only performance metrics benchmark artifact (baseline + strict profiles)
+- [x] Add bearing performance threshold checks and failed-row markdown reporting
+- [ ] Add end-to-end system-level performance bars (north tracker + bearing calculator combined)
