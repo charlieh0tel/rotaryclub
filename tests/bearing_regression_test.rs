@@ -135,6 +135,33 @@ fn make_signal_with_impulsive_burst(
     signal
 }
 
+fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
+    let mut x = seed ^ ((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+    let u = (((x >> 33) as u32) as f32) / (u32::MAX as f32);
+    2.0 * u - 1.0
+}
+
+fn make_signal_with_low_snr_and_dc(
+    sample_rate: f32,
+    rotation_freq: f32,
+    bearing_degrees: f32,
+    len: usize,
+    signal_gain: f32,
+    noise_peak: f32,
+    dc_offset: f32,
+) -> Vec<f32> {
+    let omega = 2.0 * PI * rotation_freq / sample_rate;
+    let bearing_radians = bearing_degrees.to_radians();
+    (0..len)
+        .map(|i| {
+            let carrier = (omega * i as f32 - bearing_radians).sin();
+            let noise = deterministic_noise_at(i, 0xA55A_1234_DEAD_BEEF);
+            signal_gain * carrier + noise_peak * noise + dc_offset
+        })
+        .collect()
+}
+
 fn angular_error_deg(measured: f32, expected: f32) -> f32 {
     let mut err = (measured - expected).abs();
     if err > 180.0 {
@@ -242,6 +269,22 @@ impl ImpulseCase {
                 self.burst_amplitude
             )
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LowSnrDcCase {
+    signal_gain: f32,
+    noise_peak: f32,
+    dc_offset: f32,
+}
+
+impl LowSnrDcCase {
+    fn label(self) -> String {
+        format!(
+            "low_snr_dc_signal_{:.2}_noise_{:.2}_dc_{:+.2}",
+            self.signal_gain, self.noise_peak, self.dc_offset
+        )
     }
 }
 
@@ -957,6 +1000,109 @@ fn test_bearing_impulsive_burst_offset_sweep() {
             let m = calc
                 .process_buffer(&signal, &tick)
                 .expect("impulsive perturbation should still produce a measurement");
+            let err = angular_error_deg(m.raw_bearing, expected_bearing);
+            let method_name = match method {
+                Method::Correlation => "correlation",
+                Method::ZeroCrossing => "zero_crossing",
+            };
+            let label = case.label();
+
+            assert!(
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
+                "perturbation={} method={} should keep finite outputs",
+                label,
+                method_name
+            );
+            assert!(
+                (err - reference_err).abs() <= 120.0,
+                "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
+                label,
+                method_name,
+                reference_err,
+                err
+            );
+        }
+    }
+}
+
+#[test]
+fn test_bearing_low_snr_plus_dc_offset_interaction() {
+    let sample_rate = 48_000.0;
+    let rotation_hz = 1_602.0;
+    let expected_bearing = 110.0;
+    let len = 4096usize;
+    let samples_per_rotation = sample_rate / rotation_hz;
+
+    // Perturbation: combined low-SNR + DC-offset interaction.
+    let cases = [
+        LowSnrDcCase {
+            signal_gain: 1.0,
+            noise_peak: 0.0,
+            dc_offset: 0.0,
+        },
+        LowSnrDcCase {
+            signal_gain: 0.60,
+            noise_peak: 0.30,
+            dc_offset: 0.10,
+        },
+        LowSnrDcCase {
+            signal_gain: 0.50,
+            noise_peak: 0.35,
+            dc_offset: -0.10,
+        },
+        LowSnrDcCase {
+            signal_gain: 0.45,
+            noise_peak: 0.40,
+            dc_offset: 0.20,
+        },
+        LowSnrDcCase {
+            signal_gain: 0.40,
+            noise_peak: 0.45,
+            dc_offset: -0.20,
+        },
+    ];
+
+    for method in [Method::Correlation, Method::ZeroCrossing] {
+        let doppler_config = DopplerConfig {
+            expected_freq: rotation_hz,
+            bandpass_low: 1500.0,
+            bandpass_high: 1700.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let tick = make_north_tick(samples_per_rotation);
+
+        let mut ref_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+        let ref_signal = make_signal_with_low_snr_and_dc(
+            sample_rate,
+            rotation_hz,
+            expected_bearing,
+            len,
+            1.0,
+            0.0,
+            0.0,
+        );
+        let reference = ref_calc
+            .process_buffer(&ref_signal, &tick)
+            .expect("low-snr/dc reference should produce measurement");
+        let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
+
+        for case in cases {
+            let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+            let signal = make_signal_with_low_snr_and_dc(
+                sample_rate,
+                rotation_hz,
+                expected_bearing,
+                len,
+                case.signal_gain,
+                case.noise_peak,
+                case.dc_offset,
+            );
+            let m = calc
+                .process_buffer(&signal, &tick)
+                .expect("low-snr/dc perturbation should still produce a measurement");
             let err = angular_error_deg(m.raw_bearing, expected_bearing);
             let method_name = match method {
                 Method::Correlation => "correlation",
