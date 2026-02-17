@@ -101,3 +101,44 @@ jobs:
 
     - name: Check formatting
       run: cargo fmt -- --check
+
+  north-timing-strict:
+    name: North Timing Strict (Informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-north-timing-strict-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
+
+    - name: Check north tick timing metrics (strict profile)
+      run: python3 scripts/check_north_tick_timing_metrics.py --profile strict --out-dir target/timing-metrics-strict
+
+    - name: Upload north tick timing strict metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: north-tick-timing-metrics-strict
+        path: |
+          target/timing-metrics-strict/north_tick_timing_metrics.csv
+          target/timing-metrics-strict/north_tick_timing_metrics_summary.md
+
+    - name: Publish north tick timing strict summary
+      if: always()
+      run: cat target/timing-metrics-strict/north_tick_timing_metrics_summary.md >> "$GITHUB_STEP_SUMMARY"
