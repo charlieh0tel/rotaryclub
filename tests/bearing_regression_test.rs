@@ -47,16 +47,13 @@ fn make_signal_with_am_and_fade(
     rotation_freq: f32,
     bearing_degrees: f32,
     len: usize,
-    am_depth: f32,
     am_rate_hz: f32,
-    fade_start_frac: f32,
-    fade_width_frac: f32,
-    fade_gain: f32,
+    case: AmFadeCase,
 ) -> Vec<f32> {
     let omega = 2.0 * PI * rotation_freq / sample_rate;
     let bearing_radians = bearing_degrees.to_radians();
-    let fade_start = (len as f32 * fade_start_frac.clamp(0.0, 1.0)) as usize;
-    let fade_width = (len as f32 * fade_width_frac.clamp(0.0, 1.0)).max(1.0) as usize;
+    let fade_start = (len as f32 * case.fade_start_frac.clamp(0.0, 1.0)) as usize;
+    let fade_width = (len as f32 * case.fade_width_frac.clamp(0.0, 1.0)).max(1.0) as usize;
     let fade_end = (fade_start + fade_width).min(len);
     let two_pi = 2.0 * PI;
 
@@ -64,9 +61,9 @@ fn make_signal_with_am_and_fade(
         .map(|i| {
             let carrier = (omega * i as f32 - bearing_radians).sin();
             let t = i as f32 / sample_rate;
-            let env = 1.0 + am_depth.clamp(0.0, 0.95) * (two_pi * am_rate_hz * t).sin();
+            let env = 1.0 + case.am_depth.clamp(0.0, 0.95) * (two_pi * am_rate_hz * t).sin();
             let fade = if i >= fade_start && i < fade_end {
-                fade_gain.clamp(0.0, 1.0)
+                case.fade_gain.clamp(0.0, 1.0)
             } else {
                 1.0
             };
@@ -481,7 +478,9 @@ fn test_bearing_rotation_rate_mismatch_sweep() {
                 err
             );
             assert!(
-                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
                 label,
                 method_name
@@ -555,7 +554,9 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
                 Method::ZeroCrossing => "zero_crossing",
             };
             assert!(
-                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
                 case.label,
                 method_name,
@@ -651,11 +652,8 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
                 rotation_hz,
                 expected_bearing,
                 len,
-                case.am_depth,
                 8.0,
-                case.fade_start_frac,
-                case.fade_width_frac,
-                case.fade_gain,
+                case,
             );
 
             let m = calc
@@ -669,7 +667,9 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
             let label = case.label();
 
             assert!(
-                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
                 label,
                 method_name
@@ -737,14 +737,8 @@ fn test_bearing_harmonic_contamination_sweep() {
         let tick = make_north_tick(samples_per_rotation);
 
         let mut ref_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
-        let ref_signal = make_signal_with_harmonics(
-            sample_rate,
-            rotation_hz,
-            expected_bearing,
-            len,
-            0.0,
-            0.0,
-        );
+        let ref_signal =
+            make_signal_with_harmonics(sample_rate, rotation_hz, expected_bearing, len, 0.0, 0.0);
         let reference = ref_calc
             .process_buffer(&ref_signal, &tick)
             .expect("harmonic reference should produce measurement");
@@ -771,7 +765,9 @@ fn test_bearing_harmonic_contamination_sweep() {
             let label = case.label();
 
             assert!(
-                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
                 label,
                 method_name
@@ -869,7 +865,9 @@ fn test_bearing_channel_gain_phase_imbalance_sweep() {
             let label = case.label();
 
             assert!(
-                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
                 label,
                 method_name
@@ -967,7 +965,9 @@ fn test_bearing_impulsive_burst_offset_sweep() {
             let label = case.label();
 
             assert!(
-                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                m.raw_bearing.is_finite()
+                    && m.bearing_degrees.is_finite()
+                    && m.confidence.is_finite(),
                 "perturbation={} method={} should keep finite outputs",
                 label,
                 method_name
