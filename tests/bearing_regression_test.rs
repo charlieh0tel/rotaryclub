@@ -119,6 +119,25 @@ fn make_signal_with_channel_imbalance(
         .collect()
 }
 
+fn make_signal_with_impulsive_burst(
+    sample_rate: f32,
+    rotation_freq: f32,
+    bearing_degrees: f32,
+    len: usize,
+    burst_start_frac: f32,
+    burst_width_frac: f32,
+    burst_amplitude: f32,
+) -> Vec<f32> {
+    let mut signal = make_signal(sample_rate, rotation_freq, bearing_degrees, len);
+    let start = (len as f32 * burst_start_frac.clamp(0.0, 1.0)) as usize;
+    let width = (len as f32 * burst_width_frac.clamp(0.0, 1.0)).max(1.0) as usize;
+    let end = (start + width).min(len);
+    for x in signal.iter_mut().take(end).skip(start) {
+        *x += burst_amplitude;
+    }
+    signal
+}
+
 fn angular_error_deg(measured: f32, expected: f32) -> f32 {
     let mut err = (measured - expected).abs();
     if err > 180.0 {
@@ -674,6 +693,79 @@ fn test_bearing_channel_gain_phase_imbalance_sweep() {
             let m = calc
                 .process_buffer(&signal, &tick)
                 .expect("channel imbalance perturbation should still produce a measurement");
+            let err = angular_error_deg(m.raw_bearing, expected_bearing);
+            let method_name = match method {
+                Method::Correlation => "correlation",
+                Method::ZeroCrossing => "zero_crossing",
+            };
+
+            assert!(
+                m.raw_bearing.is_finite() && m.bearing_degrees.is_finite() && m.confidence.is_finite(),
+                "perturbation={} method={} should keep finite outputs",
+                name,
+                method_name
+            );
+            assert!(
+                (err - reference_err).abs() <= 120.0,
+                "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
+                name,
+                method_name,
+                reference_err,
+                err
+            );
+        }
+    }
+}
+
+#[test]
+fn test_bearing_impulsive_burst_offset_sweep() {
+    let sample_rate = 48_000.0;
+    let rotation_hz = 1_602.0;
+    let expected_bearing = 173.0;
+    let len = 4096usize;
+    let samples_per_rotation = sample_rate / rotation_hz;
+
+    // Perturbation: short impulsive burst at varying offsets.
+    let cases = [
+        ("impulse_none_reference", 0.0_f32, 0.0_f32, 0.0_f32),
+        ("impulse_start_5pct_width_0.5pct_amp_2.0", 0.05_f32, 0.005_f32, 2.0_f32),
+        ("impulse_mid_50pct_width_0.5pct_amp_2.0", 0.50_f32, 0.005_f32, 2.0_f32),
+        ("impulse_late_90pct_width_0.5pct_amp_2.0", 0.90_f32, 0.005_f32, 2.0_f32),
+        ("impulse_start_10pct_width_1.0pct_amp_3.0", 0.10_f32, 0.010_f32, 3.0_f32),
+        ("impulse_mid_60pct_width_1.0pct_amp_3.0", 0.60_f32, 0.010_f32, 3.0_f32),
+    ];
+
+    for method in [Method::Correlation, Method::ZeroCrossing] {
+        let doppler_config = DopplerConfig {
+            expected_freq: rotation_hz,
+            bandpass_low: 1500.0,
+            bandpass_high: 1700.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let tick = make_north_tick(samples_per_rotation);
+
+        let mut ref_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+        let ref_signal = make_signal(sample_rate, rotation_hz, expected_bearing, len);
+        let reference = ref_calc
+            .process_buffer(&ref_signal, &tick)
+            .expect("impulse reference should produce measurement");
+        let reference_err = angular_error_deg(reference.raw_bearing, expected_bearing);
+
+        for (name, start_frac, width_frac, amp) in cases {
+            let mut calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+            let signal = make_signal_with_impulsive_burst(
+                sample_rate,
+                rotation_hz,
+                expected_bearing,
+                len,
+                start_frac,
+                width_frac,
+                amp,
+            );
+            let m = calc
+                .process_buffer(&signal, &tick)
+                .expect("impulsive perturbation should still produce a measurement");
             let err = angular_error_deg(m.raw_bearing, expected_bearing);
             let method_name = match method {
                 Method::Correlation => "correlation",
