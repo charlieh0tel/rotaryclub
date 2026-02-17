@@ -49,6 +49,9 @@ jobs:
     - name: Check north tick timing metrics
       run: python3 scripts/north_tick_timing_report.py ci --profile baseline
 
+    - name: Check system pipeline performance metrics
+      run: python3 scripts/system_pipeline_report.py ci --profile baseline
+
     - name: Build examples
       run: cargo build --examples --verbose
 
@@ -71,6 +74,16 @@ jobs:
           target/bearing-perf/bearing_performance_metrics.csv
           target/bearing-perf/bearing_performance_baseline_summary.md
           target/bearing-perf/bearing_performance_baseline_failed_rows.csv
+
+    - name: Upload system pipeline performance metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: system-pipeline-performance-metrics
+        path: |
+          target/system-pipeline-perf/system_pipeline_performance_metrics.csv
+          target/system-pipeline-perf/system_pipeline_performance_baseline_summary.md
+          target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.csv
 
     - name: Publish bearing performance summary
       if: always()
@@ -104,6 +117,23 @@ jobs:
         python3 scripts/north_tick_timing_report.py failed-rows \
           target/timing-metrics/north_tick_timing_baseline_failed_rows.csv \
           --title "Baseline Threshold Failures (Top Rows)" \
+          --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Publish system pipeline performance summary
+      if: always()
+      run: |
+        if [ -f target/system-pipeline-perf/system_pipeline_performance_baseline_summary.md ]; then
+          cat target/system-pipeline-perf/system_pipeline_performance_baseline_summary.md >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "system_pipeline_performance_baseline_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Publish system pipeline performance failing rows
+      if: always()
+      run: |
+        python3 scripts/system_pipeline_report.py failed-rows \
+          target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.csv \
+          --title "System Pipeline Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
   clippy:
@@ -274,4 +304,67 @@ jobs:
         python3 scripts/bearing_performance_report.py failed-rows \
           target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv \
           --title "Bearing Performance Strict Threshold Failures (Top Rows)" \
+          --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
+
+  system-pipeline-strict:
+    name: System Pipeline Strict (Informational)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-system-pipeline-strict-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
+
+    - name: Check system pipeline performance metrics (strict profile)
+      run: |
+        set +e
+        python3 scripts/system_pipeline_report.py ci --profile strict --out-dir target/system-pipeline-perf-strict
+        status=$?
+        if [ $status -ne 0 ]; then
+          echo "Strict system-pipeline thresholds exceeded (informational)." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Strict system-pipeline thresholds passed." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit 0
+
+    - name: Upload system pipeline strict metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: system-pipeline-performance-metrics-strict
+        path: |
+          target/system-pipeline-perf-strict/system_pipeline_performance_metrics.csv
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_summary.md
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.csv
+
+    - name: Publish system pipeline strict summary
+      if: always()
+      run: |
+        if [ -f target/system-pipeline-perf-strict/system_pipeline_performance_strict_summary.md ]; then
+          cat target/system-pipeline-perf-strict/system_pipeline_performance_strict_summary.md >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "system_pipeline_performance_strict_summary.md not found" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Publish system pipeline strict failing rows
+      if: always()
+      run: |
+        python3 scripts/system_pipeline_report.py failed-rows \
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.csv \
+          --title "System Pipeline Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
