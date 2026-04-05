@@ -10,6 +10,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  rust-ci:
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@main
+    with:
+      build-deps: "libasound2-dev libdbus-1-dev"
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -132,50 +137,6 @@ jobs:
           target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.csv \
           --title "System Pipeline Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
-
-    - name: Cache cargo
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
-
-    - name: Run clippy
-      run: cargo clippy --all-features --all-targets -- -D warnings
-
-  fmt:
-    name: Formatting
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt
-
-    - name: Check formatting
-      run: cargo fmt -- --check
 
   strict-informational:
     name: Strict Thresholds (Informational)
