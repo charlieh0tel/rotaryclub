@@ -15,5 +15,4 @@ jobs:
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@main
     with:
       build-deps: "libasound2-dev libdbus-1-dev"
-      build-deps-arm64: "libasound2-dev:arm64 libdbus-1-dev:arm64"
     secrets: inherit
