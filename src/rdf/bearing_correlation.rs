@@ -6,6 +6,11 @@ use super::bearing::MIN_POWER_THRESHOLD;
 const COHERENCE_WINDOW_COUNT: usize = 4;
 const MAX_PHASE_VARIANCE: f32 = PI * PI / 3.0;
 const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
+// Below this normalized correlation magnitude there is no Doppler tone to
+// measure (a dead channel yields i = q = 0 and atan2(0, 0) would report a
+// confident 0 degrees); samples are normalized to +/-1.0, so real noise
+// floors sit orders of magnitude above this.
+const MIN_CORRELATION_MAGNITUDE: f32 = 1e-6;
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
@@ -101,6 +106,13 @@ impl CorrelationBearingCalculator {
         // Calculate signal power for confidence metric
         let signal_power = power_sum / n;
         let correlation_magnitude = (i * i + q * q).sqrt();
+
+        // No measurable Doppler tone (e.g. muted or disconnected channel):
+        // suppress the measurement rather than emit atan2(0, 0) = 0 degrees,
+        // and keep the smoothing window uncontaminated.
+        if correlation_magnitude < MIN_CORRELATION_MAGNITUDE {
+            return None;
+        }
 
         // Calculate confidence metrics
         let metrics = self.calculate_metrics(north_tick, signal_power, correlation_magnitude);
@@ -389,6 +401,47 @@ mod tests {
             err_corrected < 10.0,
             "Corrected bearing error too large: {}",
             err_corrected
+        );
+    }
+
+    #[test]
+    fn test_silent_doppler_channel_yields_no_bearing() {
+        // A dead Doppler channel used to produce atan2(0, 0) = 0 and a
+        // stream of confident 0-degree bearings.
+        let sample_rate = 48000.0;
+        let doppler_config = DopplerConfig {
+            expected_freq: 480.0,
+            bandpass_low: 400.0,
+            bandpass_high: 560.0,
+            ..Default::default()
+        };
+        let agc_config = AgcConfig::default();
+        let mut calc = CorrelationBearingCalculator::new(
+            &doppler_config,
+            &agc_config,
+            ConfidenceWeights::default(),
+            sample_rate,
+            1,
+        )
+        .unwrap();
+
+        let samples_per_rotation = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / samples_per_rotation;
+        let north_tick = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+            lock_quality: None,
+            fractional_sample_offset: 0.0,
+            phase: 0.0,
+            frequency: omega,
+        };
+
+        let buffer = vec![0.0f32; 4800];
+        let measurement = calc.process_buffer(&buffer, &north_tick);
+        assert!(
+            measurement.is_none(),
+            "Silent Doppler channel must not produce a bearing, got {:?}",
+            measurement.map(|m| m.raw_bearing)
         );
     }
 
