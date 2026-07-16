@@ -118,6 +118,12 @@ struct Manifest {
     files: Vec<ManifestEntry>,
 }
 
+// One decimal place keeps fractional sweeps (e.g. 0-2:0.5) from writing
+// different bearings to the same file.
+fn bearing_filename(prefix: &str, bearing: f32, trial: u32) -> String {
+    format!("{}_b{:05.1}_t{:02}.wav", prefix, bearing, trial)
+}
+
 fn parse_bearings(s: &str) -> Result<Vec<f32>> {
     if s.contains(':') {
         let parts: Vec<&str> = s.split(':').collect();
@@ -306,7 +312,7 @@ fn main() -> Result<()> {
                 &noise_config,
             );
 
-            let filename = format!("{}_b{:03}_t{:02}.wav", file_prefix, bearing as i32, trial);
+            let filename = bearing_filename(&file_prefix, bearing, trial);
             let filepath = args.output_dir.join(&filename);
 
             save_wav(filepath.to_str().unwrap(), &signal, args.sample_rate)
@@ -367,6 +373,15 @@ mod tests {
     fn test_parse_bearings_range_full_circle() {
         let bearings = parse_bearings("0-360:90").unwrap();
         assert_eq!(bearings, vec![0.0, 90.0, 180.0, 270.0, 360.0]);
+    }
+
+    #[test]
+    fn test_bearing_filenames_distinct_for_fractional_bearings() {
+        // b045-style integer names used to collide for fractional sweeps.
+        assert_eq!(bearing_filename("synth", 0.0, 0), "synth_b000.0_t00.wav");
+        assert_eq!(bearing_filename("synth", 0.5, 0), "synth_b000.5_t00.wav");
+        assert_eq!(bearing_filename("synth", 137.5, 3), "synth_b137.5_t03.wav");
+        assert_eq!(bearing_filename("synth", 360.0, 10), "synth_b360.0_t10.wav");
     }
 
     #[test]
