@@ -33,7 +33,7 @@ struct Args {
     swap_channels: bool,
 
     /// Output rate in Hz
-    #[arg(short = 'r', long, default_value = "10.0")]
+    #[arg(short = 'r', long, default_value = "10.0", value_parser = parse_output_rate)]
     output_rate: f32,
 
     /// North reference offset in degrees (added to all bearings)
@@ -71,6 +71,15 @@ struct Args {
     /// List available input devices and exit
     #[arg(long)]
     list_devices: bool,
+}
+
+fn parse_output_rate(s: &str) -> Result<f32, String> {
+    let rate: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
+    if rate.is_finite() && rate > 0.0 {
+        Ok(rate)
+    } else {
+        Err("output rate must be a positive, finite number of Hz".to_string())
+    }
 }
 
 fn main() -> anyhow::Result<()> {
