@@ -285,10 +285,14 @@ impl DpllNorthTracker {
 
             // Convert phase error to a bounded fractional timing correction,
             // but only once lock statistics indicate stable tracking.
+            // phase_error = -phase, so positive NCO phase at the peak means the
+            // oscillator's zero crossing occurred phase/frequency samples earlier;
+            // the correction must shift the tick earlier (negative), i.e.
+            // phase_error/frequency = -phase/frequency.
             let phase_timing_correction = if self.stable_enough_for_phase_correction()
                 && self.frequency > FREQUENCY_EPSILON
             {
-                (-phase_error / self.frequency).clamp(
+                (phase_error / self.frequency).clamp(
                     -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
                     MAX_PHASE_TIMING_CORRECTION_SAMPLES,
                 )
@@ -515,6 +519,76 @@ mod tests {
             (freq - 480.0).abs() < 0.5,
             "DPLL locked to {} Hz, expected 480 Hz",
             freq
+        );
+    }
+
+    #[test]
+    fn test_dpll_phase_correction_reduces_timing_error() {
+        // Regression test for a sign inversion in the fractional timing
+        // correction. Pulses at fractional period 30.4 samples (~1578.9 Hz
+        // @ 48 kHz) land on quantized integer samples; the phase correction
+        // should recover sub-sample timing. Measured steady-state RMS error:
+        // correct sign 0.20 samples, correction disabled 0.28, inverted
+        // sign 0.37 — the 0.25 bound fails both regressions.
+        let sample_rate = 48_000.0;
+        let config = NorthTickConfig {
+            dpll: DpllConfig {
+                initial_frequency_hz: 1_578.9,
+                natural_frequency_hz: 15.0,
+                damping_ratio: 0.707,
+                frequency_min_hz: 1_400.0,
+                frequency_max_hz: 1_800.0,
+            },
+            ..Default::default()
+        };
+        let mut tracker = DpllNorthTracker::new(&config, sample_rate).unwrap();
+
+        let period = 30.4f64;
+        let total_samples = 120_000usize;
+        let n_pulses = ((total_samples as f64 - 100.0) / period) as usize;
+        let true_times: Vec<f64> = (0..n_pulses).map(|k| 50.0 + k as f64 * period).collect();
+        let mut signal = vec![0.0f32; total_samples];
+        for t in &true_times {
+            signal[t.round() as usize] = config.expected_pulse_amplitude;
+        }
+
+        let mut ticks = Vec::new();
+        for buffer in signal.chunks(1024) {
+            ticks.extend(tracker.process_buffer(buffer));
+        }
+        assert!(ticks.len() > 1000, "got {} ticks", ticks.len());
+
+        // Steady state: last half of the run.
+        let steady = &ticks[ticks.len() / 2..];
+        let errors: Vec<f64> = steady
+            .iter()
+            .map(|t| {
+                let measured = t.sample_index as f64 + t.fractional_sample_offset as f64;
+                let nearest = true_times
+                    .iter()
+                    .map(|&tt| measured - tt)
+                    .min_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap())
+                    .unwrap();
+                nearest
+            })
+            .collect();
+        let mean = errors.iter().sum::<f64>() / errors.len() as f64;
+        let rms_about_mean =
+            (errors.iter().map(|e| (e - mean).powi(2)).sum::<f64>() / errors.len() as f64).sqrt();
+        let n_corrected = steady
+            .iter()
+            .filter(|t| t.fractional_sample_offset.abs() > 1e-6)
+            .count();
+        assert!(
+            n_corrected > steady.len() / 2,
+            "phase correction should be active in steady state ({} of {} ticks corrected)",
+            n_corrected,
+            steady.len()
+        );
+        assert!(
+            rms_about_mean < 0.25,
+            "steady-state RMS timing error {:.4} samples exceeds 0.25",
+            rms_about_mean
         );
     }
 
