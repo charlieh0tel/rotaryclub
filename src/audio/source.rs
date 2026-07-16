@@ -14,27 +14,42 @@ pub trait AudioSource: Send {
     fn sample_rate(&self) -> u32;
 }
 
+// ~700 ms of slack at the default 1024-sample buffers / 48 kHz before the
+// capture callback starts dropping chunks.
+const CAPTURE_CHANNEL_DEPTH: usize = 32;
+
 pub struct DeviceSource {
     rx: Receiver<Vec<f32>>,
     #[allow(dead_code)]
     sample_rate: u32,
-    _capture: AudioCapture,
+    capture: AudioCapture,
+    reported_drops: u64,
 }
 
 impl DeviceSource {
     pub fn new(config: &AudioConfig, device_name: Option<&str>) -> anyhow::Result<Self> {
-        let (tx, rx) = crossbeam_channel::bounded(10);
+        let (tx, rx) = crossbeam_channel::bounded(CAPTURE_CHANNEL_DEPTH);
         let capture = AudioCapture::new(config, tx, device_name)?;
         Ok(Self {
             rx,
             sample_rate: config.sample_rate,
-            _capture: capture,
+            capture,
+            reported_drops: 0,
         })
     }
 }
 
 impl AudioSource for DeviceSource {
     fn next_buffer(&mut self) -> anyhow::Result<Option<Vec<f32>>> {
+        let dropped = self.capture.dropped_chunks();
+        if dropped > self.reported_drops {
+            log::warn!(
+                "Audio capture dropped {} chunk(s), {} total (processing too slow)",
+                dropped - self.reported_drops,
+                dropped
+            );
+            self.reported_drops = dropped;
+        }
         match self.rx.recv() {
             Ok(data) => Ok(Some(data)),
             Err(_) => Ok(None),

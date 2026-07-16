@@ -2,7 +2,9 @@ use crate::config::AudioConfig;
 use crate::error::{RdfError, Result};
 use audio_thread_priority::RtPriorityHandle;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Sender, TrySendError};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub fn list_input_devices() -> Result<Vec<String>> {
     let host = cpal::default_host();
@@ -21,6 +23,7 @@ pub fn list_input_devices() -> Result<Vec<String>> {
 pub struct AudioCapture {
     stream: cpal::Stream,
     _rt_handle: Option<RtPriorityHandle>,
+    dropped_chunks: Arc<AtomicU64>,
 }
 
 impl AudioCapture {
@@ -65,13 +68,23 @@ impl AudioCapture {
         };
 
         // Build input stream with callback
+        let dropped_chunks = Arc::new(AtomicU64::new(0));
+        let dropped_chunks_cb = Arc::clone(&dropped_chunks);
         let stream = device
             .build_input_stream(
                 &stream_config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    // Send audio data to processing thread
-                    if tx.send(data.to_vec()).is_err() {
-                        log::warn!("Audio receiver dropped");
+                    // This runs on the real-time audio thread: never block.
+                    // If the consumer lags and the channel fills, drop the
+                    // chunk and account for it instead of stalling the driver.
+                    match tx.try_send(data.to_vec()) {
+                        Ok(()) => {}
+                        Err(TrySendError::Full(_)) => {
+                            dropped_chunks_cb.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(TrySendError::Disconnected(_)) => {
+                            log::warn!("Audio receiver dropped");
+                        }
                     }
                 },
                 |err| eprintln!("Audio stream error: {}", err),
@@ -100,7 +113,13 @@ impl AudioCapture {
         Ok(Self {
             stream,
             _rt_handle: rt_handle,
+            dropped_chunks,
         })
+    }
+
+    /// Total audio chunks dropped because the consumer could not keep up.
+    pub fn dropped_chunks(&self) -> u64 {
+        self.dropped_chunks.load(Ordering::Relaxed)
     }
 }
 

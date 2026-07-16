@@ -601,12 +601,11 @@ mod tests {
             .iter()
             .map(|t| {
                 let measured = t.sample_index as f64 + t.fractional_sample_offset as f64;
-                let nearest = true_times
+                true_times
                     .iter()
                     .map(|&tt| measured - tt)
                     .min_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap())
-                    .unwrap();
-                nearest
+                    .unwrap()
             })
             .collect();
         let mean = errors.iter().sum::<f64>() / errors.len() as f64;
