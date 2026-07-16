@@ -11,6 +11,12 @@ use crate::constants::INTERPOLATION_EPSILON;
 pub struct ZeroCrossingDetector {
     hysteresis: f32,
     armed: bool,
+    // Carried across find_all_crossings calls so a crossing that straddles a
+    // buffer boundary is interpolated instead of snapped to index 0.
+    prev_sample: Option<f32>,
+    // Crossing detected but not yet confirmed by the hysteresis threshold,
+    // expressed relative to the current buffer (negative once carried over).
+    pending_crossing: Option<f32>,
 }
 
 impl ZeroCrossingDetector {
@@ -22,6 +28,8 @@ impl ZeroCrossingDetector {
         Self {
             hysteresis,
             armed: false,
+            prev_sample: None,
+            pending_crossing: None,
         }
     }
 
@@ -56,25 +64,24 @@ impl ZeroCrossingDetector {
             return crossings;
         }
 
-        let mut prev_sample = buffer[0];
-        let mut pending_crossing: Option<f32> = None;
+        let mut prev_sample = self.prev_sample;
+        let mut pending_crossing = self.pending_crossing.take();
 
-        if prev_sample < -self.hysteresis {
-            self.armed = true;
-        }
-        if self.armed && prev_sample > self.hysteresis {
-            crossings.push(0.0);
-            self.armed = false;
-        }
-
-        for (i, &sample) in buffer.iter().enumerate().skip(1) {
+        for (i, &sample) in buffer.iter().enumerate() {
             if sample < -self.hysteresis {
                 self.armed = true;
                 pending_crossing = None;
             }
 
-            if self.armed && pending_crossing.is_none() && prev_sample <= 0.0 && sample > 0.0 {
-                let denominator = sample - prev_sample;
+            if self.armed
+                && pending_crossing.is_none()
+                && sample > 0.0
+                && let Some(prev) = prev_sample.filter(|&p| p <= 0.0)
+            {
+                // A crossing straddling the buffer boundary interpolates
+                // against the previous buffer's last sample, yielding a
+                // small negative position (before this buffer's start).
+                let denominator = sample - prev;
                 let crossing = if denominator.abs() > INTERPOLATION_EPSILON {
                     let fraction = sample / denominator;
                     i as f32 - fraction
@@ -90,8 +97,12 @@ impl ZeroCrossingDetector {
                 pending_crossing = None;
             }
 
-            prev_sample = sample;
+            prev_sample = Some(sample);
         }
+
+        self.prev_sample = prev_sample;
+        // Re-express an unconfirmed crossing relative to the next buffer.
+        self.pending_crossing = pending_crossing.map(|c| c - buffer.len() as f32);
 
         crossings
     }
@@ -159,6 +170,44 @@ mod tests {
         assert_eq!(crossings.len(), 1);
         let expected = 1.0 - 0.5 / (0.5 - (-0.5));
         assert!((crossings[0] - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_zero_crossings_identical_when_split_across_buffers() {
+        // Regression test: crossings straddling a buffer boundary used to be
+        // reported at index 0 of the new buffer instead of interpolated
+        // against the previous buffer's last sample.
+        let signal: Vec<f32> = (0..200).map(|i| (i as f32 * 0.1).sin()).collect();
+
+        let mut whole_detector = ZeroCrossingDetector::new(0.01);
+        let whole = whole_detector.find_all_crossings(&signal);
+        assert!(!whole.is_empty());
+
+        // Split right after sample 62, mid-crossing (sin goes -0.083 -> 0.017).
+        for split_at in [1usize, 30, 63, 100, 199] {
+            let mut split_detector = ZeroCrossingDetector::new(0.01);
+            let mut split_crossings = Vec::new();
+            for (start, chunk) in [(0, &signal[..split_at]), (split_at, &signal[split_at..])] {
+                for c in split_detector.find_all_crossings(chunk) {
+                    split_crossings.push(start as f32 + c);
+                }
+            }
+            assert_eq!(
+                whole.len(),
+                split_crossings.len(),
+                "crossing count differs for split at {}",
+                split_at
+            );
+            for (w, s) in whole.iter().zip(&split_crossings) {
+                assert!(
+                    (w - s).abs() < 1e-3,
+                    "split at {}: whole {} vs split {}",
+                    split_at,
+                    w,
+                    s
+                );
+            }
+        }
     }
 
     #[test]
