@@ -319,6 +319,12 @@ fn analyze_file_impl(
 
     let chunk_size = config.audio.buffer_size * 2;
     let mut source: Box<dyn AudioSource> = Box::new(WavFileSource::new(path, chunk_size)?);
+
+    // The DSP chain and the microsecond period scaling below must use the
+    // file's actual sample rate, not the configured default.
+    let mut config = config.clone();
+    config.audio.sample_rate = source.sample_rate();
+    let config = &config;
     let sample_rate = config.audio.sample_rate as f32;
 
     let mut processor = RdfProcessor::new(config, remove_dc, !no_bearing)?;

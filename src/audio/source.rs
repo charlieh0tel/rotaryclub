@@ -8,7 +8,6 @@ use hound::WavReader;
 use super::AudioCapture;
 use crate::config::AudioConfig;
 
-#[allow(dead_code)]
 pub trait AudioSource: Send {
     fn next_buffer(&mut self) -> anyhow::Result<Option<Vec<f32>>>;
     fn sample_rate(&self) -> u32;
@@ -20,7 +19,6 @@ const CAPTURE_CHANNEL_DEPTH: usize = 32;
 
 pub struct DeviceSource {
     rx: Receiver<Vec<f32>>,
-    #[allow(dead_code)]
     sample_rate: u32,
     capture: AudioCapture,
     reported_drops: u64,
@@ -65,7 +63,6 @@ pub struct WavFileSource {
     samples: Vec<f32>,
     position: usize,
     chunk_size: usize,
-    #[allow(dead_code)]
     sample_rate: u32,
 }
 

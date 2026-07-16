@@ -126,6 +126,25 @@ fn main() -> anyhow::Result<()> {
         config.audio.north_tick_channel = ChannelRole::Left;
     }
 
+    let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
+        Some(path) => {
+            eprintln!("Loading WAV file: {}", path.display());
+            let chunk_size = config.audio.buffer_size * 2;
+            (Box::new(WavFileSource::new(path, chunk_size)?), false)
+        }
+        None => {
+            eprintln!("Starting audio capture...");
+            (
+                Box::new(DeviceSource::new(&config.audio, args.device.as_deref())?),
+                true,
+            )
+        }
+    };
+
+    // The DSP chain (filters, DPLL bounds, period scaling) is built from the
+    // configured rate, so it must match the source's actual rate.
+    config.audio.sample_rate = source.sample_rate();
+
     eprintln!("=== Rotary Club - Pseudo Doppler RDF ===");
     eprintln!("Sample rate: {} Hz", config.audio.sample_rate);
     eprintln!(
@@ -145,21 +164,6 @@ fn main() -> anyhow::Result<()> {
         config.audio.doppler_channel, config.audio.north_tick_channel
     );
     eprintln!();
-
-    let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
-        Some(path) => {
-            eprintln!("Loading WAV file: {}", path.display());
-            let chunk_size = config.audio.buffer_size * 2;
-            (Box::new(WavFileSource::new(path, chunk_size)?), false)
-        }
-        None => {
-            eprintln!("Starting audio capture...");
-            (
-                Box::new(DeviceSource::new(&config.audio, args.device.as_deref())?),
-                true,
-            )
-        }
-    };
 
     eprintln!("Processing...");
 

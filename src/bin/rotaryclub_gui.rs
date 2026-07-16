@@ -102,7 +102,6 @@ struct FilePlaybackConfig {
     input_path: PathBuf,
     config: RdfConfig,
     remove_dc: bool,
-    sample_rate: u32,
 }
 
 fn spawn_file_processing(
@@ -116,9 +115,11 @@ fn spawn_file_processing(
 ) -> anyhow::Result<thread::JoinHandle<()>> {
     let chunk_size = fc.config.audio.buffer_size * 2;
     let source: Box<dyn AudioSource> = Box::new(WavFileSource::new(&fc.input_path, chunk_size)?);
-    let config = fc.config.clone();
+    // The DSP chain must be built with the file's actual sample rate.
+    let mut config = fc.config.clone();
+    config.audio.sample_rate = source.sample_rate();
     let remove_dc = fc.remove_dc;
-    let sample_rate = fc.sample_rate;
+    let sample_rate = config.audio.sample_rate;
 
     let handle = thread::spawn(move || {
         if let Err(e) = run_processing(
@@ -171,7 +172,6 @@ fn start_processing(
             input_path: path.clone(),
             config: config.clone(),
             remove_dc: args.remove_dc,
-            sample_rate: config.audio.sample_rate,
         };
 
         let handle = spawn_file_processing(
