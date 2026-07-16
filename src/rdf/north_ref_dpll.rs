@@ -11,6 +11,7 @@ use super::north_ref_common::{
 };
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
+const DEAD_TIME_FRACTION_OF_MAX_PERIOD: f32 = 0.8;
 const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
@@ -184,7 +185,12 @@ impl DpllNorthTracker {
             )));
         }
 
-        let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
+        // Derive the detector dead time from the configured tracking band so
+        // it can never reject valid ticks at frequency_max_hz (a fixed
+        // min_interval_ms of 0.6 ms capped detection at ~1714 Hz while the
+        // band advertised 1800 Hz).
+        let min_samples =
+            (DEAD_TIME_FRACTION_OF_MAX_PERIOD * sample_rate / frequency_max_hz) as usize;
         let gain = 10.0_f32.powf(config.gain_db / 20.0);
 
         // Initial frequency estimate from config
@@ -519,6 +525,37 @@ mod tests {
             (freq - 480.0).abs() < 0.5,
             "DPLL locked to {} Hz, expected 480 Hz",
             freq
+        );
+    }
+
+    #[test]
+    fn test_dpll_detects_ticks_at_frequency_max() {
+        // Regression test: the peak-detector dead time used to be a fixed
+        // 0.6 ms (28 samples @ 48 kHz), which rejected every other tick above
+        // ~1714 Hz even though the configured band extends to 1800 Hz.
+        let sample_rate = 48_000.0;
+        let config = NorthTickConfig::default();
+        let freq_max = config.dpll.frequency_max_hz;
+        let mut tracker = DpllNorthTracker::new(&config, sample_rate).unwrap();
+
+        let period = sample_rate as f64 / freq_max as f64;
+        let total_samples = 48_000usize;
+        let n_pulses = ((total_samples as f64 - 100.0) / period) as usize;
+        let mut signal = vec![0.0f32; total_samples];
+        for k in 0..n_pulses {
+            signal[(50.0 + k as f64 * period).round() as usize] = config.expected_pulse_amplitude;
+        }
+
+        let mut ticks = 0;
+        for buffer in signal.chunks(1024) {
+            ticks += tracker.process_buffer(buffer).len();
+        }
+        assert!(
+            ticks >= n_pulses * 9 / 10,
+            "detected {} of {} ticks at frequency_max {} Hz",
+            ticks,
+            n_pulses,
+            freq_max
         );
     }
 

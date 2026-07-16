@@ -259,6 +259,8 @@ pub struct NorthTickConfig {
     /// Used to compute threshold crossing offset on FIR impulse response
     pub expected_pulse_amplitude: f32,
     /// Minimum interval between pulses in milliseconds
+    /// (Simple tracker only; the DPLL derives its dead time from
+    /// dpll.frequency_max_hz)
     pub min_interval_ms: f32,
     /// DPLL configuration (only used when mode is Dpll)
     pub dpll: DpllConfig,
