@@ -271,7 +271,7 @@ impl DpllNorthTracker {
                 let min_spacing = period_estimate * MIN_TICK_SPACING_FRACTION;
                 let delta = compensated_sample.saturating_sub(last) as f32;
                 if delta < min_spacing {
-                    last_sample_idx = peak_idx + 1;
+                    last_sample_idx = peak_idx;
                     continue;
                 }
             }
@@ -334,7 +334,7 @@ impl DpllNorthTracker {
                 frequency: self.frequency,
             });
 
-            last_sample_idx = peak_idx + 1;
+            last_sample_idx = peak_idx;
         }
 
         // Advance phase for remaining samples after the last peak
@@ -475,6 +475,47 @@ mod tests {
                 closest_pulse
             );
         }
+    }
+
+    #[test]
+    fn test_dpll_locks_to_true_frequency() {
+        // Regression test for an off-by-one in phase advancement that made
+        // the loop lock to sample_rate/(period-1) instead of sample_rate/period
+        // (484.85 Hz instead of 480 Hz for a 100-sample period at 48 kHz).
+        let sample_rate = 48_000.0;
+        let config = NorthTickConfig {
+            dpll: DpllConfig {
+                initial_frequency_hz: 480.0,
+                natural_frequency_hz: 10.0,
+                damping_ratio: 0.707,
+                frequency_min_hz: 300.0,
+                frequency_max_hz: 800.0,
+            },
+            ..Default::default()
+        };
+        let mut tracker = DpllNorthTracker::new(&config, sample_rate).unwrap();
+
+        // Pulses at exactly 480 Hz (period 100 samples), split across buffers
+        // so cross-buffer phase accounting is exercised too.
+        let period = 100;
+        let buffer_len = 1024;
+        let total_samples = 50_000;
+        let mut signal = vec![0.0f32; total_samples];
+        for idx in (50..total_samples).step_by(period) {
+            signal[idx] = config.expected_pulse_amplitude;
+        }
+        for buffer in signal.chunks(buffer_len) {
+            tracker.process_buffer(buffer);
+        }
+
+        let freq = tracker
+            .rotation_frequency()
+            .expect("tracker should be tracking a frequency");
+        assert!(
+            (freq - 480.0).abs() < 0.5,
+            "DPLL locked to {} Hz, expected 480 Hz",
+            freq
+        );
     }
 
     #[test]
