@@ -82,8 +82,8 @@ impl FromStr for RotationFrequency {
                 .trim()
                 .parse()
                 .map_err(|_| format!("invalid interval: {}", s))?;
-            if us <= 0.0 {
-                return Err("interval must be positive".to_string());
+            if !us.is_finite() || us <= 0.0 {
+                return Err("interval must be a positive, finite number".to_string());
             }
             return Ok(Self::from_interval_us(us));
         }
@@ -99,8 +99,8 @@ impl FromStr for RotationFrequency {
             .trim()
             .parse()
             .map_err(|_| format!("invalid frequency: {}", s))?;
-        if hz <= 0.0 {
-            return Err("frequency must be positive".to_string());
+        if !hz.is_finite() || hz <= 0.0 {
+            return Err("frequency must be a positive, finite number".to_string());
         }
         Ok(Self::from_hz(hz))
     }
@@ -495,5 +495,15 @@ mod tests {
         assert!("abc".parse::<RotationFrequency>().is_err());
         assert!("-100hz".parse::<RotationFrequency>().is_err());
         assert!("0us".parse::<RotationFrequency>().is_err());
+    }
+
+    #[test]
+    fn test_rotation_frequency_rejects_non_finite() {
+        // NaN/inf pass a `<= 0` check and used to propagate through the DPLL
+        // into the output (including bare NaN in JSON).
+        assert!("NaN".parse::<RotationFrequency>().is_err());
+        assert!("nanhz".parse::<RotationFrequency>().is_err());
+        assert!("inf".parse::<RotationFrequency>().is_err());
+        assert!("infus".parse::<RotationFrequency>().is_err());
     }
 }
