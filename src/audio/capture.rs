@@ -19,6 +19,10 @@ pub fn list_input_devices() -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// Message from the capture callbacks: a chunk of interleaved samples, or a
+/// fatal stream error that ends capture.
+pub type AudioMessage = std::result::Result<Vec<f32>, cpal::StreamError>;
+
 pub struct AudioCapture {
     stream: cpal::Stream,
     dropped_chunks: Arc<AtomicU64>,
@@ -27,7 +31,7 @@ pub struct AudioCapture {
 impl AudioCapture {
     pub fn new(
         config: &AudioConfig,
-        tx: Sender<Vec<f32>>,
+        tx: Sender<AudioMessage>,
         device_name: Option<&str>,
     ) -> Result<Self> {
         let host = cpal::default_host();
@@ -68,6 +72,7 @@ impl AudioCapture {
         // Build input stream with callback
         let dropped_chunks = Arc::new(AtomicU64::new(0));
         let dropped_chunks_cb = Arc::clone(&dropped_chunks);
+        let error_tx = tx.clone();
         let stream = device
             .build_input_stream(
                 &stream_config,
@@ -75,7 +80,7 @@ impl AudioCapture {
                     // This runs on the real-time audio thread: never block.
                     // If the consumer lags and the channel fills, drop the
                     // chunk and account for it instead of stalling the driver.
-                    match tx.try_send(data.to_vec()) {
+                    match tx.try_send(Ok(data.to_vec())) {
                         Ok(()) => {}
                         Err(TrySendError::Full(_)) => {
                             dropped_chunks_cb.fetch_add(1, Ordering::Relaxed);
@@ -85,7 +90,13 @@ impl AudioCapture {
                         }
                     }
                 },
-                |err| eprintln!("Audio stream error: {}", err),
+                move |err| {
+                    // Forward the error so a consumer blocked in recv() wakes
+                    // up instead of hanging after the stream dies. Not the RT
+                    // data callback, so a briefly blocking send is fine.
+                    log::error!("Audio stream error: {}", err);
+                    let _ = error_tx.send(Err(err));
+                },
                 None,
             )
             .map_err(|e| RdfError::AudioStream(format!("{}", e)))?;

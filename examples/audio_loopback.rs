@@ -35,7 +35,11 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         let data = match audio_rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(data) => data,
+            Ok(Ok(data)) => data,
+            Ok(Err(e)) => {
+                eprintln!("Audio stream error: {}", e);
+                break Ok(());
+            }
             Err(_) => continue,
         };
 

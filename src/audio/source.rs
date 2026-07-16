@@ -6,6 +6,7 @@ use crossbeam_channel::Receiver;
 use hound::WavReader;
 
 use super::AudioCapture;
+use super::capture::AudioMessage;
 use crate::config::AudioConfig;
 
 pub trait AudioSource: Send {
@@ -18,7 +19,7 @@ pub trait AudioSource: Send {
 const CAPTURE_CHANNEL_DEPTH: usize = 32;
 
 pub struct DeviceSource {
-    rx: Receiver<Vec<f32>>,
+    rx: Receiver<AudioMessage>,
     sample_rate: u32,
     capture: AudioCapture,
     reported_drops: u64,
@@ -49,7 +50,8 @@ impl AudioSource for DeviceSource {
             self.reported_drops = dropped;
         }
         match self.rx.recv() {
-            Ok(data) => Ok(Some(data)),
+            Ok(Ok(data)) => Ok(Some(data)),
+            Ok(Err(e)) => Err(anyhow::anyhow!("Audio stream error: {}", e)),
             Err(_) => Ok(None),
         }
     }
