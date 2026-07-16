@@ -93,7 +93,8 @@ impl WavFileSource {
         let samples = match spec.sample_format {
             hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
             hound::SampleFormat::Int => {
-                let max_val = 2_i32.pow(spec.bits_per_sample as u32 - 1) as f32;
+                // Compute in f32: 2_i32.pow(31) overflows for 32-bit PCM.
+                let max_val = 2.0_f32.powi(spec.bits_per_sample as i32 - 1);
                 reader
                     .samples::<i32>()
                     .map(|s| s.map(|v| v as f32 / max_val))
@@ -119,5 +120,45 @@ impl AudioSource for WavFileSource {
 
     fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wav_file_source_normalizes_32bit_pcm() {
+        // Regression test: 2_i32.pow(31) overflowed i32 (debug panic,
+        // release polarity inversion) when normalizing 32-bit PCM.
+        let path = std::env::temp_dir().join("rotaryclub_test_pcm32.wav");
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        // One stereo frame at +half scale, one at -half scale.
+        for v in [i32::MAX / 2, i32::MAX / 2, i32::MIN / 2, i32::MIN / 2] {
+            writer.write_sample(v).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let mut source = WavFileSource::new(&path, 8).unwrap();
+        let samples = source.next_buffer().unwrap().unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(samples.len(), 4);
+        for (i, &s) in samples.iter().enumerate() {
+            let expected = if i < 2 { 0.5 } else { -0.5 };
+            assert!(
+                (s - expected).abs() < 1e-3,
+                "sample {} was {}, expected {}",
+                i,
+                s,
+                expected
+            );
+        }
     }
 }
