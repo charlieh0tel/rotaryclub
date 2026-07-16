@@ -132,6 +132,13 @@ fn parse_bearings(s: &str) -> Result<Vec<f32>> {
         let start: f32 = range_parts[0].parse().context("Invalid start value")?;
         let end: f32 = range_parts[1].parse().context("Invalid end value")?;
 
+        if !step.is_finite() || step <= 0.0 {
+            anyhow::bail!("Step must be a positive number, got {}", step);
+        }
+        if start > end {
+            anyhow::bail!("Range start {} must not exceed end {}", start, end);
+        }
+
         let mut bearings = Vec::new();
         let mut b = start;
         while b <= end {
@@ -360,5 +367,14 @@ mod tests {
     fn test_parse_bearings_range_full_circle() {
         let bearings = parse_bearings("0-360:90").unwrap();
         assert_eq!(bearings, vec![0.0, 90.0, 180.0, 270.0, 360.0]);
+    }
+
+    #[test]
+    fn test_parse_bearings_rejects_invalid_steps() {
+        // These used to loop until memory exhaustion.
+        assert!(parse_bearings("0-360:0").is_err());
+        assert!(parse_bearings("0-360:-15").is_err());
+        assert!(parse_bearings("0-360:nan").is_err());
+        assert!(parse_bearings("360-0:15").is_err());
     }
 }
