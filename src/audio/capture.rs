@@ -1,6 +1,5 @@
 use crate::config::AudioConfig;
 use crate::error::{RdfError, Result};
-use audio_thread_priority::RtPriorityHandle;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Sender, TrySendError};
 use std::sync::Arc;
@@ -22,7 +21,6 @@ pub fn list_input_devices() -> Result<Vec<String>> {
 
 pub struct AudioCapture {
     stream: cpal::Stream,
-    _rt_handle: Option<RtPriorityHandle>,
     dropped_chunks: Arc<AtomicU64>,
 }
 
@@ -92,27 +90,16 @@ impl AudioCapture {
             )
             .map_err(|e| RdfError::AudioStream(format!("{}", e)))?;
 
-        // Attempt to promote to real-time priority
-        let rt_handle = audio_thread_priority::promote_current_thread_to_real_time(
-            config.buffer_size as u32,
-            config.sample_rate,
-        );
-
-        let rt_handle = match rt_handle {
-            Ok(handle) => Some(handle),
-            Err(e) => {
-                log::warn!("Could not set real-time priority: {}", e);
-                None
-            }
-        };
-
+        // Real-time priority for the callback thread comes from cpal's
+        // audio_thread_priority feature (enabled in Cargo.toml), which
+        // promotes the stream thread from inside cpal. Promoting from here
+        // would only boost the caller's (setup) thread.
         stream
             .play()
             .map_err(|e| RdfError::AudioStream(format!("{}", e)))?;
 
         Ok(Self {
             stream,
-            _rt_handle: rt_handle,
             dropped_chunks,
         })
     }

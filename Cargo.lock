@@ -894,6 +894,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8942da362c0f0d895d7cac616263f2f9424edc5687364dfd1d25ef7eba506d7"
 dependencies = [
  "alsa",
+ "audio_thread_priority",
  "coreaudio-rs",
  "dasp_sample",
  "jni 0.21.1",
@@ -3284,7 +3285,6 @@ version = "2.2.3"
 dependencies = [
  "anyhow",
  "approx",
- "audio_thread_priority",
  "chrono",
  "clap",
  "cpal",
