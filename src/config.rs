@@ -232,7 +232,7 @@ impl Default for DpllConfig {
             natural_frequency_hz: 1.0,
             damping_ratio: 0.707,
             frequency_min_hz: 1400.0,
-            frequency_max_hz: 1800.0,
+            frequency_max_hz: 1700.0,
         }
     }
 }
@@ -258,9 +258,9 @@ pub struct NorthTickConfig {
     /// Expected pulse amplitude for timing compensation (0-1 range)
     /// Used to compute threshold crossing offset on FIR impulse response
     pub expected_pulse_amplitude: f32,
-    /// Minimum interval between pulses in milliseconds
-    /// (Simple tracker only; the DPLL derives its dead time from
-    /// dpll.frequency_max_hz)
+    /// Minimum interval between pulses in milliseconds. Must be shorter
+    /// than the period at dpll.frequency_max_hz (0.6 ms supports up to
+    /// ~1714 Hz at 48 kHz).
     pub min_interval_ms: f32,
     /// DPLL configuration (only used when mode is Dpll)
     pub dpll: DpllConfig,

@@ -11,7 +11,6 @@ use super::north_ref_common::{
 };
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
-const DEAD_TIME_FRACTION_OF_MAX_PERIOD: f32 = 0.8;
 const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
@@ -185,12 +184,21 @@ impl DpllNorthTracker {
             )));
         }
 
-        // Derive the detector dead time from the configured tracking band so
-        // it can never reject valid ticks at frequency_max_hz (a fixed
-        // min_interval_ms of 0.6 ms capped detection at ~1714 Hz while the
-        // band advertised 1800 Hz).
-        let min_samples =
-            (DEAD_TIME_FRACTION_OF_MAX_PERIOD * sample_rate / frequency_max_hz) as usize;
+        // The detector dead time must be shorter than the period at
+        // frequency_max_hz, or valid ticks at the top of the band are
+        // silently rejected and the tracker sees an aliased half-rate
+        // stream. Shortening the dead time instead measurably hurts
+        // low-SNR detection, so a conflicting configuration is an error.
+        let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
+        let period_at_max = sample_rate / frequency_max_hz;
+        if min_samples as f32 >= period_at_max {
+            return Err(RdfError::Config(format!(
+                "north_tick.min_interval_ms ({} ms = {} samples) must be shorter than the period \
+                 at dpll.frequency_max_hz ({} Hz = {:.1} samples); lower min_interval_ms or \
+                 frequency_max_hz",
+                config.min_interval_ms, min_samples, frequency_max_hz, period_at_max
+            )));
+        }
         let gain = 10.0_f32.powf(config.gain_db / 20.0);
 
         // Initial frequency estimate from config
@@ -529,10 +537,33 @@ mod tests {
     }
 
     #[test]
+    fn test_dpll_rejects_dead_time_conflicting_with_frequency_max() {
+        // 0.6 ms dead time (28 samples @ 48 kHz) supports at most ~1714 Hz;
+        // pairing it with a higher frequency_max_hz used to silently alias
+        // ticks to half rate instead of failing.
+        let config = NorthTickConfig {
+            dpll: DpllConfig {
+                frequency_max_hz: 1_800.0,
+                ..NorthTickConfig::default().dpll
+            },
+            ..Default::default()
+        };
+        let err = match DpllNorthTracker::new(&config, 48_000.0) {
+            Err(e) => e,
+            Ok(_) => panic!("expected a config error for 0.6 ms dead time at 1800 Hz max"),
+        };
+        assert!(
+            err.to_string().contains("min_interval_ms"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
     fn test_dpll_detects_ticks_at_frequency_max() {
-        // Regression test: the peak-detector dead time used to be a fixed
-        // 0.6 ms (28 samples @ 48 kHz), which rejected every other tick above
-        // ~1714 Hz even though the configured band extends to 1800 Hz.
+        // Regression test: the default dead time and frequency_max_hz used
+        // to contradict each other, silently rejecting every other tick at
+        // the top of the configured band (aliased half-rate stream).
         let sample_rate = 48_000.0;
         let config = NorthTickConfig::default();
         let freq_max = config.dpll.frequency_max_hz;
@@ -574,7 +605,7 @@ mod tests {
                 natural_frequency_hz: 15.0,
                 damping_ratio: 0.707,
                 frequency_min_hz: 1_400.0,
-                frequency_max_hz: 1_800.0,
+                frequency_max_hz: 1_700.0,
             },
             ..Default::default()
         };
@@ -637,7 +668,7 @@ mod tests {
                 natural_frequency_hz: 15.0,
                 damping_ratio: 0.707,
                 frequency_min_hz: 1_400.0,
-                frequency_max_hz: 1_800.0,
+                frequency_max_hz: 1_700.0,
             },
             ..Default::default()
         };
