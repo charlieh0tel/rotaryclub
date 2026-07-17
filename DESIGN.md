@@ -35,8 +35,8 @@ bearing = (phase_offset / 2π) × 360°
    - **Simple mode**: Exponential smoothing of period measurements
 
 ### Doppler Tone Extraction (Left Channel)
-1. AGC (Automatic Gain Control) normalizes signal amplitude to 0.5 RMS
-2. Bandpass filter 1500-1700 Hz (extract Doppler tone)
+1. AGC (Automatic Gain Control) normalizes signal amplitude to 0.3 RMS
+2. Bandpass filter 1350-1850 Hz (extract Doppler tone)
 3. Phase extraction (configurable method):
    - **Correlation mode** (default): I/Q demodulation via correlation with sin/cos at rotation frequency. More accurate and robust to noise.
    - **Zero-crossing mode**: Zero-crossing detection with 0.01 hysteresis. Simpler but less accurate.
@@ -50,15 +50,18 @@ Key tunable parameters in `config.rs`:
 
 ```rust
 // AGC
-target_rms: 0.5, attack_time_ms: 10.0, release_time_ms: 100.0
+target_rms: 0.3, attack_time_ms: 10.0, release_time_ms: 100.0
 
 // Doppler processing
-expected_freq: 1602.0, bandpass: 1500-1700 Hz, filter_order: 4
+expected_freq: 1602.56, bandpass: 1350-1850 Hz
 method: Correlation  // or ZeroCrossing
 
 // North tick detection
 highpass_cutoff: 5000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
 mode: Dpll  // or Simple
+// DPLL tracking band: 1400-1700 Hz. min_interval_ms must stay shorter
+// than the period at frequency_max_hz; conflicting values are a config
+// error (0.6 ms supports up to ~1714 Hz at 48 kHz).
 
 // Output
 smoothing_window: 5, output_rate_hz: 10.0
@@ -68,8 +71,9 @@ Channel assignment is configurable via `ChannelRole` enum.
 
 ## Design Decisions
 
-- **IIR filters**: Lower latency and fewer coefficients than
-  FIR. Butterworth provides flat passband.
+- **FIR filters**: Linear phase (constant group delay) so tick timing and
+  Doppler phase survive filtering; the known delay is compensated
+  explicitly in the north trackers.
 - **Bearing extraction methods**: Two options available:
   - **Correlation (default)**: I/Q demodulation, robust to noise
   - **Zero-crossing**: Sub-sample interpolation, lower CPU usage
@@ -77,9 +81,12 @@ Channel assignment is configurable via `ChannelRole` enum.
   provides smooth frequency estimates
 - **48 kHz sample rate**: Standard audio hardware
   support. Alternative: 96/192 kHz would better capture 20µs pulse but
-  increases CPU load.
-- **Single processing thread**: Simple architecture, audio callback
-  uses lock-free channel.
+  increases CPU load. WAV input at other rates is supported: the file's
+  header rate is propagated into the DSP configuration.
+- **Single processing thread**: Simple architecture. The real-time audio
+  callback never blocks: it try_sends into a bounded channel and drops
+  (with accounting) if the consumer lags; stream errors propagate
+  through the same channel.
 
 ## Performance
 
@@ -98,10 +105,12 @@ Test file (11.6s, moving radio source):
 
 ## Future Enhancements
 
-1. **Correlation-based phase detection**: More robust to noise than zero-crossing
-2. **Better confidence metrics**: SNR estimation, coherence measurement
-3. **Calibration system**: Phase offsets, amplitude compensation,
+1. **Calibration system**: Phase offsets, amplitude compensation,
    temperature drift
+
+(Correlation-based phase detection and SNR/coherence confidence metrics,
+previously listed here, are implemented — correlation is the default
+bearing method.)
 
 Note: Adaptive thresholding for north tick detection is not a priority since
 the north reference is a controlled signal with predictable amplitude, and

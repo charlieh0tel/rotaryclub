@@ -15,7 +15,6 @@ repository = "https://github.com/charlieh0tel/rotaryclub"
 cpal = { version = "0.17", features = ["audio_thread_priority"] }
 
 # Signal Processing
-iir_filters = "0.1"
 pm-remez = "0.2"
 
 # Concurrency and Real-time

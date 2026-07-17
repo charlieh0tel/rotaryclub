@@ -1,6 +1,7 @@
 # TODO
 
-- File rotation for --dump-audio in live capture mode to avoid unbounded memory growth
+- File rotation for --dump-audio to bound disk usage on very long recordings
+  (memory growth is fixed: dumps stream to disk incrementally)
 - Add criterion benchmarks for DSP pipeline (FIR filters, AGC, I/Q correlation)
 - Improve zero-crossing coherence metric (sub-window phase variance like correlation method)
 
@@ -12,7 +13,8 @@
 - [ ] Extend false-positive sweeps to hum, clipping, and DC drift variants
 - [x] Add long-duration drift timing scenario
 - [x] Add frequency-step timing scenario
-- [ ] Add config guardrails for threshold/min_interval/FIR/gain ranges with actionable error messages
+- [ ] Add config guardrails for threshold/FIR/gain ranges with actionable error messages
+      (done for DPLL frequency band inputs and min_interval_ms vs frequency_max_hz)
 - [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)
 
 ## Bearing Calculator
