@@ -250,7 +250,6 @@ fn run_processing(
     time_offset: f64,
 ) -> anyhow::Result<()> {
     let mut processor = RdfProcessor::new(&config, remove_dc, true)?;
-    let mut sample_count: u64 = 0;
     // Stream the dump to disk; long live sessions must not grow in memory.
     let mut dump_writer = dump_audio
         .map(|path| rotaryclub::WavStreamWriter::create(path, sample_rate))
@@ -299,7 +298,10 @@ fn run_processing(
                 }
             });
 
-            let time_secs = time_offset + sample_count as f64 / sample_rate as f64;
+            // Each tick carries its own sample position; using the buffer
+            // start would stack all ~34 ticks per buffer on one timestamp.
+            let time_secs =
+                time_offset + result.north_tick.sample_index as f64 / sample_rate as f64;
 
             let update = GuiUpdate::Data {
                 time_secs,
@@ -313,8 +315,6 @@ fn run_processing(
                 break;
             }
         }
-
-        sample_count += frame_samples;
 
         let speed = f32::from_bits(playback_speed.load(Ordering::Relaxed));
         if speed > 0.0 {
