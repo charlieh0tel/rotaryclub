@@ -972,6 +972,16 @@ impl RdfGuiApp {
 }
 
 impl eframe::App for RdfGuiApp {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Stop and join the worker so a live --dump-audio recording is
+        // finalized and the capture stream closes cleanly; without this the
+        // process exits with the worker detached and the dump is lost.
+        self.stop_requested.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.processing_handle.take() {
+            let _ = handle.join();
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_updates();
         ctx.request_repaint();
