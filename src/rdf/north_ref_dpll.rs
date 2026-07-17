@@ -189,16 +189,18 @@ impl DpllNorthTracker {
         // silently rejected and the tracker sees an aliased half-rate
         // stream. Shortening the dead time instead measurably hurts
         // low-SNR detection, so a conflicting configuration is an error.
-        let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
-        let period_at_max = sample_rate / frequency_max_hz;
-        if min_samples as f32 >= period_at_max {
+        // Compare in continuous time so the verdict is identical at every
+        // sample rate (truncated sample counts flip near the boundary).
+        let period_at_max_ms = 1000.0 / frequency_max_hz;
+        if config.min_interval_ms >= period_at_max_ms {
             return Err(RdfError::Config(format!(
-                "north_tick.min_interval_ms ({} ms = {} samples) must be shorter than the period \
-                 at dpll.frequency_max_hz ({} Hz = {:.1} samples); lower min_interval_ms or \
+                "north_tick.min_interval_ms ({} ms) must be shorter than the period at \
+                 dpll.frequency_max_hz ({} Hz = {:.3} ms); lower min_interval_ms or \
                  frequency_max_hz",
-                config.min_interval_ms, min_samples, frequency_max_hz, period_at_max
+                config.min_interval_ms, frequency_max_hz, period_at_max_ms
             )));
         }
+        let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
         let gain = db_to_amplitude(config.gain_db);
 
         // Initial frequency estimate from config
@@ -605,7 +607,7 @@ mod tests {
                 natural_frequency_hz: 15.0,
                 damping_ratio: 0.707,
                 frequency_min_hz: 1_400.0,
-                frequency_max_hz: 1_700.0,
+                frequency_max_hz: 1_650.0,
             },
             ..Default::default()
         };
@@ -668,7 +670,7 @@ mod tests {
                 natural_frequency_hz: 15.0,
                 damping_ratio: 0.707,
                 frequency_min_hz: 1_400.0,
-                frequency_max_hz: 1_700.0,
+                frequency_max_hz: 1_650.0,
             },
             ..Default::default()
         };

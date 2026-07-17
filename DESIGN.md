@@ -59,9 +59,9 @@ method: Correlation  // or ZeroCrossing
 // North tick detection
 highpass_cutoff: 5000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
 mode: Dpll  // or Simple
-// DPLL tracking band: 1400-1700 Hz. min_interval_ms must stay shorter
+// DPLL tracking band: 1400-1650 Hz. min_interval_ms must stay shorter
 // than the period at frequency_max_hz; conflicting values are a config
-// error (0.6 ms supports up to ~1714 Hz at 48 kHz).
+// error (0.6 ms supports up to ~1666 Hz).
 
 // Output
 smoothing_window: 5, output_rate_hz: 10.0
