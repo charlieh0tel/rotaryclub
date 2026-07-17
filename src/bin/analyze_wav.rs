@@ -255,44 +255,27 @@ struct StableRegion {
     dropout_positions: Vec<usize>,
 }
 
-fn find_stable_region(ticks: &[CollectedTick], threshold: f32) -> StableRegion {
+fn find_stable_region(ticks: &[CollectedTick], threshold: f32) -> anyhow::Result<StableRegion> {
     if ticks.is_empty() {
-        return StableRegion {
-            start: 0,
-            end: 0,
-            dropouts: 0,
-            dropout_positions: Vec::new(),
-        };
+        anyhow::bail!("no stable region: no north ticks detected");
     }
 
-    let mut start = 0;
-    let mut end = ticks.len();
+    let quality = |tick: &CollectedTick| tick.lock_quality.unwrap_or(0.0);
 
-    // Find first tick with lock quality above threshold
-    for (i, tick) in ticks.iter().enumerate() {
-        if tick.lock_quality.unwrap_or(0.0) >= threshold {
-            start = i;
-            break;
+    // First and last ticks with lock quality above threshold. If none reach
+    // it, fail rather than silently treating the whole file as stable.
+    let start = match ticks.iter().position(|t| quality(t) >= threshold) {
+        Some(i) => i,
+        None => {
+            let max_quality = ticks.iter().map(&quality).fold(0.0f32, f32::max);
+            anyhow::bail!(
+                "no stable region: max lock quality {:.4} never reached trim threshold {}",
+                max_quality,
+                threshold
+            );
         }
-    }
-
-    // Find last tick with lock quality above threshold
-    for (i, tick) in ticks.iter().enumerate().rev() {
-        if tick.lock_quality.unwrap_or(0.0) >= threshold {
-            end = i + 1;
-            break;
-        }
-    }
-
-    // Ensure valid range
-    if start >= end {
-        return StableRegion {
-            start: 0,
-            end: ticks.len(),
-            dropouts: 0,
-            dropout_positions: Vec::new(),
-        };
-    }
+    };
+    let end = ticks.iter().rposition(|t| quality(t) >= threshold).unwrap() + 1;
 
     // Count dropouts within the stable region and record positions
     let mut dropouts = 0;
@@ -307,12 +290,12 @@ fn find_stable_region(ticks: &[CollectedTick], threshold: f32) -> StableRegion {
         was_locked = is_locked;
     }
 
-    StableRegion {
+    Ok(StableRegion {
         start,
         end,
         dropouts,
         dropout_positions,
-    }
+    })
 }
 
 fn analyze_file_impl(
@@ -373,7 +356,7 @@ fn analyze_file_impl(
     // Determine range to analyze
     let total_ticks = collected_ticks.len();
     let (start, end, trimmed_range) = if let Some(opts) = trim_opts {
-        let region = find_stable_region(&collected_ticks, opts.lock_threshold);
+        let region = find_stable_region(&collected_ticks, opts.lock_threshold)?;
         let dropout_positions: Vec<f32> = region
             .dropout_positions
             .iter()
