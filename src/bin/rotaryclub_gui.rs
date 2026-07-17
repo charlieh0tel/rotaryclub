@@ -251,7 +251,10 @@ fn run_processing(
 ) -> anyhow::Result<()> {
     let mut processor = RdfProcessor::new(&config, remove_dc, true)?;
     let mut sample_count: u64 = 0;
-    let mut dump_samples: Vec<f32> = Vec::new();
+    // Stream the dump to disk; long live sessions must not grow in memory.
+    let mut dump_writer = dump_audio
+        .map(|path| rotaryclub::WavStreamWriter::create(path, sample_rate))
+        .transpose()?;
     let mut wall_start = Instant::now();
     let mut expected_time = 0.0_f64;
 
@@ -271,8 +274,8 @@ fn run_processing(
             break;
         };
 
-        if dump_audio.is_some() {
-            dump_samples.extend_from_slice(&audio_data);
+        if let Some(writer) = dump_writer.as_mut() {
+            writer.write_samples(&audio_data)?;
         }
 
         let frame_samples = audio_data.len() as u64 / 2;
@@ -324,13 +327,8 @@ fn run_processing(
         }
     }
 
-    if let Some(path) = dump_audio {
-        rotaryclub::save_wav(
-            path.to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-            &dump_samples,
-            sample_rate,
-        )?;
+    if let Some(writer) = dump_writer {
+        writer.finalize()?;
     }
 
     Ok(())

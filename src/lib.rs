@@ -13,4 +13,4 @@ pub mod simulation;
 pub use config::RdfConfig;
 pub use error::{RdfError, Result};
 pub use processing::RdfProcessor;
-pub use wav::save_wav;
+pub use wav::{WavStreamWriter, save_wav};

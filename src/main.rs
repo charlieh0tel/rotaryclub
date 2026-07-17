@@ -235,16 +235,19 @@ fn run_processing_loop(
     let mut bearing_stats: Stats<f32> = Stats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
 
-    // Collects raw audio for --dump-audio (use analyze_wav for filtered output)
-    let mut dump_samples: Vec<f32> = Vec::new();
+    // Streams raw audio to disk for --dump-audio (use analyze_wav for
+    // filtered output); long recordings must not accumulate in memory.
+    let mut dump_writer = dump_audio
+        .map(|path| rotaryclub::WavStreamWriter::create(path, config.audio.sample_rate))
+        .transpose()?;
 
     loop {
         let Some(audio_data) = source.next_buffer()? else {
             break;
         };
 
-        if dump_audio.is_some() {
-            dump_samples.extend_from_slice(&audio_data);
+        if let Some(writer) = dump_writer.as_mut() {
+            writer.write_samples(&audio_data)?;
         }
 
         let tick_results = processor.process_audio(&audio_data);
@@ -294,18 +297,9 @@ fn run_processing_loop(
         }
     }
 
-    if let Some(path) = dump_audio {
-        eprintln!(
-            "Writing {} samples to {}",
-            dump_samples.len() / 2,
-            path.display()
-        );
-        rotaryclub::save_wav(
-            path.to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-            &dump_samples,
-            config.audio.sample_rate,
-        )?;
+    if let Some(writer) = dump_writer {
+        eprintln!("Wrote {} sample frames of audio dump", writer.len() / 2);
+        writer.finalize()?;
     }
 
     Ok(ProcessingStats {
