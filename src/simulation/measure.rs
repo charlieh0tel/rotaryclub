@@ -75,10 +75,12 @@ pub fn measure_bearing(signal: &[f32], config: &RdfConfig) -> BearingMeasurement
     }
 }
 
+/// Maximum absolute bearing error per method; `None` when the method
+/// produced no measurements at all (a failed run, not a perfect one).
 #[derive(Debug, Clone, Default)]
 pub struct ErrorStats {
-    pub zc_max_error: f32,
-    pub corr_max_error: f32,
+    pub zc_max_error: Option<f32>,
+    pub corr_max_error: Option<f32>,
 }
 
 pub fn measure_error_across_bearings(
@@ -117,7 +119,22 @@ pub fn measure_error_across_bearings(
     }
 
     ErrorStats {
-        zc_max_error: zc_errors.iter().fold(0.0f32, |a, &b| a.max(b)),
-        corr_max_error: corr_errors.iter().fold(0.0f32, |a, &b| a.max(b)),
+        zc_max_error: zc_errors.into_iter().reduce(f32::max),
+        corr_max_error: corr_errors.into_iter().reduce(f32::max),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_stats_empty_run_is_not_perfect() {
+        // A run with no measurements used to fold to 0.0 max error,
+        // scoring a completely failed configuration as flawless.
+        let stats =
+            measure_error_across_bearings(&NoiseConfig::default(), &RdfConfig::default(), &[]);
+        assert!(stats.zc_max_error.is_none());
+        assert!(stats.corr_max_error.is_none());
     }
 }
