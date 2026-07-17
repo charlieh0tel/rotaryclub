@@ -94,6 +94,7 @@ struct StatsSummary {
     std_dev: f32,
     min: f32,
     max: f32,
+    range: f32,
 }
 
 impl StatsSummary {
@@ -107,6 +108,7 @@ impl StatsSummary {
             std_dev: stats.std_dev,
             min: stats.min,
             max: stats.max,
+            range: stats.max - stats.min,
         })
     }
 
@@ -117,6 +119,7 @@ impl StatsSummary {
             std_dev: s.std_dev,
             min: s.min,
             max: s.max,
+            range: s.range,
         })
     }
 }
@@ -417,6 +420,7 @@ fn analyze_file_impl(
         std_dev: s.std_dev * scale,
         min: s.min * scale,
         max: s.max * scale,
+        range: s.range * scale,
     });
 
     let dpll_period_us = StatsSummary::from_stats(&dpll_period_stats).map(|s| StatsSummary {
@@ -425,6 +429,7 @@ fn analyze_file_impl(
         std_dev: s.std_dev * scale,
         min: s.min * scale,
         max: s.max * scale,
+        range: s.range * scale,
     });
 
     if let Some(dump_dir) = dump_audio {
@@ -548,7 +553,7 @@ fn print_text(results: &[FileAnalysis], config: &RdfConfig) {
             eprintln!("  Std dev: {:.1}°", bearing.std_dev);
             eprintln!("  Min: {:.1}°", bearing.min);
             eprintln!("  Max: {:.1}°", bearing.max);
-            eprintln!("  Range: {:.1}°", bearing.max - bearing.min);
+            eprintln!("  Range: {:.1}°", bearing.range);
         }
     }
 }
