@@ -217,8 +217,6 @@ struct ProcessingStats {
     rotation_stats: Stats<f32>,
 }
 
-// TODO: For device input, implement file rotation to avoid unbounded memory growth
-// when using --dump-audio for long recordings.
 fn run_processing_loop(
     mut source: Box<dyn AudioSource>,
     config: RdfConfig,
