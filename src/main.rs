@@ -235,6 +235,14 @@ fn run_processing_loop(
     let mut bearing_stats: Stats<f32> = Stats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
 
+    // North-tick staleness tracking in signal time (sample frames), so it
+    // also works for faster-than-real-time file input.
+    let warning_interval_frames =
+        (config.bearing.north_tick_warning_timeout_secs * config.audio.sample_rate as f32) as u64;
+    let mut frames_processed: u64 = 0;
+    let mut last_tick_frame: u64 = 0;
+    let mut next_warning_frame = warning_interval_frames;
+
     // Streams raw audio to disk for --dump-audio (use analyze_wav for
     // filtered output); long recordings must not accumulate in memory.
     let mut dump_writer = dump_audio
@@ -287,13 +295,27 @@ fn run_processing_loop(
             }
         }
 
-        if processor.last_north_tick().is_none()
-            && throttle_output
-            && last_output.elapsed()
-                >= Duration::from_secs_f32(config.bearing.north_tick_warning_timeout_secs)
-        {
-            log::warn!("Waiting for north tick...");
-            last_output = Instant::now();
+        // Warn on a missing north reference — both before first acquisition
+        // and when the reference disappears mid-run.
+        frames_processed += (audio_data.len() / 2) as u64;
+        if !tick_results.is_empty() {
+            last_tick_frame = frames_processed;
+            next_warning_frame = frames_processed + warning_interval_frames;
+        } else if frames_processed >= next_warning_frame {
+            let silent_secs =
+                (frames_processed - last_tick_frame) as f32 / config.audio.sample_rate as f32;
+            if processor.last_north_tick().is_none() {
+                log::warn!(
+                    "Waiting for north tick... ({:.1} s without one)",
+                    silent_secs
+                );
+            } else {
+                log::warn!(
+                    "No north tick for {:.1} s - check the north reference signal",
+                    silent_secs
+                );
+            }
+            next_warning_frame = frames_processed + warning_interval_frames;
         }
     }
 
