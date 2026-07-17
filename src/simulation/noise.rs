@@ -156,7 +156,6 @@ fn apply_fading(signal: &mut [f32], config: &FadingConfig, sample_rate: f32, rng
         return;
     }
 
-    let normal = Normal::new(0.0, 1.0).unwrap();
     let fd = config.doppler_spread_hz;
 
     let mut fading_envelope = vec![1.0f32; n];
@@ -205,10 +204,14 @@ fn apply_fading(signal: &mut [f32], config: &FadingConfig, sample_rate: f32, rng
             }
         }
     } else {
+        // Match the dynamic branch's normalization: each quadrature component
+        // needs variance 1/2 so that E[envelope^2] = 1 (power-preserving
+        // fade). Unit-variance draws double the average Rayleigh fade power.
+        let quadrature_normal = Normal::new(0.0, std::f64::consts::FRAC_1_SQRT_2).unwrap();
         match &config.fading_type {
             FadingType::Rayleigh => {
-                let x: f32 = normal.sample(rng) as f32;
-                let y: f32 = normal.sample(rng) as f32;
+                let x: f32 = quadrature_normal.sample(rng) as f32;
+                let y: f32 = quadrature_normal.sample(rng) as f32;
                 let env = (x * x + y * y).sqrt();
                 for val in fading_envelope.iter_mut() {
                     *val = env;
@@ -218,8 +221,8 @@ fn apply_fading(signal: &mut [f32], config: &FadingConfig, sample_rate: f32, rng
                 let k = *k_factor;
                 let los = (k / (k + 1.0)).sqrt();
                 let scatter = (1.0 / (k + 1.0)).sqrt();
-                let x: f32 = normal.sample(rng) as f32;
-                let y: f32 = normal.sample(rng) as f32;
+                let x: f32 = quadrature_normal.sample(rng) as f32;
+                let y: f32 = quadrature_normal.sample(rng) as f32;
                 let real = los + scatter * x;
                 let imag = scatter * y;
                 let env = (real * real + imag * imag).sqrt();
@@ -466,6 +469,32 @@ mod tests {
         let noisy2 = apply_noise(&clean, &config, 48000.0, 500.0);
 
         assert_eq!(noisy1, noisy2);
+    }
+
+    #[test]
+    fn test_static_fading_preserves_average_power() {
+        // Regression test: the static (doppler_spread_hz == 0) branch used
+        // unit-variance quadratures, giving E[env^2] = 2 for Rayleigh where
+        // the dynamic branch is normalized to 1.
+        use rand::SeedableRng;
+        let config = FadingConfig {
+            fading_type: FadingType::Rayleigh,
+            doppler_spread_hz: 0.0,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        let trials = 20_000;
+        let mut sum_sq = 0.0f64;
+        for _ in 0..trials {
+            let mut signal = [1.0f32];
+            apply_fading(&mut signal, &config, 48_000.0, &mut rng);
+            sum_sq += (signal[0] as f64).powi(2);
+        }
+        let mean_power = sum_sq / trials as f64;
+        assert!(
+            (0.95..1.05).contains(&mean_power),
+            "static Rayleigh E[env^2] = {:.3}, expected ~1 (was ~2 before normalization)",
+            mean_power
+        );
     }
 
     #[test]
