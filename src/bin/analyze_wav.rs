@@ -8,6 +8,7 @@ use rotaryclub::config::{
     BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
 use rotaryclub::processing::RdfProcessor;
+use rotaryclub::stats::CircularStats;
 
 #[derive(Parser, Debug)]
 #[command(name = "analyze_wav")]
@@ -106,6 +107,16 @@ impl StatsSummary {
             std_dev: stats.std_dev,
             min: stats.min,
             max: stats.max,
+        })
+    }
+
+    fn from_circular(stats: &CircularStats) -> Option<Self> {
+        stats.summary().map(|s| Self {
+            count: s.count,
+            mean: s.mean,
+            std_dev: s.std_dev,
+            min: s.min,
+            max: s.max,
         })
     }
 }
@@ -387,7 +398,7 @@ fn analyze_file_impl(
     // Compute statistics on the selected range
     let mut rotation_stats: Stats<f32> = Stats::new();
     let mut lock_quality_stats: Stats<f32> = Stats::new();
-    let mut bearing_stats: Stats<f32> = Stats::new();
+    let mut bearing_stats = CircularStats::new();
     let mut raw_period_stats: Stats<f32> = Stats::new();
     let mut dpll_period_stats: Stats<f32> = Stats::new();
     let mut last_phase_error_variance: Option<f32> = None;
@@ -458,7 +469,7 @@ fn analyze_file_impl(
         rotation_freq: StatsSummary::from_stats(&rotation_stats),
         lock_quality: StatsSummary::from_stats(&lock_quality_stats),
         phase_error_variance: last_phase_error_variance,
-        bearing: StatsSummary::from_stats(&bearing_stats),
+        bearing: StatsSummary::from_circular(&bearing_stats),
         sample_count: rotation_stats.count,
         raw_period_us,
         dpll_period_us,

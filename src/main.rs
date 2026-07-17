@@ -11,6 +11,7 @@ use rotaryclub::config::{
     BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
 };
 use rotaryclub::processing::RdfProcessor;
+use rotaryclub::stats::CircularStats;
 
 #[derive(Parser, Debug)]
 #[command(name = "rotaryclub")]
@@ -181,18 +182,17 @@ fn main() -> anyhow::Result<()> {
         args.dump_audio.as_deref(),
     )?;
 
-    if args.input.is_some() && stats.bearing_stats.count > 0 {
+    if args.input.is_some()
+        && let Some(bearing) = stats.bearing_stats.summary()
+    {
         eprintln!();
         eprintln!("Bearing statistics:");
-        eprintln!("  Measurements: {}", stats.bearing_stats.count);
-        eprintln!("  Mean: {:.1}°", stats.bearing_stats.mean);
-        eprintln!("  Std dev: {:.1}°", stats.bearing_stats.std_dev);
-        eprintln!("  Min: {:.1}°", stats.bearing_stats.min);
-        eprintln!("  Max: {:.1}°", stats.bearing_stats.max);
-        eprintln!(
-            "  Range: {:.1}°",
-            stats.bearing_stats.max - stats.bearing_stats.min
-        );
+        eprintln!("  Measurements: {}", bearing.count);
+        eprintln!("  Mean: {:.1}°", bearing.mean);
+        eprintln!("  Std dev: {:.1}°", bearing.std_dev);
+        eprintln!("  Min: {:.1}°", bearing.min);
+        eprintln!("  Max: {:.1}°", bearing.max);
+        eprintln!("  Range: {:.1}°", bearing.range);
     }
 
     if args.input.is_some() && stats.rotation_stats.count > 0 {
@@ -213,7 +213,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 struct ProcessingStats {
-    bearing_stats: Stats<f32>,
+    bearing_stats: CircularStats,
     rotation_stats: Stats<f32>,
 }
 
@@ -230,7 +230,7 @@ fn run_processing_loop(
     let mut last_output = Instant::now();
     let output_interval = Duration::from_secs_f32(1.0 / config.bearing.output_rate_hz);
 
-    let mut bearing_stats: Stats<f32> = Stats::new();
+    let mut bearing_stats = CircularStats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
 
     // North-tick staleness tracking in signal time (sample frames), so it
