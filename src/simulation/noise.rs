@@ -271,9 +271,13 @@ fn apply_multipath(
         let cos_p = phase.cos();
         let sin_p = phase.sin();
 
+        // The delayed quadrature of sin(theta) is sin(theta - pi/2) =
+        // -cos(theta), so subtract the sin term: cos_p * sin(theta) -
+        // sin_p * (-cos(theta)) = sin(theta + phase). Adding it instead
+        // rotates the path by -phase.
         for (i, s) in signal.iter_mut().enumerate().skip(delay) {
             let orig_idx = i - delay;
-            *s += amp * (original[orig_idx] * cos_p + quadrature[orig_idx] * sin_p);
+            *s += amp * (original[orig_idx] * cos_p - quadrature[orig_idx] * sin_p);
         }
     }
 }
@@ -469,6 +473,39 @@ mod tests {
         let noisy2 = apply_noise(&clean, &config, 48000.0, 500.0);
 
         assert_eq!(noisy1, noisy2);
+    }
+
+    #[test]
+    fn test_multipath_phase_offset_sign() {
+        // Regression test: a +pi/2 phase offset must add a +cos path
+        // (sin(theta + pi/2)); the old code added -cos (a -90 degree path).
+        let sample_rate = 48_000.0f32;
+        let rotation_hz = 480.0f32;
+        let omega = 2.0 * PI * rotation_hz / sample_rate;
+        let n = 4800;
+        let original: Vec<f32> = (0..n).map(|i| (omega * i as f32).sin()).collect();
+
+        let mut signal = original.clone();
+        let config = MultipathConfig {
+            components: vec![MultipathComponent {
+                delay_samples: 0,
+                amplitude: 1.0,
+                phase_offset: PI / 2.0,
+            }],
+        };
+        apply_multipath(&mut signal, &config, sample_rate, rotation_hz);
+
+        // Correlate the added path against +cos, past the quadrature warmup.
+        let quarter_period = (sample_rate / rotation_hz / 4.0).round() as usize;
+        let correlation: f32 = (quarter_period..n)
+            .map(|i| (signal[i] - original[i]) * (omega * i as f32).cos())
+            .sum::<f32>()
+            / (n - quarter_period) as f32;
+        assert!(
+            correlation > 0.4,
+            "+90 degree path should correlate with +cos (got {:.3}; ~-0.5 with inverted sign)",
+            correlation
+        );
     }
 
     #[test]
