@@ -4,6 +4,8 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Normal};
 use std::f32::consts::PI;
 
+use crate::signal_processing::db_to_power;
+
 #[derive(Clone, Debug, Default, serde::Deserialize)]
 pub struct NoiseConfig {
     pub seed: Option<u64>,
@@ -139,7 +141,7 @@ fn apply_additive_noise(signal: &mut [f32], config: &AdditiveNoiseConfig, rng: &
         return;
     }
 
-    let snr_linear = 10.0_f32.powf(config.snr_db / 10.0);
+    let snr_linear = db_to_power(config.snr_db);
     let noise_power = sig_power / snr_linear;
     let noise_std = noise_power.sqrt();
 

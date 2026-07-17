@@ -1,4 +1,5 @@
 pub mod agc;
+pub mod db;
 pub mod dc_removal;
 pub mod filter;
 pub mod fir_bandpass;
@@ -9,6 +10,7 @@ pub mod peak_detector;
 pub mod zero_crossing_detector;
 
 pub use agc::AutomaticGainControl;
+pub use db::{amplitude_to_db, db_to_amplitude, db_to_power, power_to_db};
 pub use dc_removal::DcRemover;
 pub use filter::Filter;
 pub use fir_bandpass::FirBandpass;

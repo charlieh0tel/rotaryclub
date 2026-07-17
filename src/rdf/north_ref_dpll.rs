@@ -2,7 +2,7 @@ use crate::config::{LockQualityWeights, NorthTickConfig};
 use crate::constants::FREQUENCY_EPSILON;
 use crate::error::{RdfError, Result};
 use crate::rdf::NorthTick;
-use crate::signal_processing::{FirHighpass, PeakDetector};
+use crate::signal_processing::{FirHighpass, PeakDetector, db_to_amplitude};
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
@@ -199,7 +199,7 @@ impl DpllNorthTracker {
                 config.min_interval_ms, min_samples, frequency_max_hz, period_at_max
             )));
         }
-        let gain = 10.0_f32.powf(config.gain_db / 20.0);
+        let gain = db_to_amplitude(config.gain_db);
 
         // Initial frequency estimate from config
         let omega = 2.0 * PI * initial_freq / sample_rate;

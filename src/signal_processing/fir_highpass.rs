@@ -143,6 +143,7 @@ impl Filter for FirHighpass {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::signal_processing::amplitude_to_db;
     use std::f32::consts::PI;
 
     #[test]
@@ -172,7 +173,7 @@ mod tests {
             / (output.len() - 1000) as f32)
             .sqrt();
 
-        let attenuation_db = 20.0 * (output_rms / input_rms).log10();
+        let attenuation_db = amplitude_to_db(output_rms / input_rms);
         assert!(
             attenuation_db > -3.0,
             "High frequency too attenuated: {} dB",
@@ -198,7 +199,7 @@ mod tests {
             / (output.len() - 1000) as f32)
             .sqrt();
 
-        let attenuation_db = 20.0 * (output_rms / input_rms).log10();
+        let attenuation_db = amplitude_to_db(output_rms / input_rms);
         assert!(
             attenuation_db < -20.0,
             "Low frequency not attenuated enough: {} dB",

@@ -1,6 +1,6 @@
 use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
 use crate::error::Result;
-use crate::signal_processing::ZeroCrossingDetector;
+use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
 use super::bearing::MIN_POWER_THRESHOLD;
@@ -162,7 +162,7 @@ impl ZeroCrossingBearingCalculator {
             // Correlated power = 2 * projection² reconstructs the full signal power.
             let correlated_power = (2.0 * projection * projection).max(0.0).min(signal_power);
             let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
-            10.0 * (correlated_power / noise_power).log10()
+            power_to_db(correlated_power / noise_power)
         } else {
             0.0
         };

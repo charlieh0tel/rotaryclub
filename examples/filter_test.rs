@@ -87,5 +87,5 @@ fn test_frequency<F: Filter>(filter: &mut F, freq: f32, sample_rate: f32) -> f32
     let output_rms: f32 =
         output.iter().skip(skip).map(|x| x * x).sum::<f32>().sqrt() / (output.len() - skip) as f32;
 
-    20.0 * (output_rms / input_rms).log10()
+    rotaryclub::signal_processing::amplitude_to_db(output_rms / input_rms)
 }

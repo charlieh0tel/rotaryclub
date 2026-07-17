@@ -2,7 +2,7 @@ use crate::config::NorthTickConfig;
 use crate::constants::FREQUENCY_EPSILON;
 use crate::error::Result;
 use crate::rdf::NorthTick;
-use crate::signal_processing::{FirHighpass, PeakDetector};
+use crate::signal_processing::{FirHighpass, PeakDetector, db_to_amplitude};
 use std::f32::consts::PI;
 
 use super::north_ref_common::{
@@ -28,7 +28,7 @@ pub struct SimpleNorthTracker {
 impl SimpleNorthTracker {
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
-        let gain = 10.0_f32.powf(config.gain_db / 20.0);
+        let gain = db_to_amplitude(config.gain_db);
 
         let highpass = FirHighpass::new(
             config.highpass_cutoff,

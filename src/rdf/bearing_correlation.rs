@@ -1,5 +1,6 @@
 use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
 use crate::error::Result;
+use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
 use super::bearing::MIN_POWER_THRESHOLD;
@@ -164,7 +165,7 @@ impl CorrelationBearingCalculator {
             .max(0.0)
             .min(signal_power);
         let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
-        let snr_db = 10.0 * (correlated_power / noise_power).log10();
+        let snr_db = power_to_db(correlated_power / noise_power);
 
         // --- Coherence Estimation ---
         // Split buffer into sub-windows and compute phase in each
