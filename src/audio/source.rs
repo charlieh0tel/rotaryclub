@@ -62,11 +62,16 @@ impl AudioSource for DeviceSource {
     }
 }
 
+/// Streams samples from a WAV file one chunk per `next_buffer` call, so
+/// arbitrarily long recordings never load into memory at once.
 pub struct WavFileSource {
-    samples: Vec<f32>,
-    position: usize,
+    reader: WavReader<BufReader<File>>,
     chunk_size: usize,
     sample_rate: u32,
+    sample_format: hound::SampleFormat,
+    // Full-scale divisor for integer PCM; computed in f32 because
+    // 2_i32.pow(31) overflows for 32-bit samples.
+    int_full_scale: f32,
 }
 
 impl WavFileSource {
@@ -81,49 +86,37 @@ impl WavFileSource {
             )));
         }
 
-        let sample_rate = spec.sample_rate;
-        let samples = Self::read_samples(reader, &spec)?;
-
         Ok(Self {
-            samples,
-            position: 0,
+            reader,
             chunk_size,
-            sample_rate,
+            sample_rate: spec.sample_rate,
+            sample_format: spec.sample_format,
+            int_full_scale: 2.0_f32.powi(spec.bits_per_sample as i32 - 1),
         })
-    }
-
-    fn read_samples(
-        mut reader: WavReader<BufReader<File>>,
-        spec: &hound::WavSpec,
-    ) -> Result<Vec<f32>> {
-        let samples = match spec.sample_format {
-            hound::SampleFormat::Float => reader
-                .samples::<f32>()
-                .collect::<std::result::Result<Vec<_>, _>>()?,
-            hound::SampleFormat::Int => {
-                // Compute in f32: 2_i32.pow(31) overflows for 32-bit PCM.
-                let max_val = 2.0_f32.powi(spec.bits_per_sample as i32 - 1);
-                reader
-                    .samples::<i32>()
-                    .map(|s| s.map(|v| v as f32 / max_val))
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-            }
-        };
-        Ok(samples)
     }
 }
 
 impl AudioSource for WavFileSource {
     fn next_buffer(&mut self) -> Result<Option<Vec<f32>>> {
-        if self.position >= self.samples.len() {
-            return Ok(None);
+        let mut chunk = Vec::with_capacity(self.chunk_size);
+        match self.sample_format {
+            hound::SampleFormat::Float => {
+                for sample in self.reader.samples::<f32>().take(self.chunk_size) {
+                    chunk.push(sample?);
+                }
+            }
+            hound::SampleFormat::Int => {
+                for sample in self.reader.samples::<i32>().take(self.chunk_size) {
+                    chunk.push(sample? as f32 / self.int_full_scale);
+                }
+            }
         }
 
-        let end = (self.position + self.chunk_size).min(self.samples.len());
-        let chunk = self.samples[self.position..end].to_vec();
-        self.position = end;
-
-        Ok(Some(chunk))
+        if chunk.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(chunk))
+        }
     }
 
     fn sample_rate(&self) -> u32 {
@@ -134,6 +127,38 @@ impl AudioSource for WavFileSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_wav_file_source_streams_chunks_matching_whole_file() {
+        let path = std::env::temp_dir().join("rotaryclub_test_stream.wav");
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        // 100 stereo frames of a known pattern; 200 samples does not divide
+        // evenly by the chunk size of 16, so the final chunk is partial.
+        let expected: Vec<f32> = (0..200).map(|i| (i as f32) / 200.0 - 0.5).collect();
+        for &v in &expected {
+            writer.write_sample(v).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let mut source = WavFileSource::new(&path, 16).unwrap();
+        let mut streamed = Vec::new();
+        let mut chunks = 0;
+        while let Some(chunk) = source.next_buffer().unwrap() {
+            assert!(chunk.len() <= 16);
+            streamed.extend(chunk);
+            chunks += 1;
+        }
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(chunks, 200_usize.div_ceil(16));
+        assert_eq!(streamed, expected);
+    }
 
     #[test]
     fn test_wav_file_source_normalizes_32bit_pcm() {
