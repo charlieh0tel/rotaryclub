@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 from perf_schema import (
+    coverage_failures,
     MetricSpec,
     apply_profile_limits,
     evaluate_row_against_limits,
@@ -113,6 +114,10 @@ def evaluate_thresholds(
     profile_limits = apply_profile_limits(BASELINE_LIMITS, METRICS, profile)
     failures: list[str] = []
     failed_rows: list[dict[str, str]] = []
+
+    failures.extend(
+        coverage_failures(rows, lambda row: (row["mode"], row["scenario"]), BASELINE_LIMITS.keys())
+    )
 
     for row in rows:
         key = (row["mode"], row["scenario"])
