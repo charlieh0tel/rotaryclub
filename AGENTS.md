@@ -10,3 +10,4 @@
   making a commit before moving onto something unrelated.
 - When work completes a tracked item, update `TODO.md` in the same commit
   by marking that item done.
+- CLI code can use anyhow!  library code must not use anyhow!

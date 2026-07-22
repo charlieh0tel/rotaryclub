@@ -247,11 +247,7 @@ fn run_processing_loop(
         .map(|path| rotaryclub::WavStreamWriter::create(path, config.audio.sample_rate))
         .transpose()?;
 
-    loop {
-        let Some(audio_data) = source.next_buffer()? else {
-            break;
-        };
-
+    while let Some(audio_data) = source.next_buffer()? {
         if let Some(writer) = dump_writer.as_mut() {
             writer.write_samples(&audio_data)?;
         }

@@ -21,6 +21,12 @@ pub enum RdfError {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("WAV read error: {0}")]
+    Wav(#[from] hound::Error),
+
+    #[error("Unsupported WAV file: {0}")]
+    UnsupportedWav(String),
+
     #[error("Phase calculation failed: {0}")]
     PhaseError(String),
 }

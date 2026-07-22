@@ -8,9 +8,10 @@ use hound::WavReader;
 use super::AudioCapture;
 use super::capture::AudioMessage;
 use crate::config::AudioConfig;
+use crate::error::{RdfError, Result};
 
 pub trait AudioSource: Send {
-    fn next_buffer(&mut self) -> anyhow::Result<Option<Vec<f32>>>;
+    fn next_buffer(&mut self) -> Result<Option<Vec<f32>>>;
     fn sample_rate(&self) -> u32;
 }
 
@@ -26,7 +27,7 @@ pub struct DeviceSource {
 }
 
 impl DeviceSource {
-    pub fn new(config: &AudioConfig, device_name: Option<&str>) -> anyhow::Result<Self> {
+    pub fn new(config: &AudioConfig, device_name: Option<&str>) -> Result<Self> {
         let (tx, rx) = crossbeam_channel::bounded(CAPTURE_CHANNEL_DEPTH);
         let capture = AudioCapture::new(config, tx, device_name)?;
         Ok(Self {
@@ -39,7 +40,7 @@ impl DeviceSource {
 }
 
 impl AudioSource for DeviceSource {
-    fn next_buffer(&mut self) -> anyhow::Result<Option<Vec<f32>>> {
+    fn next_buffer(&mut self) -> Result<Option<Vec<f32>>> {
         let dropped = self.capture.dropped_chunks();
         if dropped > self.reported_drops {
             log::warn!(
@@ -51,7 +52,7 @@ impl AudioSource for DeviceSource {
         }
         match self.rx.recv() {
             Ok(Ok(data)) => Ok(Some(data)),
-            Ok(Err(e)) => Err(anyhow::anyhow!("Audio stream error: {}", e)),
+            Ok(Err(e)) => Err(RdfError::AudioStream(e.to_string())),
             Err(_) => Ok(None),
         }
     }
@@ -69,12 +70,15 @@ pub struct WavFileSource {
 }
 
 impl WavFileSource {
-    pub fn new<P: AsRef<Path>>(path: P, chunk_size: usize) -> anyhow::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, chunk_size: usize) -> Result<Self> {
         let reader = WavReader::open(path.as_ref())?;
         let spec = reader.spec();
 
         if spec.channels != 2 {
-            anyhow::bail!("Expected stereo WAV file, got {} channels", spec.channels);
+            return Err(RdfError::UnsupportedWav(format!(
+                "expected stereo, got {} channels",
+                spec.channels
+            )));
         }
 
         let sample_rate = spec.sample_rate;
@@ -91,16 +95,18 @@ impl WavFileSource {
     fn read_samples(
         mut reader: WavReader<BufReader<File>>,
         spec: &hound::WavSpec,
-    ) -> anyhow::Result<Vec<f32>> {
+    ) -> Result<Vec<f32>> {
         let samples = match spec.sample_format {
-            hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
+            hound::SampleFormat::Float => reader
+                .samples::<f32>()
+                .collect::<std::result::Result<Vec<_>, _>>()?,
             hound::SampleFormat::Int => {
                 // Compute in f32: 2_i32.pow(31) overflows for 32-bit PCM.
                 let max_val = 2.0_f32.powi(spec.bits_per_sample as i32 - 1);
                 reader
                     .samples::<i32>()
                     .map(|s| s.map(|v| v as f32 / max_val))
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<std::result::Result<Vec<_>, _>>()?
             }
         };
         Ok(samples)
@@ -108,7 +114,7 @@ impl WavFileSource {
 }
 
 impl AudioSource for WavFileSource {
-    fn next_buffer(&mut self) -> anyhow::Result<Option<Vec<f32>>> {
+    fn next_buffer(&mut self) -> Result<Option<Vec<f32>>> {
         if self.position >= self.samples.len() {
             return Ok(None);
         }

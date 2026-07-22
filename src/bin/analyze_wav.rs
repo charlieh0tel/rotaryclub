@@ -328,11 +328,7 @@ fn analyze_file_impl(
     let mut collected_ticks: Vec<CollectedTick> = Vec::new();
     let mut dump_samples: Vec<f32> = Vec::new();
 
-    loop {
-        let Some(audio_data) = source.next_buffer()? else {
-            break;
-        };
-
+    while let Some(audio_data) = source.next_buffer()? {
         let tick_results = processor.process_audio(&audio_data);
 
         if dump_audio.is_some() {
