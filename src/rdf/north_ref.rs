@@ -28,6 +28,10 @@ pub struct NorthTick {
 
 pub trait NorthTracker {
     fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick>;
+    /// Advance the tracker's sample clock over samples that were lost
+    /// (e.g. capture chunks dropped under overload) without processing
+    /// audio, so subsequent tick indices stay on the real timeline.
+    fn advance_samples(&mut self, samples: usize);
     fn rotation_frequency(&self) -> Option<f32>;
     #[allow(dead_code)]
     fn lock_quality(&self) -> Option<f32>;
@@ -86,6 +90,13 @@ impl NorthTracker for NorthReferenceTracker {
         match self {
             Self::Simple(tracker) => tracker.process_buffer(buffer),
             Self::Dpll(tracker) => tracker.process_buffer(buffer),
+        }
+    }
+
+    fn advance_samples(&mut self, samples: usize) {
+        match self {
+            Self::Simple(tracker) => tracker.advance_samples(samples),
+            Self::Dpll(tracker) => tracker.advance_samples(samples),
         }
     }
 

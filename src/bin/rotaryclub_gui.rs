@@ -273,6 +273,8 @@ fn run_processing(
             break;
         };
 
+        processor.advance_samples(source.take_dropped_frames());
+
         if let Some(writer) = dump_writer.as_mut() {
             writer.write_samples(&audio_data)?;
         }

@@ -109,6 +109,20 @@ impl RdfProcessor {
         results
     }
 
+    /// Advance the DSP clock over frames that were lost (e.g. capture
+    /// chunks dropped under overload): the north tracker coasts at its
+    /// tracked frequency and the bearing calculator's sample counter moves,
+    /// so timestamps after the gap stay on the real timeline.
+    pub fn advance_samples(&mut self, frames: usize) {
+        if frames == 0 {
+            return;
+        }
+        self.north_tracker.advance_samples(frames);
+        if let Some(ref mut calc) = self.bearing_calc {
+            calc.advance_samples(frames);
+        }
+    }
+
     pub fn process_signal(&mut self, interleaved: &[f32]) -> Vec<TickResult> {
         let chunk_size = self.audio_config.buffer_size * 2;
         let mut all_results = Vec::new();
@@ -336,6 +350,52 @@ mod tests {
                 c
             );
         }
+    }
+
+    #[test]
+    fn test_advance_samples_keeps_tick_timeline() {
+        // Regression test: dropped capture chunks used to vanish from the
+        // sample clock, so ticks after an overload gap were timestamped as
+        // if the gap never happened (compressed timeline).
+        let config = default_config();
+        let rotation_hz = config.doppler.expected_freq;
+        let sample_rate = config.audio.sample_rate;
+        let chunk_size = config.audio.buffer_size * 2;
+
+        let signal = generate_test_signal(1.0, sample_rate, rotation_hz, 90.0);
+        let chunks: Vec<&[f32]> = signal.chunks(chunk_size).collect();
+
+        let mut processor = RdfProcessor::new(&config, false, true).unwrap();
+        let mut last_tick_before_gap = None;
+        for chunk in &chunks[..10] {
+            for result in processor.process_audio(chunk) {
+                last_tick_before_gap = Some(result.north_tick.sample_index);
+            }
+        }
+        let before = last_tick_before_gap.expect("ticks before the gap");
+
+        // Simulate 5 dropped chunks: skip their audio, advance their frames.
+        let dropped_chunks = 5;
+        let gap_frames = dropped_chunks * chunk_size / 2;
+        processor.advance_samples(gap_frames);
+
+        let mut first_tick_after_gap = None;
+        for chunk in &chunks[10 + dropped_chunks..20 + dropped_chunks] {
+            if let Some(result) = processor.process_audio(chunk).first() {
+                first_tick_after_gap = Some(result.north_tick.sample_index);
+                break;
+            }
+        }
+        let after = first_tick_after_gap.expect("ticks after the gap");
+
+        assert!(
+            after - before >= gap_frames,
+            "tick after gap at {} vs {} before: spacing {} must include the {}-frame gap",
+            after,
+            before,
+            after - before,
+            gap_frames
+        );
     }
 
     #[test]

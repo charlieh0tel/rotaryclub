@@ -189,6 +189,10 @@ impl BearingCalculator for ZeroCrossingBearingCalculator {
         self.process_tick_impl(north_tick)
     }
 
+    fn advance_samples(&mut self, samples: usize) {
+        self.base.advance_counter(samples);
+    }
+
     fn advance_buffer(&mut self) {
         self.base.advance_counter(self.preprocessed_len);
     }

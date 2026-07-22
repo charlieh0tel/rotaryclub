@@ -16,6 +16,9 @@ pub trait BearingCalculator {
     /// Call this once after all `process_tick` calls for a preprocessed buffer.
     fn advance_buffer(&mut self);
 
+    /// Advance the sample clock over lost samples (no audio processed).
+    fn advance_samples(&mut self, samples: usize);
+
     /// Get the filtered buffer (after AGC + bandpass) from the last preprocess call
     fn filtered_buffer(&self) -> &[f32];
 

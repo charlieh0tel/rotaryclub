@@ -13,6 +13,13 @@ use crate::error::{RdfError, Result};
 pub trait AudioSource: Send {
     fn next_buffer(&mut self) -> Result<Option<Vec<f32>>>;
     fn sample_rate(&self) -> u32;
+
+    /// Frames (per-channel samples) lost since the last call, e.g. capture
+    /// chunks dropped under overload. Callers advance the DSP clock by this
+    /// amount so timestamps stay on the real timeline.
+    fn take_dropped_frames(&mut self) -> usize {
+        0
+    }
 }
 
 // ~700 ms of slack at the default 1024-sample buffers / 48 kHz before the
@@ -23,7 +30,7 @@ pub struct DeviceSource {
     rx: Receiver<AudioMessage>,
     sample_rate: u32,
     capture: AudioCapture,
-    reported_drops: u64,
+    reported_dropped_samples: u64,
 }
 
 impl DeviceSource {
@@ -34,22 +41,13 @@ impl DeviceSource {
             rx,
             sample_rate: config.sample_rate,
             capture,
-            reported_drops: 0,
+            reported_dropped_samples: 0,
         })
     }
 }
 
 impl AudioSource for DeviceSource {
     fn next_buffer(&mut self) -> Result<Option<Vec<f32>>> {
-        let dropped = self.capture.dropped_chunks();
-        if dropped > self.reported_drops {
-            log::warn!(
-                "Audio capture dropped {} chunk(s), {} total (processing too slow)",
-                dropped - self.reported_drops,
-                dropped
-            );
-            self.reported_drops = dropped;
-        }
         match self.rx.recv() {
             Ok(Ok(data)) => Ok(Some(data)),
             Ok(Err(e)) => Err(RdfError::AudioStream(e.to_string())),
@@ -59,6 +57,20 @@ impl AudioSource for DeviceSource {
 
     fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    fn take_dropped_frames(&mut self) -> usize {
+        let dropped = self.capture.dropped_samples();
+        let delta = dropped - self.reported_dropped_samples;
+        if delta > 0 {
+            log::warn!(
+                "Audio capture dropped {} sample(s), {} total (processing too slow)",
+                delta,
+                dropped
+            );
+            self.reported_dropped_samples = dropped;
+        }
+        (delta / 2) as usize
     }
 }
 

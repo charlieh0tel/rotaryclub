@@ -248,6 +248,8 @@ fn run_processing_loop(
         .transpose()?;
 
     while let Some(audio_data) = source.next_buffer()? {
+        processor.advance_samples(source.take_dropped_frames());
+
         if let Some(writer) = dump_writer.as_mut() {
             writer.write_samples(&audio_data)?;
         }

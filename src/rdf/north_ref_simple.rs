@@ -64,6 +64,12 @@ impl SimpleNorthTracker {
         })
     }
 
+    /// Advance the sample clock over lost samples so tick indices after a
+    /// capture gap stay on the real timeline.
+    pub fn advance_samples(&mut self, samples: usize) {
+        self.sample_counter += samples;
+    }
+
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
         preprocess_north_buffer(
             &mut self.filter_buffer,

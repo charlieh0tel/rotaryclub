@@ -25,7 +25,7 @@ pub type AudioMessage = std::result::Result<Vec<f32>, cpal::StreamError>;
 
 pub struct AudioCapture {
     stream: cpal::Stream,
-    dropped_chunks: Arc<AtomicU64>,
+    dropped_samples: Arc<AtomicU64>,
 }
 
 impl AudioCapture {
@@ -70,8 +70,8 @@ impl AudioCapture {
         };
 
         // Build input stream with callback
-        let dropped_chunks = Arc::new(AtomicU64::new(0));
-        let dropped_chunks_cb = Arc::clone(&dropped_chunks);
+        let dropped_samples = Arc::new(AtomicU64::new(0));
+        let dropped_samples_cb = Arc::clone(&dropped_samples);
         let error_tx = tx.clone();
         let stream = device
             .build_input_stream(
@@ -83,7 +83,9 @@ impl AudioCapture {
                     match tx.try_send(Ok(data.to_vec())) {
                         Ok(()) => {}
                         Err(TrySendError::Full(_)) => {
-                            dropped_chunks_cb.fetch_add(1, Ordering::Relaxed);
+                            // Count samples, not chunks: consumers advance the
+                            // DSP clock across the gap to keep timing honest.
+                            dropped_samples_cb.fetch_add(data.len() as u64, Ordering::Relaxed);
                         }
                         Err(TrySendError::Disconnected(_)) => {
                             log::warn!("Audio receiver dropped");
@@ -111,13 +113,13 @@ impl AudioCapture {
 
         Ok(Self {
             stream,
-            dropped_chunks,
+            dropped_samples,
         })
     }
 
-    /// Total audio chunks dropped because the consumer could not keep up.
-    pub fn dropped_chunks(&self) -> u64 {
-        self.dropped_chunks.load(Ordering::Relaxed)
+    /// Total interleaved samples dropped because the consumer lagged.
+    pub fn dropped_samples(&self) -> u64 {
+        self.dropped_samples.load(Ordering::Relaxed)
     }
 }
 
