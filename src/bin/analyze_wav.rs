@@ -330,18 +330,26 @@ fn analyze_file_impl(
 
     let mut processor = RdfProcessor::new(config, remove_dc, !no_bearing)?;
     let mut collected_ticks: Vec<CollectedTick> = Vec::new();
-    let mut dump_samples: Vec<f32> = Vec::new();
+
+    // Stream the filtered dump to disk; buffering a whole recording's
+    // filtered samples in memory scales ~1.4 GB/hour at 48 kHz.
+    let mut dump_writer = dump_audio
+        .map(|dump_dir| {
+            let stem = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "output".to_string());
+            let dump_path = dump_dir.join(format!("{}_split.wav", stem));
+            eprintln!("Writing filtered audio to {}", dump_path.display());
+            rotaryclub::WavStreamWriter::create(dump_path, config.audio.sample_rate)
+        })
+        .transpose()?;
 
     while let Some(audio_data) = source.next_buffer()? {
         let tick_results = processor.process_audio(&audio_data);
 
-        if dump_audio.is_some() {
-            let filtered_doppler = processor.filtered_doppler();
-            let filtered_north = processor.filtered_north();
-            for (&d, &n) in filtered_doppler.iter().zip(filtered_north.iter()) {
-                dump_samples.push(d);
-                dump_samples.push(n);
-            }
+        if let Some(writer) = dump_writer.as_mut() {
+            writer.write_stereo(processor.filtered_doppler(), processor.filtered_north())?;
         }
 
         for result in tick_results {
@@ -432,24 +440,9 @@ fn analyze_file_impl(
         range: s.range * scale,
     });
 
-    if let Some(dump_dir) = dump_audio {
-        let stem = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "output".to_string());
-        let dump_path = dump_dir.join(format!("{}_split.wav", stem));
-        eprintln!(
-            "Writing {} samples to {}",
-            dump_samples.len() / 2,
-            dump_path.display()
-        );
-        rotaryclub::save_wav(
-            dump_path
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-            &dump_samples,
-            config.audio.sample_rate,
-        )?;
+    if let Some(writer) = dump_writer {
+        eprintln!("Wrote {} filtered sample frames", writer.len() / 2);
+        writer.finalize()?;
     }
 
     Ok(FileAnalysis {

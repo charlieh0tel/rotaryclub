@@ -32,6 +32,15 @@ impl WavStreamWriter {
         Ok(())
     }
 
+    /// Write one buffer of split stereo channels, interleaving left/right.
+    pub fn write_stereo(&mut self, left: &[f32], right: &[f32]) -> Result<(), hound::Error> {
+        for (&l, &r) in left.iter().zip(right.iter()) {
+            self.writer.write_sample(l)?;
+            self.writer.write_sample(r)?;
+        }
+        Ok(())
+    }
+
     /// Interleaved samples written so far.
     pub fn len(&self) -> u32 {
         self.writer.len()
