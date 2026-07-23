@@ -1,4 +1,4 @@
-use hound::WavReader;
+use rotaryclub::audio::WavFileSource;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,23 +9,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let filename = &args[1];
-    let mut reader = WavReader::open(filename)?;
-    let spec = reader.spec();
+    let (samples, sample_rate) = WavFileSource::read_all(filename)?;
 
     println!("=== Rotation Interval Analysis ===");
     println!("File: {}", filename);
-    println!("Sample rate: {} Hz\n", spec.sample_rate);
-
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
-        hound::SampleFormat::Int => {
-            let max_val = 2_i32.pow(spec.bits_per_sample as u32 - 1) as f32;
-            reader
-                .samples::<i32>()
-                .map(|s| s.map(|v| v as f32 / max_val))
-                .collect::<Result<Vec<_>, _>>()?
-        }
-    };
+    println!("Sample rate: {} Hz\n", sample_rate);
 
     // Extract RIGHT channel (north tick)
     let mut right: Vec<f32> = Vec::new();
@@ -37,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Find peaks using threshold
     let threshold = 0.2;
-    let peaks = find_peaks_with_spacing(&right, threshold, spec.sample_rate);
+    let peaks = find_peaks_with_spacing(&right, threshold, sample_rate);
 
     if peaks.len() < 2 {
         println!("Error: Found {} peaks, need at least 2", peaks.len());
@@ -49,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Calculate intervals between consecutive peaks
     let mut intervals: Vec<f32> = peaks
         .windows(2)
-        .map(|w| (w[1] - w[0]) as f32 / spec.sample_rate as f32)
+        .map(|w| (w[1] - w[0]) as f32 / sample_rate as f32)
         .collect();
 
     // Remove outliers (keep intervals within 1.5-2.5ms for ~500Hz rotation)

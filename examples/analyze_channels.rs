@@ -1,4 +1,4 @@
-use hound::WavReader;
+use rotaryclub::audio::WavFileSource;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,27 +9,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let filename = &args[1];
-    let mut reader = WavReader::open(filename)?;
-    let spec = reader.spec();
+    let (samples, sample_rate) = WavFileSource::read_all(filename)?;
 
     println!("=== Channel Analysis ===");
     println!("File: {}", filename);
-    println!("Sample rate: {} Hz", spec.sample_rate);
-    println!("Channels: {}\n", spec.channels);
-
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
-        hound::SampleFormat::Int => {
-            let max_val = 2_i32.pow(spec.bits_per_sample as u32 - 1) as f32;
-            reader
-                .samples::<i32>()
-                .map(|s| s.map(|v| v as f32 / max_val))
-                .collect::<Result<Vec<_>, _>>()?
-        }
-    };
+    println!("Sample rate: {} Hz", sample_rate);
+    println!("Channels: 2\n");
 
     // Analyze first 5 seconds
-    let analyze_samples = (spec.sample_rate * 5).min(samples.len() as u32 / 2) as usize;
+    let analyze_samples = (sample_rate * 5).min(samples.len() as u32 / 2) as usize;
 
     let mut left: Vec<f32> = Vec::new();
     let mut right: Vec<f32> = Vec::new();
@@ -41,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "Analyzing first {:.1} seconds...\n",
-        analyze_samples as f32 / spec.sample_rate as f32
+        analyze_samples as f32 / sample_rate as f32
     );
 
     // Calculate RMS

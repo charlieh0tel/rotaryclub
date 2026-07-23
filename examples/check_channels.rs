@@ -1,4 +1,4 @@
-use hound::WavReader;
+use rotaryclub::audio::WavFileSource;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,24 +9,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let filename = &args[1];
-    let mut reader = WavReader::open(filename)?;
-    let spec = reader.spec();
-
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
-        hound::SampleFormat::Int => {
-            let max_val = 2_i32.pow(spec.bits_per_sample as u32 - 1) as f32;
-            reader
-                .samples::<i32>()
-                .map(|s| s.map(|v| v as f32 / max_val))
-                .collect::<Result<Vec<_>, _>>()?
-        }
-    };
+    let (samples, sample_rate) = WavFileSource::read_all(filename)?;
 
     println!("=== Channel Signal Check ===\n");
 
     // Sample first 0.1 seconds
-    let sample_count = (spec.sample_rate as f32 * 0.1) as usize;
+    let sample_count = (sample_rate as f32 * 0.1) as usize;
 
     let mut left: Vec<f32> = Vec::new();
     let mut right: Vec<f32> = Vec::new();
@@ -41,13 +29,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "-".repeat(40));
 
     for i in (0..left.len()).step_by(100) {
-        let time_ms = i as f32 / spec.sample_rate as f32 * 1000.0;
+        let time_ms = i as f32 / sample_rate as f32 * 1000.0;
         println!("{:<10.2} {:<15.4} {:<15.4}", time_ms, left[i], right[i]);
     }
 
     // Check for periodic pulses (north tick characteristics)
     println!("\n\nPulse pattern analysis (first 1 second):");
-    let one_sec = spec.sample_rate as usize;
+    let one_sec = sample_rate as usize;
 
     let left_peaks = find_peaks(&left[..one_sec.min(left.len())], 0.5);
     let right_peaks = find_peaks(&right[..one_sec.min(right.len())], 0.3);
@@ -59,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             left_peaks
                 .windows(2)
                 .take(10)
-                .map(|w| (w[1] - w[0]) as f32 / spec.sample_rate as f32 * 1000.0)
+                .map(|w| (w[1] - w[0]) as f32 / sample_rate as f32 * 1000.0)
                 .collect::<Vec<_>>()
         );
     }
@@ -71,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             right_peaks
                 .windows(2)
                 .take(10)
-                .map(|w| (w[1] - w[0]) as f32 / spec.sample_rate as f32 * 1000.0)
+                .map(|w| (w[1] - w[0]) as f32 / sample_rate as f32 * 1000.0)
                 .collect::<Vec<_>>()
         );
     }
@@ -84,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let left_avg_interval = if left_peaks.len() > 1 {
         let intervals: Vec<f32> = left_peaks
             .windows(2)
-            .map(|w| (w[1] - w[0]) as f32 / spec.sample_rate as f32 * 1000.0)
+            .map(|w| (w[1] - w[0]) as f32 / sample_rate as f32 * 1000.0)
             .collect();
         intervals.iter().sum::<f32>() / intervals.len() as f32
     } else {
@@ -94,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let right_avg_interval = if right_peaks.len() > 1 {
         let intervals: Vec<f32> = right_peaks
             .windows(2)
-            .map(|w| (w[1] - w[0]) as f32 / spec.sample_rate as f32 * 1000.0)
+            .map(|w| (w[1] - w[0]) as f32 / sample_rate as f32 * 1000.0)
             .collect();
         intervals.iter().sum::<f32>() / intervals.len() as f32
     } else {

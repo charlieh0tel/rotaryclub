@@ -108,6 +108,21 @@ impl WavFileSource {
     }
 }
 
+impl WavFileSource {
+    /// Read an entire stereo WAV into interleaved f32 samples, returning
+    /// them with the file's sample rate. Convenience for small diagnostic
+    /// tools; long recordings should stream via `next_buffer` instead.
+    pub fn read_all<P: AsRef<Path>>(path: P) -> Result<(Vec<f32>, u32)> {
+        let mut source = Self::new(path, 65_536)?;
+        let sample_rate = source.sample_rate();
+        let mut samples = Vec::new();
+        while let Some(chunk) = source.next_buffer()? {
+            samples.extend(chunk);
+        }
+        Ok((samples, sample_rate))
+    }
+}
+
 impl AudioSource for WavFileSource {
     fn next_buffer(&mut self) -> Result<Option<Vec<f32>>> {
         let mut chunk = Vec::with_capacity(self.chunk_size);
