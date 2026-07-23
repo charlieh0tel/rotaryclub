@@ -64,6 +64,18 @@ impl RdfProcessor {
     }
 
     pub fn process_audio(&mut self, interleaved: &[f32]) -> Vec<TickResult> {
+        // A single call larger than the ring capacity used to silently drop
+        // its leading frames; feed oversized backend callbacks through the
+        // normal path in capacity-sized pieces instead.
+        let max_interleaved = AudioRingBuffer::capacity() * 2;
+        if interleaved.len() > max_interleaved {
+            let mut results = Vec::new();
+            for chunk in interleaved.chunks(max_interleaved) {
+                results.extend(self.process_audio(chunk));
+            }
+            return results;
+        }
+
         self.ring_buffer.push_interleaved(interleaved);
 
         let samples = self.ring_buffer.latest(interleaved.len() / 2);
@@ -348,6 +360,32 @@ mod tests {
                 i,
                 w,
                 c
+            );
+        }
+    }
+
+    #[test]
+    fn test_oversized_process_audio_call_loses_no_frames() {
+        // Regression test: a single call larger than the ring capacity
+        // silently discarded its leading frames and desynced the counters.
+        let config = default_config();
+        let rotation_hz = config.doppler.expected_freq;
+        let sample_rate = config.audio.sample_rate;
+
+        // ~0.5 s = 24000 frames, well over the 8192-frame ring capacity.
+        let signal = generate_test_signal(0.5, sample_rate, rotation_hz, 200.0);
+
+        let mut proc_reference = RdfProcessor::new(&config, false, true).unwrap();
+        let reference = proc_reference.process_signal(&signal);
+
+        let mut proc_oversized = RdfProcessor::new(&config, false, true).unwrap();
+        let oversized = proc_oversized.process_audio(&signal);
+
+        assert_eq!(reference.len(), oversized.len(), "tick counts differ");
+        for (r, o) in reference.iter().zip(oversized.iter()) {
+            assert_eq!(
+                r.north_tick.sample_index, o.north_tick.sample_index,
+                "tick positions diverged"
             );
         }
     }

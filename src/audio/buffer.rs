@@ -13,6 +13,11 @@ pub struct AudioRingBuffer {
 }
 
 impl AudioRingBuffer {
+    /// Maximum stereo frames retained; larger pushes keep only the newest.
+    pub const fn capacity() -> usize {
+        DEFAULT_BUFFER_CAPACITY
+    }
+
     pub fn new() -> Self {
         Self {
             buffer: Vec::with_capacity(DEFAULT_BUFFER_CAPACITY),
