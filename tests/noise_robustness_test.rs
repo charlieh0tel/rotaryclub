@@ -300,9 +300,15 @@ fn test_frequency_drift_tracking() {
 
     let max_error = measure_max_error_across_bearings(&noise_config, &config);
 
+    // The drift model is a true slew (triangle sweep), so the tone's phase
+    // excursion relative to the north reference peaks at
+    // 360 * max_dev^2 / rate = 45 degrees — that error is physics, not
+    // tracker failure (bearing IS the tone-to-reference phase). Allow the
+    // physical bound plus tracker margin.
     assert!(
-        max_error < 30.0,
-        "Frequency drift test failed: max error {:.1}° exceeds 30° threshold",
+        max_error < 55.0,
+        "Frequency drift test failed: max error {:.1}° exceeds 55° threshold \
+         (physical bound 45°)",
         max_error
     );
 }

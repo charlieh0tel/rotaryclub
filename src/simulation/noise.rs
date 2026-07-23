@@ -354,27 +354,39 @@ fn apply_frequency_drift(
         })
         .collect();
 
-    // Integrate the sinusoidal frequency deviation into an instantaneous
-    // phase offset: φ(t) = ∫ 2π·Δf(t) dt where Δf(t) = max_dev · sin(2π·rate·t).
-    // The integral is -max_dev/(rate) · cos(2π·rate·t) + const.
-    let modulation_rate = config.drift_rate_hz_per_sec;
+    // Drift as a true slew: the frequency deviation ramps at exactly
+    // drift_rate_hz_per_sec, reversing direction at +/-max_deviation_hz
+    // (a triangle sweep, modeling e.g. thermal oscillator drift). The
+    // deviation integrates sample-by-sample into a phase offset:
+    // phi += 2*pi*dev(t)*dt. A non-positive rate means a constant
+    // deviation of max_deviation_hz.
+    let slew_rate = config.drift_rate_hz_per_sec;
     let max_dev = config.max_deviation_hz;
+    let dt = 1.0 / sample_rate;
+
+    let mut deviation = if slew_rate > 0.0 { 0.0 } else { max_dev };
+    let mut direction = 1.0f32;
+    let mut phase_offset = 0.0f32;
 
     for (i, s) in signal.iter_mut().enumerate() {
-        let t = i as f32 / sample_rate;
-        let phase_offset = if modulation_rate > 0.0 {
-            -(max_dev / modulation_rate) * (2.0 * PI * modulation_rate * t).cos()
-                + (max_dev / modulation_rate)
-        } else {
-            2.0 * PI * max_dev * t
-        };
-
         // Apply phase rotation to the analytic signal:
         // s_drifted = Re{(s + j·s_q) · e^(j·phase_offset)}
         //           = s·cos(φ) - s_q·sin(φ)
         let cos_p = phase_offset.cos();
         let sin_p = phase_offset.sin();
         *s = original[i] * cos_p - quadrature[i] * sin_p;
+
+        if slew_rate > 0.0 {
+            deviation += direction * slew_rate * dt;
+            if deviation >= max_dev {
+                deviation = max_dev;
+                direction = -1.0;
+            } else if deviation <= -max_dev {
+                deviation = -max_dev;
+                direction = 1.0;
+            }
+        }
+        phase_offset += 2.0 * PI * deviation * dt;
     }
 }
 
@@ -475,6 +487,42 @@ mod tests {
         let noisy2 = apply_noise(&clean, &config, 48000.0, 500.0);
 
         assert_eq!(noisy1, noisy2);
+    }
+
+    #[test]
+    fn test_frequency_drift_is_a_true_slew_rate() {
+        // drift_rate_hz_per_sec used to act as a sinusoidal modulation
+        // frequency (peak slew 2*pi*rate*max_dev); it must be an actual
+        // Hz/s ramp. With max_dev = 50 Hz at 100 Hz/s the deviation reaches
+        // +50 Hz at t = 0.5 s; the old model averaged ~0 Hz there.
+        let sample_rate = 48_000.0f32;
+        let tone_hz = 1_000.0f32;
+        let n = 48_000usize;
+        let mut signal: Vec<f32> = (0..n)
+            .map(|i| (2.0 * PI * tone_hz * i as f32 / sample_rate).sin())
+            .collect();
+
+        let config = FrequencyDriftConfig {
+            max_deviation_hz: 50.0,
+            drift_rate_hz_per_sec: 100.0,
+        };
+        apply_frequency_drift(&mut signal, &config, sample_rate, tone_hz);
+
+        // Average frequency around the t = 0.5 s triangle peak from rising
+        // zero crossings; the deviation averages 45 Hz over [0.4, 0.6] s
+        // (the old sinusoid model averaged ~0 Hz there).
+        let (start, end) = ((0.4 * sample_rate) as usize, (0.6 * sample_rate) as usize);
+        let crossings = signal[start..end]
+            .windows(2)
+            .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+            .count();
+        let measured_hz = crossings as f32 / 0.2;
+        assert!(
+            (measured_hz - (tone_hz + 45.0)).abs() < 8.0,
+            "frequency near triangle peak was {:.1} Hz, expected ~{:.1} Hz",
+            measured_hz,
+            tone_hz + 45.0
+        );
     }
 
     #[test]
