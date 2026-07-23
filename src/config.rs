@@ -144,6 +144,31 @@ pub struct RdfConfig {
     pub agc: AgcConfig,
 }
 
+impl RdfConfig {
+    /// Retune every rotation-coupled parameter to the given rotation.
+    ///
+    /// The defaults (DPLL tracking band, Doppler bandpass, detector dead
+    /// time) are all sized for the nominal rotor; setting only the expected
+    /// frequency used to leave them fixed, so an out-of-band `--rotation`
+    /// silently clamped to the old band or never locked at all. Scaling
+    /// everything proportionally preserves the validated ratios at any
+    /// rotation rate.
+    pub fn apply_rotation(&mut self, rotation: RotationFrequency) {
+        let hz = rotation.as_hz();
+        let scale = hz / RotationFrequency::default().as_hz();
+
+        self.doppler.expected_freq = hz;
+        self.north_tick.dpll.initial_frequency_hz = hz;
+        self.north_tick.dpll.frequency_min_hz *= scale;
+        self.north_tick.dpll.frequency_max_hz *= scale;
+        self.doppler.bandpass_low *= scale;
+        self.doppler.bandpass_high *= scale;
+        // Dead time scales with the rotation period so the
+        // min_interval-vs-frequency_max validation holds at any rate.
+        self.north_tick.min_interval_ms /= scale;
+    }
+}
+
 /// Audio input configuration
 ///
 /// Configures sample rate, buffer size, and channel assignment.
@@ -495,6 +520,37 @@ mod tests {
         assert!("abc".parse::<RotationFrequency>().is_err());
         assert!("-100hz".parse::<RotationFrequency>().is_err());
         assert!("0us".parse::<RotationFrequency>().is_err());
+    }
+
+    #[test]
+    fn test_apply_rotation_scales_coupled_parameters() {
+        // --rotation used to change only the expected/initial frequency,
+        // leaving the DPLL band and bandpass at their nominal-rotor values,
+        // so e.g. 1700 Hz was accepted then silently clamped to the band.
+        for hz in [800.0_f32, 1700.0, 2400.0] {
+            let mut config = RdfConfig::default();
+            config.apply_rotation(RotationFrequency::from_hz(hz));
+
+            assert_eq!(config.doppler.expected_freq, hz);
+            assert_eq!(config.north_tick.dpll.initial_frequency_hz, hz);
+            assert!(
+                config.north_tick.dpll.frequency_min_hz < hz
+                    && hz < config.north_tick.dpll.frequency_max_hz,
+                "{} Hz outside derived band {}-{}",
+                hz,
+                config.north_tick.dpll.frequency_min_hz,
+                config.north_tick.dpll.frequency_max_hz
+            );
+            assert!(
+                config.doppler.bandpass_low < hz && hz < config.doppler.bandpass_high,
+                "{} Hz outside derived bandpass",
+                hz
+            );
+            // The derived config must satisfy the tracker's dead-time
+            // validation at any rate.
+            crate::rdf::NorthReferenceTracker::new(&config.north_tick, 48_000.0)
+                .expect("derived config should construct a tracker");
+        }
     }
 
     #[test]

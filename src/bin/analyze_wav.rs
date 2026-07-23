@@ -42,13 +42,13 @@ struct Args {
     #[arg(long)]
     rotation: Option<RotationFrequency>,
 
-    /// Bandpass filter lower cutoff in Hz
-    #[arg(long, default_value = "1350")]
-    bandpass_low: f32,
+    /// Bandpass filter lower cutoff in Hz (default derived from rotation)
+    #[arg(long)]
+    bandpass_low: Option<f32>,
 
-    /// Bandpass filter upper cutoff in Hz
-    #[arg(long, default_value = "1850")]
-    bandpass_high: f32,
+    /// Bandpass filter upper cutoff in Hz (default derived from rotation)
+    #[arg(long)]
+    bandpass_high: Option<f32>,
 
     /// Skip bearing calculation and output
     #[arg(long)]
@@ -164,13 +164,17 @@ fn main() -> anyhow::Result<()> {
     let mut config = RdfConfig::default();
     config.doppler.method = args.method;
     config.north_tick.mode = args.north_mode;
-    config.doppler.bandpass_low = args.bandpass_low;
-    config.doppler.bandpass_high = args.bandpass_high;
-
     if let Some(rotation) = args.rotation {
-        let hz = rotation.as_hz();
-        config.doppler.expected_freq = hz;
-        config.north_tick.dpll.initial_frequency_hz = hz;
+        config.apply_rotation(rotation);
+    }
+
+    // Explicit bandpass flags override the (possibly rotation-derived)
+    // defaults.
+    if let Some(low) = args.bandpass_low {
+        config.doppler.bandpass_low = low;
+    }
+    if let Some(high) = args.bandpass_high {
+        config.doppler.bandpass_high = high;
     }
 
     config.north_tick.gain_db = args.north_tick_gain;

@@ -115,9 +115,7 @@ fn main() -> anyhow::Result<()> {
     config.bearing.north_offset_degrees = args.north_offset;
 
     if let Some(rotation) = args.rotation {
-        let hz = rotation.as_hz();
-        config.doppler.expected_freq = hz;
-        config.north_tick.dpll.initial_frequency_hz = hz;
+        config.apply_rotation(rotation);
     }
 
     config.north_tick.gain_db = args.north_tick_gain;
