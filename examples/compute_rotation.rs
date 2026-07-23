@@ -40,8 +40,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|w| (w[1] - w[0]) as f32 / sample_rate as f32)
         .collect();
 
-    // Remove outliers (keep intervals within 1.5-2.5ms for ~500Hz rotation)
-    intervals.retain(|&x| x > 0.0015 && x < 0.0025);
+    // Remove outliers relative to the median interval, so the diagnostic
+    // works at any rotor rate. (Fixed 1.5-2.5 ms bounds assumed a ~500 Hz
+    // rotor and aliased the 1602 Hz default down to ~534 Hz.)
+    let mut sorted = intervals.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = sorted[sorted.len() / 2];
+    intervals.retain(|&x| x > 0.5 * median && x < 1.5 * median);
 
     if intervals.is_empty() {
         println!("Error: No valid intervals found");
@@ -82,7 +87,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn find_peaks_with_spacing(signal: &[f32], threshold: f32, sample_rate: u32) -> Vec<usize> {
     let mut peaks = Vec::new();
     let mut was_below = true;
-    let min_spacing = (sample_rate as f32 * 0.0015) as usize; // 1.5ms minimum
+    // Debounce only; the rotor rate is what this tool is measuring, so it
+    // must not assume one (a 1.5 ms dead time halved/thirded fast tick
+    // rates before any interval was ever computed).
+    let min_spacing = (sample_rate as f32 * 0.0001) as usize;
     let mut last_peak = 0;
 
     for (i, &sample) in signal.iter().enumerate() {
