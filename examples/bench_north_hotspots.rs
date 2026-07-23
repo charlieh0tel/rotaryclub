@@ -135,10 +135,24 @@ fn bench_peak_detector() {
         let mut old = OldPeakDetectorRescan::new(threshold, min_interval, window);
         let mut new = PeakDetector::with_peak_search_window(threshold, min_interval, window);
 
-        let old_once = old.find_all_peaks(&buffer);
+        let old_once: Vec<(isize, f32)> = old
+            .find_all_peaks(&buffer)
+            .into_iter()
+            .map(|(i, a)| (i as isize, a))
+            .collect();
         let new_once = new.find_all_peaks(&buffer);
+        // The library defers a final peak whose search window spans the
+        // buffer end (completing it in the next call); the reference
+        // implementation truncates instead. Compare the common prefix.
+        assert!(
+            new_once.len() == old_once.len() || new_once.len() + 1 == old_once.len(),
+            "Peak detector count mismatch for {label}: old {} new {}",
+            old_once.len(),
+            new_once.len()
+        );
         assert_eq!(
-            old_once, new_once,
+            old_once[..new_once.len()],
+            new_once[..],
             "Peak detector output mismatch for {label}"
         );
 

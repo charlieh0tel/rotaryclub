@@ -87,8 +87,10 @@ impl SimpleNorthTracker {
         for (peak_idx, _amplitude) in peaks {
             // Compensate for FIR filter delay: the filtered output at peak_idx
             // corresponds to an input pulse that occurred earlier by the
-            // configured delay compensation.
-            let global_sample = self.sample_counter.saturating_add(peak_idx);
+            // configured delay compensation. peak_idx can be slightly
+            // negative when its search window completed across a buffer
+            // boundary.
+            let global_sample = (self.sample_counter as isize + peak_idx).max(0) as usize;
             let compensated_sample = global_sample.saturating_sub(delay.delay_samples);
 
             if let Some(last) = self.last_tick_sample {

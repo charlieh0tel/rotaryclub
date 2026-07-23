@@ -278,17 +278,17 @@ impl DpllNorthTracker {
 
         let mut ticks = Vec::with_capacity(peaks.len());
 
-        let mut last_sample_idx = 0;
+        // Peak indices are strictly increasing but a peak whose search
+        // window completed in this buffer may sit at a small negative index
+        // (in the previous buffer); the phase advance is then a rewind.
+        let mut last_sample_idx: isize = 0;
         for &(peak_idx, _amplitude) in &peaks {
-            if peak_idx < last_sample_idx {
-                continue;
-            }
             // Advance PLL phase from last_sample_idx to peak_idx
             let samples_to_advance = peak_idx - last_sample_idx;
             self.phase += self.frequency * samples_to_advance as f32;
             self.phase = Self::wrap_phase(self.phase);
 
-            let global_sample = self.sample_counter.saturating_add(peak_idx);
+            let global_sample = (self.sample_counter as isize + peak_idx).max(0) as usize;
             let compensated_sample = global_sample.saturating_sub(delay.delay_samples);
             let period_estimate = 2.0 * PI / self.frequency;
             if let Some(last) = self.last_tick_sample {
@@ -366,8 +366,8 @@ impl DpllNorthTracker {
         }
 
         // Advance phase for remaining samples after the last peak
-        if last_sample_idx < buffer.len() {
-            let remaining = buffer.len() - last_sample_idx;
+        if last_sample_idx < buffer.len() as isize {
+            let remaining = buffer.len() as isize - last_sample_idx;
             self.phase += self.frequency * remaining as f32;
             self.phase = Self::wrap_phase(self.phase);
         }
