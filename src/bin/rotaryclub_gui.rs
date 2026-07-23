@@ -194,8 +194,11 @@ fn start_processing(
             file_config: Some(file_config),
         })
     } else {
-        let source: Box<dyn AudioSource> =
-            Box::new(DeviceSource::new(&config.audio, args.device.as_deref())?);
+        let mut device_source = DeviceSource::new(&config.audio, args.device.as_deref())?;
+        // Let window close interrupt the blocking audio wait even if the
+        // device goes silent without erroring.
+        device_source.set_shutdown_flag(Arc::clone(&stop_requested));
+        let source: Box<dyn AudioSource> = Box::new(device_source);
         let remove_dc = args.remove_dc;
         let dump_audio = args.dump_audio.clone();
         let sample_rate = config.audio.sample_rate;

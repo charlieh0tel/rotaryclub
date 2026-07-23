@@ -1,8 +1,11 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, RecvTimeoutError};
 use hound::WavReader;
 
 use super::AudioCapture;
@@ -31,6 +34,7 @@ pub struct DeviceSource {
     sample_rate: u32,
     capture: AudioCapture,
     reported_dropped_samples: u64,
+    shutdown: Option<Arc<AtomicBool>>,
 }
 
 impl DeviceSource {
@@ -42,16 +46,34 @@ impl DeviceSource {
             sample_rate: config.sample_rate,
             capture,
             reported_dropped_samples: 0,
+            shutdown: None,
         })
+    }
+
+    /// Observe a shutdown flag while waiting for audio, so a caller's stop
+    /// request ends the blocking wait even if the device goes silent
+    /// without raising a stream error.
+    pub fn set_shutdown_flag(&mut self, flag: Arc<AtomicBool>) {
+        self.shutdown = Some(flag);
     }
 }
 
 impl AudioSource for DeviceSource {
     fn next_buffer(&mut self) -> Result<Option<Vec<f32>>> {
-        match self.rx.recv() {
-            Ok(Ok(data)) => Ok(Some(data)),
-            Ok(Err(e)) => Err(RdfError::AudioStream(e.to_string())),
-            Err(_) => Ok(None),
+        // Wait in bounded slices so the shutdown flag is observed even when
+        // a silently-dead device delivers neither data nor a stream error.
+        loop {
+            if let Some(flag) = &self.shutdown
+                && flag.load(Ordering::Relaxed)
+            {
+                return Ok(None);
+            }
+            match self.rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(data)) => return Ok(Some(data)),
+                Ok(Err(e)) => return Err(RdfError::AudioStream(e.to_string())),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+            }
         }
     }
 
