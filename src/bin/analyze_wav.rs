@@ -213,6 +213,11 @@ fn main() -> anyhow::Result<()> {
         OutputFormat::Json => print_json(&results)?,
     }
 
+    let failed = results.iter().filter(|r| r.error.is_some()).count();
+    if failed > 0 {
+        anyhow::bail!("{} of {} file(s) failed to analyze", failed, results.len());
+    }
+
     Ok(())
 }
 
