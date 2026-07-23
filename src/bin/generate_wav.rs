@@ -55,7 +55,7 @@ struct Args {
     manifest: bool,
 
     /// AWGN SNR in dB (CLI override)
-    #[arg(long)]
+    #[arg(long, value_parser = parse_finite_db)]
     snr: Option<f32>,
 
     /// Rayleigh fading Doppler spread in Hz (CLI override)
@@ -122,6 +122,15 @@ struct Manifest {
 // different bearings to the same file.
 fn bearing_filename(prefix: &str, bearing: f32, trial: u32) -> String {
     format!("{}_b{:05.1}_t{:02}.wav", prefix, bearing, trial)
+}
+
+fn parse_finite_db(s: &str) -> std::result::Result<f32, String> {
+    let db: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
+    if db.is_finite() {
+        Ok(db)
+    } else {
+        Err("value must be a finite number of dB".to_string())
+    }
 }
 
 fn parse_bearings(s: &str) -> Result<Vec<f32>> {
@@ -226,7 +235,7 @@ fn noise_tag(config: &NoiseConfig) -> String {
     parts.join("_")
 }
 
-fn build_noise_config(toml: &TomlConfig, args: &Args, seed: u64) -> NoiseConfig {
+fn build_noise_config(toml: &TomlConfig, args: &Args, seed: u64) -> Result<NoiseConfig> {
     let mut config = NoiseConfig::default().with_seed(seed);
 
     if let Some(snr) = args.snr {
@@ -235,6 +244,15 @@ fn build_noise_config(toml: &TomlConfig, args: &Args, seed: u64) -> NoiseConfig 
         config.additive = Some(AdditiveNoiseConfig {
             snr_db: awgn.snr_db,
         });
+    }
+    if let Some(ref additive) = config.additive
+        && !additive.snr_db.is_finite()
+    {
+        // Non-finite SNR reaches Normal::new(NaN).unwrap() and panics.
+        anyhow::bail!(
+            "awgn snr_db must be a finite number of dB, got {}",
+            additive.snr_db
+        );
     }
 
     if let Some(fading_hz) = args.fading_hz {
@@ -284,7 +302,7 @@ fn build_noise_config(toml: &TomlConfig, args: &Args, seed: u64) -> NoiseConfig 
         });
     }
 
-    config
+    Ok(config)
 }
 
 fn main() -> Result<()> {
@@ -301,7 +319,7 @@ fn main() -> Result<()> {
     let bearings = parse_bearings(&args.bearings)?;
     let base_seed = args.seed.unwrap_or(0);
 
-    let representative_config = build_noise_config(&toml_config, &args, 0);
+    let representative_config = build_noise_config(&toml_config, &args, 0)?;
     let tag = noise_tag(&representative_config);
     let file_prefix = if tag.is_empty() {
         args.prefix.clone()
@@ -318,7 +336,7 @@ fn main() -> Result<()> {
             let seed = base_seed
                 .wrapping_add(trial as u64 * 1000)
                 .wrapping_add(bearing.to_bits() as u64);
-            let noise_config = build_noise_config(&toml_config, &args, seed);
+            let noise_config = build_noise_config(&toml_config, &args, seed)?;
 
             let signal = generate_noisy_test_signal(
                 args.duration,
