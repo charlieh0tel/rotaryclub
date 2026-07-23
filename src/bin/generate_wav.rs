@@ -141,20 +141,36 @@ fn parse_bearings(s: &str) -> Result<Vec<f32>> {
         if !step.is_finite() || step <= 0.0 {
             anyhow::bail!("Step must be a positive number, got {}", step);
         }
-        if start > end {
-            anyhow::bail!("Range start {} must not exceed end {}", start, end);
+        // Bearings are circular, so ranges are half-open: 0-360:15 sweeps
+        // 0..345 without duplicating north as both 0 and 360. Non-finite or
+        // out-of-range endpoints previously looped until OOM.
+        if !start.is_finite() || !end.is_finite() {
+            anyhow::bail!("Range endpoints must be finite, got {}-{}", start, end);
+        }
+        if !(0.0..360.0).contains(&start) || end <= start || end > 360.0 {
+            anyhow::bail!(
+                "Range must satisfy 0 <= start < end <= 360 degrees, got {}-{}",
+                start,
+                end
+            );
         }
 
         let mut bearings = Vec::new();
         let mut b = start;
-        while b <= end {
+        while b < end {
             bearings.push(b);
             b += step;
         }
         Ok(bearings)
     } else {
         s.split(',')
-            .map(|p| p.trim().parse::<f32>().context("Invalid bearing value"))
+            .map(|p| {
+                let bearing: f32 = p.trim().parse().context("Invalid bearing value")?;
+                if !bearing.is_finite() || !(0.0..360.0).contains(&bearing) {
+                    anyhow::bail!("Bearing must be in [0, 360) degrees, got {}", bearing);
+                }
+                Ok(bearing)
+            })
             .collect()
     }
 }
@@ -364,15 +380,28 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bearings_range() {
+    fn test_parse_bearings_range_is_half_open() {
         let bearings = parse_bearings("0-90:30").unwrap();
-        assert_eq!(bearings, vec![0.0, 30.0, 60.0, 90.0]);
+        assert_eq!(bearings, vec![0.0, 30.0, 60.0]);
     }
 
     #[test]
-    fn test_parse_bearings_range_full_circle() {
+    fn test_parse_bearings_range_full_circle_no_duplicate_north() {
+        // 360 aliases 0 on a circle; the sweep must not test north twice.
         let bearings = parse_bearings("0-360:90").unwrap();
-        assert_eq!(bearings, vec![0.0, 90.0, 180.0, 270.0, 360.0]);
+        assert_eq!(bearings, vec![0.0, 90.0, 180.0, 270.0]);
+    }
+
+    #[test]
+    fn test_parse_bearings_rejects_invalid_endpoints() {
+        // Non-finite ends looped until f32 increment stalled (OOM).
+        assert!(parse_bearings("0-inf:1").is_err());
+        assert!(parse_bearings("nan-90:1").is_err());
+        assert!(parse_bearings("0-400:15").is_err());
+        assert!(parse_bearings("-10-90:15").is_err());
+        assert!(parse_bearings("90-90:15").is_err());
+        assert!(parse_bearings("0,360").is_err());
+        assert!(parse_bearings("0,45,720").is_err());
     }
 
     #[test]
