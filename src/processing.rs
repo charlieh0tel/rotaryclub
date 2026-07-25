@@ -65,12 +65,14 @@ impl RdfProcessor {
 
     pub fn process_audio(&mut self, interleaved: &[f32]) -> Vec<TickResult> {
         // A single call larger than the ring capacity used to silently drop
-        // its leading frames; feed oversized backend callbacks through the
-        // normal path in capacity-sized pieces instead.
-        let max_interleaved = AudioRingBuffer::capacity() * 2;
-        if interleaved.len() > max_interleaved {
+        // its leading frames. Split oversized backend callbacks at the
+        // configured buffer size so the result matches process_signal's
+        // chunking exactly (same per-buffer bearing averaging), not just the
+        // ring-capacity bound.
+        let chunk_interleaved = (self.audio_config.buffer_size * 2).max(2);
+        if interleaved.len() > AudioRingBuffer::capacity() * 2 {
             let mut results = Vec::new();
-            for chunk in interleaved.chunks(max_interleaved) {
+            for chunk in interleaved.chunks(chunk_interleaved) {
                 results.extend(self.process_audio(chunk));
             }
             return results;
@@ -381,11 +383,19 @@ mod tests {
         let mut proc_oversized = RdfProcessor::new(&config, false, true).unwrap();
         let oversized = proc_oversized.process_audio(&signal);
 
+        // Splitting at buffer_size matches process_signal's chunking, so the
+        // oversized single call must produce bit-identical ticks and bearings.
         assert_eq!(reference.len(), oversized.len(), "tick counts differ");
         for (r, o) in reference.iter().zip(oversized.iter()) {
             assert_eq!(
                 r.north_tick.sample_index, o.north_tick.sample_index,
                 "tick positions diverged"
+            );
+            assert_eq!(
+                r.bearing.map(|b| b.bearing_degrees),
+                o.bearing.map(|b| b.bearing_degrees),
+                "bearings diverged at sample {}",
+                r.north_tick.sample_index
             );
         }
     }
