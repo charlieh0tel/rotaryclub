@@ -168,7 +168,14 @@ fn parse_bearings(s: &str) -> Result<Vec<f32>> {
         let mut b = start;
         while b < end {
             bearings.push(b);
-            b += step;
+            let next = b + step;
+            // A positive step still passes validation but can be too small
+            // for f32 to advance b near large magnitudes (e.g. 1e-30), which
+            // would loop forever appending the same value.
+            if next <= b {
+                anyhow::bail!("Step {} is too small to advance from {} degrees", step, b);
+            }
+            b = next;
         }
         Ok(bearings)
     } else {
@@ -420,6 +427,12 @@ mod tests {
         assert!(parse_bearings("90-90:15").is_err());
         assert!(parse_bearings("0,360").is_err());
         assert!(parse_bearings("0,45,720").is_err());
+    }
+
+    #[test]
+    fn test_parse_bearings_rejects_non_advancing_step() {
+        // Positive but too small for f32 to advance b: would loop forever.
+        assert!(parse_bearings("1-2:1e-30").is_err());
     }
 
     #[test]
