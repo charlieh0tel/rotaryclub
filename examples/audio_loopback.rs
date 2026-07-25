@@ -44,10 +44,10 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         match audio_rx.recv_timeout(print_interval) {
-            Ok(Ok(data)) => {
-                for chunk in data.chunks_exact(2) {
-                    left_sum += chunk[0] * chunk[0];
-                    right_sum += chunk[1] * chunk[1];
+            Ok(Ok(chunk)) => {
+                for frame in chunk.samples.chunks_exact(2) {
+                    left_sum += frame[0] * frame[0];
+                    right_sum += frame[1] * frame[1];
                     count += 1;
                 }
             }

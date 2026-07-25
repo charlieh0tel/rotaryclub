@@ -32,8 +32,11 @@ const CAPTURE_CHANNEL_DEPTH: usize = 32;
 pub struct DeviceSource {
     rx: Receiver<AudioMessage>,
     sample_rate: u32,
-    capture: AudioCapture,
-    reported_dropped_samples: u64,
+    _capture: AudioCapture,
+    // Gap (frames) that preceded the buffer returned by the last
+    // next_buffer call, awaiting collection by take_dropped_frames.
+    pending_gap_frames: usize,
+    total_dropped_frames: u64,
     shutdown: Option<Arc<AtomicBool>>,
 }
 
@@ -44,8 +47,9 @@ impl DeviceSource {
         Ok(Self {
             rx,
             sample_rate: config.sample_rate,
-            capture,
-            reported_dropped_samples: 0,
+            _capture: capture,
+            pending_gap_frames: 0,
+            total_dropped_frames: 0,
             shutdown: None,
         })
     }
@@ -69,7 +73,18 @@ impl AudioSource for DeviceSource {
                 return Ok(None);
             }
             match self.rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(Ok(data)) => return Ok(Some(data)),
+                Ok(Ok(chunk)) => {
+                    if chunk.gap_before_frames > 0 {
+                        self.pending_gap_frames = chunk.gap_before_frames;
+                        self.total_dropped_frames += chunk.gap_before_frames as u64;
+                        log::warn!(
+                            "Audio capture dropped {} frame(s), {} total (processing too slow)",
+                            chunk.gap_before_frames,
+                            self.total_dropped_frames
+                        );
+                    }
+                    return Ok(Some(chunk.samples));
+                }
                 Ok(Err(e)) => return Err(RdfError::AudioStream(e.to_string())),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return Ok(None),
@@ -82,17 +97,7 @@ impl AudioSource for DeviceSource {
     }
 
     fn take_dropped_frames(&mut self) -> usize {
-        let dropped = self.capture.dropped_samples();
-        let delta = dropped - self.reported_dropped_samples;
-        if delta > 0 {
-            log::warn!(
-                "Audio capture dropped {} sample(s), {} total (processing too slow)",
-                delta,
-                dropped
-            );
-            self.reported_dropped_samples = dropped;
-        }
-        (delta / 2) as usize
+        std::mem::take(&mut self.pending_gap_frames)
     }
 }
 

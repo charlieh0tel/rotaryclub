@@ -2,8 +2,6 @@ use crate::config::AudioConfig;
 use crate::error::{RdfError, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Sender, TrySendError};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 pub fn list_input_devices() -> Result<Vec<String>> {
     let host = cpal::default_host();
@@ -19,13 +17,22 @@ pub fn list_input_devices() -> Result<Vec<String>> {
     Ok(names)
 }
 
-/// Message from the capture callbacks: a chunk of interleaved samples, or a
-/// fatal stream error that ends capture.
-pub type AudioMessage = std::result::Result<Vec<f32>, cpal::StreamError>;
+/// A buffer of interleaved samples, tagged with the number of frames
+/// (per-channel samples) dropped immediately before it because the consumer
+/// could not keep up. The gap travels with the chunk so the consumer can
+/// advance the DSP clock at the exact point in the stream where audio was
+/// lost, rather than at dequeue time (up to a full queue later).
+pub struct AudioChunk {
+    pub gap_before_frames: usize,
+    pub samples: Vec<f32>,
+}
+
+/// Message from the capture callbacks: a gap-tagged chunk, or a fatal stream
+/// error that ends capture.
+pub type AudioMessage = std::result::Result<AudioChunk, cpal::StreamError>;
 
 pub struct AudioCapture {
     stream: cpal::Stream,
-    dropped_samples: Arc<AtomicU64>,
 }
 
 impl AudioCapture {
@@ -70,9 +77,11 @@ impl AudioCapture {
         };
 
         // Build input stream with callback
-        let dropped_samples = Arc::new(AtomicU64::new(0));
-        let dropped_samples_cb = Arc::clone(&dropped_samples);
         let error_tx = tx.clone();
+        // Frames dropped since the last successful send, carried forward on
+        // the next chunk that gets through. Lives in the FnMut callback, so
+        // no shared atomic is needed.
+        let mut pending_gap_frames: usize = 0;
         let stream = device
             .build_input_stream(
                 &stream_config,
@@ -80,12 +89,17 @@ impl AudioCapture {
                     // This runs on the real-time audio thread: never block.
                     // If the consumer lags and the channel fills, drop the
                     // chunk and account for it instead of stalling the driver.
-                    match tx.try_send(Ok(data.to_vec())) {
-                        Ok(()) => {}
+                    let chunk = AudioChunk {
+                        gap_before_frames: pending_gap_frames,
+                        samples: data.to_vec(),
+                    };
+                    match tx.try_send(Ok(chunk)) {
+                        Ok(()) => pending_gap_frames = 0,
                         Err(TrySendError::Full(_)) => {
-                            // Count samples, not chunks: consumers advance the
-                            // DSP clock across the gap to keep timing honest.
-                            dropped_samples_cb.fetch_add(data.len() as u64, Ordering::Relaxed);
+                            // This chunk is lost too; keep the earlier pending
+                            // gap and add these frames (data is interleaved
+                            // stereo, so len / 2 frames).
+                            pending_gap_frames += data.len() / 2;
                         }
                         Err(TrySendError::Disconnected(_)) => {
                             log::warn!("Audio receiver dropped");
@@ -111,15 +125,7 @@ impl AudioCapture {
             .play()
             .map_err(|e| RdfError::AudioStream(format!("{}", e)))?;
 
-        Ok(Self {
-            stream,
-            dropped_samples,
-        })
-    }
-
-    /// Total interleaved samples dropped because the consumer lagged.
-    pub fn dropped_samples(&self) -> u64 {
-        self.dropped_samples.load(Ordering::Relaxed)
+        Ok(Self { stream })
     }
 }
 
