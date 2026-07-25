@@ -9,6 +9,7 @@ from typing import Dict, Tuple
 
 from perf_schema import (
     coverage_failures,
+    fine_coverage_failures,
     MetricSpec,
     apply_profile_limits,
     evaluate_row_against_limits,
@@ -105,6 +106,10 @@ METHOD_SCENARIO_OVERRIDES: Dict[Tuple[str, str], Dict[str, float]] = {
 }
 
 BASELINE_LIMITS: Dict[Tuple[str, str], Dict[str, float]] = {}
+
+# Each (method, scenario) is swept over this many buffer sizes; a regression
+# dropping some must fail coverage even if the surviving rows are in-limit.
+EXPECTED_BUFFER_SIZES = 4
 for method in ("correlation", "zero_crossing"):
     for scenario in (
         "clean",
@@ -148,6 +153,14 @@ def evaluate_thresholds(
 
     failures.extend(
         coverage_failures(rows, lambda row: (row["method"], row["scenario"]), BASELINE_LIMITS.keys())
+    )
+    failures.extend(
+        fine_coverage_failures(
+            rows,
+            lambda row: (row["method"], row["scenario"]),
+            lambda row: (row["buffer_size"],),
+            lambda _group: EXPECTED_BUFFER_SIZES,
+        )
     )
 
     for row in rows:

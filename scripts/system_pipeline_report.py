@@ -9,6 +9,7 @@ from typing import Dict, Tuple
 
 from perf_schema import (
     coverage_failures,
+    fine_coverage_failures,
     MetricSpec,
     apply_profile_limits,
     evaluate_row_against_limits,
@@ -62,6 +63,9 @@ METRICS = [
 ]
 
 BASELINE_LIMITS: Dict[Tuple[str, str, str], Dict[str, float]] = {}
+
+# Buffer sizes swept per (north_mode, bearing_method, scenario).
+EXPECTED_BUFFER_SIZES = 3
 
 # Mode+method timing defaults
 MODE_METHOD_DEFAULTS: Dict[Tuple[str, str], Dict[str, float]] = {
@@ -194,6 +198,14 @@ def evaluate_thresholds(
 
     failures.extend(
         coverage_failures(rows, lambda row: (row["north_mode"], row["bearing_method"], row["scenario"]), BASELINE_LIMITS.keys())
+    )
+    failures.extend(
+        fine_coverage_failures(
+            rows,
+            lambda row: (row["north_mode"], row["bearing_method"], row["scenario"]),
+            lambda row: (row["buffer_size"],),
+            lambda _group: EXPECTED_BUFFER_SIZES,
+        )
     )
 
     for row in rows:

@@ -73,9 +73,10 @@ def evaluate_row_against_limits(
     for spec in metrics:
         observed = float(row[spec.name])
         limit = limits[spec.name]
-        # NaN compares false against every limit, so a non-finite metric
-        # would otherwise pass; treat it as an unconditional violation.
-        if not math.isfinite(observed):
+        # NaN compares false against every limit, so a non-finite observation
+        # or a non-finite limit (e.g. a `nan` CLI override) would otherwise
+        # silently pass; treat either as an unconditional violation.
+        if not math.isfinite(observed) or not math.isfinite(limit):
             violations.append(spec.name)
         elif spec.direction == "min":
             if observed + epsilon < limit:
@@ -84,6 +85,36 @@ def evaluate_row_against_limits(
             if observed - epsilon > limit:
                 violations.append(spec.name)
     return violations
+
+
+def fine_coverage_failures(
+    rows: Sequence[Mapping[str, str]],
+    group_key_fn: Callable[[Mapping[str, str]], Tuple[str, ...]],
+    fine_key_fn: Callable[[Mapping[str, str]], Tuple[str, ...]],
+    expected_count: Callable[[Tuple[str, ...]], int],
+) -> List[str]:
+    """Fail when a group is missing rows of its finer matrix dimensions.
+
+    The coarse coverage check only ensures each (mode, scenario) key appears;
+    a harness regression emitting just one buffer/chunk size per scenario
+    would still pass. This requires each group to carry its full expected set
+    of distinct fine keys (e.g. buffer sizes, chunk-size/offset pairs).
+    """
+    from collections import defaultdict
+
+    fine: Dict[Tuple[str, ...], set] = defaultdict(set)
+    for row in rows:
+        fine[group_key_fn(row)].add(fine_key_fn(row))
+
+    failures: List[str] = []
+    for group in sorted(fine.keys()):
+        want = expected_count(group)
+        got = len(fine[group])
+        if got != want:
+            failures.append(
+                f"FAIL group {group} has {got} distinct fine-key row(s), expected {want}"
+            )
+    return failures
 
 
 def coverage_failures(

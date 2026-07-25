@@ -9,6 +9,7 @@ from typing import Dict, Tuple
 
 from perf_schema import (
     coverage_failures,
+    fine_coverage_failures,
     MetricSpec,
     apply_profile_limits,
     evaluate_row_against_limits,
@@ -81,6 +82,14 @@ MODE_SCENARIO_OVERRIDES: Dict[Tuple[str, str], Dict[str, float]] = {
 }
 
 BASELINE_LIMITS: Dict[Tuple[str, str], Dict[str, float]] = {}
+
+# Distinct (chunk_size, start_offset) rows expected per scenario. Most sweep
+# the full chunk x offset matrix; freq_step and long_drift use reduced sets.
+DEFAULT_FINE_COUNT = 18
+EXPECTED_FINE_COUNT = {
+    "freq_step": 2,
+    "long_drift": 2,
+}
 for mode in ("dpll", "simple"):
     for scenario, defaults in SCENARIO_DEFAULTS.items():
         merged = dict(defaults)
@@ -117,6 +126,14 @@ def evaluate_thresholds(
 
     failures.extend(
         coverage_failures(rows, lambda row: (row["mode"], row["scenario"]), BASELINE_LIMITS.keys())
+    )
+    failures.extend(
+        fine_coverage_failures(
+            rows,
+            lambda row: (row["mode"], row["scenario"]),
+            lambda row: (row["chunk_size"], row["start_offset_s"]),
+            lambda group: EXPECTED_FINE_COUNT.get(group[1], DEFAULT_FINE_COUNT),
+        )
     )
 
     for row in rows:
