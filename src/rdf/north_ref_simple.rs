@@ -69,6 +69,9 @@ impl SimpleNorthTracker {
     pub fn advance_samples(&mut self, samples: usize) {
         self.sample_counter += samples;
         self.peak_detector.reset_continuity();
+        // Don't measure the first post-gap interval across the gap: it would
+        // fold the whole gap into the period EMA and yank the estimate.
+        self.last_tick_sample = None;
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {

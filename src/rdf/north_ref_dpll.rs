@@ -263,6 +263,9 @@ impl DpllNorthTracker {
         self.phase = Self::wrap_phase(self.phase + self.frequency * samples as f32);
         self.sample_counter += samples;
         self.peak_detector.reset_continuity();
+        // The next tick begins a fresh interval; the min-spacing guard must
+        // not compare it against a pre-gap tick.
+        self.last_tick_sample = None;
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
