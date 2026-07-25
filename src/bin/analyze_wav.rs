@@ -369,6 +369,18 @@ fn analyze_file_impl(
         }
     }
 
+    // Recover a tick whose search window was pending at end-of-stream.
+    for result in processor.finish() {
+        collected_ticks.push(CollectedTick {
+            sample_index: result.north_tick.sample_index,
+            lock_quality: result.north_tick.lock_quality,
+            period: result.north_tick.period,
+            frequency: processor.rotation_frequency(),
+            bearing: result.bearing.map(|b| b.bearing_degrees),
+            phase_error_variance: processor.phase_error_variance(),
+        });
+    }
+
     // Determine range to analyze
     let total_ticks = collected_ticks.len();
     let (start, end, trimmed_range) = if let Some(opts) = trim_opts {

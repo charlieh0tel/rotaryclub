@@ -32,6 +32,10 @@ pub trait NorthTracker {
     /// (e.g. capture chunks dropped under overload) without processing
     /// audio, so subsequent tick indices stay on the real timeline.
     fn advance_samples(&mut self, samples: usize);
+
+    /// Emit any tick still pending at end-of-stream (a crossing whose
+    /// peak-search window had not completed when the last buffer ended).
+    fn finish(&mut self) -> Vec<NorthTick>;
     fn rotation_frequency(&self) -> Option<f32>;
     #[allow(dead_code)]
     fn lock_quality(&self) -> Option<f32>;
@@ -97,6 +101,13 @@ impl NorthTracker for NorthReferenceTracker {
         match self {
             Self::Simple(tracker) => tracker.advance_samples(samples),
             Self::Dpll(tracker) => tracker.advance_samples(samples),
+        }
+    }
+
+    fn finish(&mut self) -> Vec<NorthTick> {
+        match self {
+            Self::Simple(tracker) => tracker.finish(),
+            Self::Dpll(tracker) => tracker.finish(),
         }
     }
 

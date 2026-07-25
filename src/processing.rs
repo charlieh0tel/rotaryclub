@@ -137,6 +137,29 @@ impl RdfProcessor {
         }
     }
 
+    /// Emit any tick still pending at end-of-stream. Call once after the
+    /// final process_audio; the terminal tick's bearing is computed against
+    /// the last preprocessed buffer.
+    pub fn finish(&mut self) -> Vec<TickResult> {
+        let ticks = self.north_tracker.finish();
+        if let Some(tick) = ticks.last() {
+            self.last_north_tick = Some(*tick);
+        }
+        ticks
+            .iter()
+            .map(|tick| {
+                let bearing = self
+                    .bearing_calc
+                    .as_mut()
+                    .and_then(|calc| calc.process_tick(tick));
+                TickResult {
+                    north_tick: *tick,
+                    bearing,
+                }
+            })
+            .collect()
+    }
+
     pub fn process_signal(&mut self, interleaved: &[f32]) -> Vec<TickResult> {
         let chunk_size = self.audio_config.buffer_size * 2;
         let mut all_results = Vec::new();

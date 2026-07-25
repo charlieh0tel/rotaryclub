@@ -130,6 +130,18 @@ impl PeakDetector {
         self.samples_since_peak = self.min_samples_between_peaks;
     }
 
+    /// Resolve any window still pending at the end of the stream.
+    ///
+    /// A crossing in the final `peak_search_window_samples` of the input
+    /// defers its local-max search to the next buffer; at end-of-stream
+    /// there is no next buffer, so without this the final tick is dropped.
+    /// The returned index is relative to the (nonexistent) buffer that
+    /// would have followed the last one processed, i.e. negative, bounded
+    /// by the window length.
+    pub fn flush(&mut self) -> Option<(isize, f32)> {
+        self.pending_peak.take().map(|p| (p.rel, p.amp))
+    }
+
     /// Detect a peak in the next sample
     ///
     /// Returns `true` if a rising-edge threshold crossing is detected and
@@ -293,6 +305,22 @@ mod tests {
         let second = split.find_all_peaks(&signal[20..]);
         // Relative to the second buffer: global 21 = boundary 20 + 1.
         assert_eq!(second, vec![(1, 0.9)]);
+    }
+
+    #[test]
+    fn test_flush_emits_pending_peak_at_stream_end() {
+        // A crossing in the final window-length samples defers; at end of
+        // stream flush() must still surface it (else the last tick is lost).
+        let mut detector = PeakDetector::with_peak_search_window(0.5, 10, 4);
+        let mut signal = [0.0f32; 20];
+        signal[18] = 0.9;
+
+        let peaks = detector.find_all_peaks(&signal);
+        assert!(peaks.is_empty(), "window should defer, got {:?}", peaks);
+
+        let flushed = detector.flush();
+        assert_eq!(flushed, Some((-2, 0.9)), "global 18 = end 20 - 2");
+        assert!(detector.flush().is_none(), "second flush is empty");
     }
 
     #[test]

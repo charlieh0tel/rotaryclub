@@ -268,6 +268,37 @@ impl DpllNorthTracker {
         self.last_tick_sample = None;
     }
 
+    /// Emit a final tick for a crossing whose search window was still
+    /// pending at end-of-stream. Uses the current locked frequency without
+    /// running the PI update — nothing follows this tick.
+    pub fn finish(&mut self) -> Vec<NorthTick> {
+        let Some((rel, _amp)) = self.peak_detector.flush() else {
+            return Vec::new();
+        };
+        let delay = derive_delay_compensation(&self.highpass, self.pulse_peak_offset);
+        let global_sample = (self.sample_counter as isize + rel).max(0) as usize;
+        let compensated_sample = global_sample.saturating_sub(delay.delay_samples);
+        if let Some(last) = self.last_tick_sample {
+            let min_spacing = (2.0 * PI / self.frequency) * MIN_TICK_SPACING_FRACTION;
+            if (compensated_sample.saturating_sub(last) as f32) < min_spacing {
+                return Vec::new();
+            }
+        }
+        let fractional_sample_offset = delay.fractional_sample_offset.clamp(
+            -MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
+            MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
+        );
+        self.last_tick_sample = Some(compensated_sample);
+        vec![NorthTick {
+            sample_index: compensated_sample,
+            period: Some(2.0 * PI / self.frequency),
+            lock_quality: self.lock_quality(),
+            fractional_sample_offset,
+            phase: 0.0,
+            frequency: self.frequency,
+        }]
+    }
+
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
         preprocess_north_buffer(
             &mut self.filter_buffer,

@@ -245,6 +245,36 @@ fn run_processing_loop(
         .map(|path| rotaryclub::WavStreamWriter::create(path, config.audio.sample_rate))
         .transpose()?;
 
+    // Emit a bearing line for one tick, honoring the output-rate throttle
+    // unless forced (used for the terminal end-of-stream tick).
+    let emit_tick = |result: &rotaryclub::processing::TickResult,
+                     phase_error_variance: Option<f32>,
+                     bearing_stats: &mut CircularStats,
+                     last_output: &mut Instant,
+                     force: bool| {
+        if let Some(ref bearing) = result.bearing
+            && (force || !throttle_output || last_output.elapsed() >= output_interval)
+        {
+            let adjusted_bearing =
+                (bearing.bearing_degrees + config.bearing.north_offset_degrees).rem_euclid(360.0);
+            let adjusted_raw =
+                (bearing.raw_bearing + config.bearing.north_offset_degrees).rem_euclid(360.0);
+            let output = BearingOutput {
+                bearing: adjusted_bearing,
+                raw: adjusted_raw,
+                confidence: bearing.confidence,
+                snr_db: bearing.metrics.snr_db,
+                coherence: bearing.metrics.coherence,
+                signal_strength: bearing.metrics.signal_strength,
+                lock_quality: result.north_tick.lock_quality,
+                phase_error_variance,
+            };
+            bearing_stats.update(adjusted_bearing);
+            println!("{}", formatter.format(&output));
+            *last_output = Instant::now();
+        }
+    };
+
     while let Some(audio_data) = source.next_buffer()? {
         processor.advance_samples(source.take_dropped_frames());
 
@@ -261,32 +291,15 @@ fn run_processing_loop(
             rotation_stats.update(freq);
         }
 
+        let phase_error_variance = processor.phase_error_variance();
         for result in &tick_results {
-            if let Some(ref bearing) = result.bearing
-                && (!throttle_output || last_output.elapsed() >= output_interval)
-            {
-                let mut adjusted_bearing =
-                    bearing.bearing_degrees + config.bearing.north_offset_degrees;
-                let mut adjusted_raw = bearing.raw_bearing + config.bearing.north_offset_degrees;
-
-                adjusted_bearing = adjusted_bearing.rem_euclid(360.0);
-                adjusted_raw = adjusted_raw.rem_euclid(360.0);
-
-                let output = BearingOutput {
-                    bearing: adjusted_bearing,
-                    raw: adjusted_raw,
-                    confidence: bearing.confidence,
-                    snr_db: bearing.metrics.snr_db,
-                    coherence: bearing.metrics.coherence,
-                    signal_strength: bearing.metrics.signal_strength,
-                    lock_quality: result.north_tick.lock_quality,
-                    phase_error_variance: processor.phase_error_variance(),
-                };
-
-                bearing_stats.update(adjusted_bearing);
-                println!("{}", formatter.format(&output));
-                last_output = Instant::now();
-            }
+            emit_tick(
+                result,
+                phase_error_variance,
+                &mut bearing_stats,
+                &mut last_output,
+                false,
+            );
         }
 
         // Warn on a missing north reference — both before first acquisition
@@ -311,6 +324,24 @@ fn run_processing_loop(
             }
             next_warning_frame = frames_processed + warning_interval_frames;
         }
+    }
+
+    // Emit any tick whose search window was still pending at end-of-stream.
+    let final_ticks = processor.finish();
+    if let Some(freq) = processor.rotation_frequency()
+        && !final_ticks.is_empty()
+    {
+        rotation_stats.update(freq);
+    }
+    let phase_error_variance = processor.phase_error_variance();
+    for result in &final_ticks {
+        emit_tick(
+            result,
+            phase_error_variance,
+            &mut bearing_stats,
+            &mut last_output,
+            true,
+        );
     }
 
     if let Some(writer) = dump_writer {

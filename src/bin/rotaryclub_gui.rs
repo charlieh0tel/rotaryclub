@@ -238,6 +238,44 @@ fn start_processing(
     }
 }
 
+/// Send one tick's data to the GUI, timestamped by its own sample index.
+/// Returns Err if the GUI receiver has gone away.
+#[allow(clippy::too_many_arguments, clippy::result_unit_err)]
+fn send_tick_update(
+    tx: &Sender<GuiUpdate>,
+    north_offset: &Arc<AtomicU32>,
+    result: &rotaryclub::processing::TickResult,
+    rotation_freq: Option<f32>,
+    phase_error_variance: Option<f32>,
+    time_offset: f64,
+    sample_rate: u32,
+) -> Result<(), ()> {
+    let bearing_data = result.bearing.map(|b| {
+        let offset = f32::from_bits(north_offset.load(Ordering::Relaxed));
+        BearingData {
+            bearing: (b.bearing_degrees + offset).rem_euclid(360.0),
+            raw: (b.raw_bearing + offset).rem_euclid(360.0),
+            confidence: b.confidence,
+            snr_db: b.metrics.snr_db,
+            coherence: b.metrics.coherence,
+            signal_strength: b.metrics.signal_strength,
+        }
+    });
+
+    // Each tick carries its own sample position; using the buffer start
+    // would stack all ~34 ticks per buffer on one timestamp.
+    let time_secs = time_offset + result.north_tick.sample_index as f64 / sample_rate as f64;
+
+    let update = GuiUpdate::Data {
+        time_secs,
+        bearing: bearing_data,
+        rotation_freq,
+        lock_quality: result.north_tick.lock_quality,
+        phase_error_variance,
+    };
+    tx.send(update).map_err(|_| ())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_processing(
     mut source: Box<dyn AudioSource>,
@@ -289,34 +327,17 @@ fn run_processing(
         let phase_error_variance = processor.phase_error_variance();
 
         for result in &tick_results {
-            let bearing_data = result.bearing.map(|b| {
-                let offset = f32::from_bits(north_offset.load(Ordering::Relaxed));
-                let bearing = (b.bearing_degrees + offset).rem_euclid(360.0);
-                let raw = (b.raw_bearing + offset).rem_euclid(360.0);
-                BearingData {
-                    bearing,
-                    raw,
-                    confidence: b.confidence,
-                    snr_db: b.metrics.snr_db,
-                    coherence: b.metrics.coherence,
-                    signal_strength: b.metrics.signal_strength,
-                }
-            });
-
-            // Each tick carries its own sample position; using the buffer
-            // start would stack all ~34 ticks per buffer on one timestamp.
-            let time_secs =
-                time_offset + result.north_tick.sample_index as f64 / sample_rate as f64;
-
-            let update = GuiUpdate::Data {
-                time_secs,
-                bearing: bearing_data,
+            if send_tick_update(
+                &tx,
+                &north_offset,
+                result,
                 rotation_freq,
-                lock_quality: result.north_tick.lock_quality,
                 phase_error_variance,
-            };
-
-            if tx.send(update).is_err() {
+                time_offset,
+                sample_rate,
+            )
+            .is_err()
+            {
                 break;
             }
         }
@@ -330,6 +351,22 @@ fn run_processing(
                 thread::sleep(std::time::Duration::from_secs_f64(expected_time - elapsed));
             }
         }
+    }
+
+    // Emit a tick whose search window was pending at end-of-stream.
+    let final_ticks = processor.finish();
+    let rotation_freq = processor.rotation_frequency();
+    let phase_error_variance = processor.phase_error_variance();
+    for result in &final_ticks {
+        let _ = send_tick_update(
+            &tx,
+            &north_offset,
+            result,
+            rotation_freq,
+            phase_error_variance,
+            time_offset,
+            sample_rate,
+        );
     }
 
     if let Some(writer) = dump_writer {
