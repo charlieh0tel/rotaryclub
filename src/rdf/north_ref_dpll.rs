@@ -262,6 +262,7 @@ impl DpllNorthTracker {
     pub fn advance_samples(&mut self, samples: usize) {
         self.phase = Self::wrap_phase(self.phase + self.frequency * samples as f32);
         self.sample_counter += samples;
+        self.peak_detector.reset_continuity();
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {

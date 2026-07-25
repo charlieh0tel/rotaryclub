@@ -117,6 +117,19 @@ impl PeakDetector {
         }
     }
 
+    /// Reset cross-buffer continuity state after a gap in the sample
+    /// stream (e.g. capture chunks dropped under overload). A deferred
+    /// peak window referenced pre-gap audio and must not resolve against
+    /// unrelated post-gap samples; edge detection restarts cleanly.
+    pub fn reset_continuity(&mut self) {
+        self.pending_peak = None;
+        self.last_sample = 0.0;
+        self.above_threshold = false;
+        // Allow a tick immediately after the gap: the dead time it guards
+        // against elapsed during the gap itself.
+        self.samples_since_peak = self.min_samples_between_peaks;
+    }
+
     /// Detect a peak in the next sample
     ///
     /// Returns `true` if a rising-edge threshold crossing is detected and
@@ -280,6 +293,30 @@ mod tests {
         let second = split.find_all_peaks(&signal[20..]);
         // Relative to the second buffer: global 21 = boundary 20 + 1.
         assert_eq!(second, vec![(1, 0.9)]);
+    }
+
+    #[test]
+    fn test_reset_continuity_discards_deferred_window() {
+        // A window deferred across a boundary refers to pre-gap audio; after
+        // a stream gap it must be dropped, not resolved against unrelated
+        // post-gap samples.
+        let mut detector = PeakDetector::with_peak_search_window(0.5, 10, 4);
+        let mut signal = [0.0f32; 20];
+        signal[18] = 0.9;
+        assert!(detector.find_all_peaks(&signal).is_empty());
+
+        detector.reset_continuity();
+
+        let quiet = [0.1f32; 20];
+        assert!(
+            detector.find_all_peaks(&quiet).is_empty(),
+            "deferred pre-gap peak must not materialize after a gap"
+        );
+
+        // Detection still works normally after the reset.
+        let mut post = [0.0f32; 20];
+        post[5] = 0.9;
+        assert_eq!(detector.find_all_peaks(&post), vec![(5, 0.9)]);
     }
 
     #[test]

@@ -68,6 +68,7 @@ impl SimpleNorthTracker {
     /// capture gap stay on the real timeline.
     pub fn advance_samples(&mut self, samples: usize) {
         self.sample_counter += samples;
+        self.peak_detector.reset_continuity();
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
