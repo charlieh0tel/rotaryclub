@@ -308,6 +308,45 @@ mod tests {
     }
 
     #[test]
+    fn test_split_processing_matches_whole_at_every_boundary() {
+        // Cross-buffer window handling must be split-invariant: processing a
+        // signal in two pieces (plus an end-of-stream flush) must yield the
+        // same peaks as processing it whole, for every split point. Each
+        // pulse peaks two samples after its threshold crossing (within the
+        // dead time, so the peak is not itself a new crossing), so a
+        // truncated window would report the wrong index.
+        let period = 6;
+        let window = 5;
+        let min_interval = 4;
+        let n = 60;
+        let mut signal = vec![0.0f32; n];
+        let mut p = 3;
+        while p + 2 < n {
+            signal[p] = 0.6; // threshold crossing
+            signal[p + 2] = 0.9; // true peak, 2 samples later
+            p += period;
+        }
+
+        let mut whole_det = PeakDetector::with_peak_search_window(0.5, min_interval, window);
+        let mut whole: Vec<(isize, f32)> = whole_det.find_all_peaks(&signal);
+        whole.extend(whole_det.flush().map(|(rel, amp)| (n as isize + rel, amp)));
+
+        for split in 1..n {
+            let mut det = PeakDetector::with_peak_search_window(0.5, min_interval, window);
+            let mut got: Vec<(isize, f32)> = Vec::new();
+            for (start, chunk) in [(0usize, &signal[..split]), (split, &signal[split..])] {
+                for (rel, amp) in det.find_all_peaks(chunk) {
+                    got.push((start as isize + rel, amp));
+                }
+            }
+            if let Some((rel, amp)) = det.flush() {
+                got.push((n as isize + rel, amp));
+            }
+            assert_eq!(got, whole, "split at {} diverged from whole", split);
+        }
+    }
+
+    #[test]
     fn test_flush_emits_pending_peak_at_stream_end() {
         // A crossing in the final window-length samples defers; at end of
         // stream flush() must still surface it (else the last tick is lost).
