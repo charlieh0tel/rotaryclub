@@ -153,19 +153,24 @@ impl RdfConfig {
     /// silently clamped to the old band or never locked at all. Scaling
     /// everything proportionally preserves the validated ratios at any
     /// rotation rate.
+    ///
+    /// The coupled parameters are scaled from the *default* config rather
+    /// than their current values, so the result depends only on `rotation`
+    /// and repeated calls do not compound.
     pub fn apply_rotation(&mut self, rotation: RotationFrequency) {
         let hz = rotation.as_hz();
         let scale = hz / RotationFrequency::default().as_hz();
+        let defaults = Self::default();
 
         self.doppler.expected_freq = hz;
         self.north_tick.dpll.initial_frequency_hz = hz;
-        self.north_tick.dpll.frequency_min_hz *= scale;
-        self.north_tick.dpll.frequency_max_hz *= scale;
-        self.doppler.bandpass_low *= scale;
-        self.doppler.bandpass_high *= scale;
+        self.north_tick.dpll.frequency_min_hz = defaults.north_tick.dpll.frequency_min_hz * scale;
+        self.north_tick.dpll.frequency_max_hz = defaults.north_tick.dpll.frequency_max_hz * scale;
+        self.doppler.bandpass_low = defaults.doppler.bandpass_low * scale;
+        self.doppler.bandpass_high = defaults.doppler.bandpass_high * scale;
         // Dead time scales with the rotation period so the
         // min_interval-vs-frequency_max validation holds at any rate.
-        self.north_tick.min_interval_ms /= scale;
+        self.north_tick.min_interval_ms = defaults.north_tick.min_interval_ms / scale;
     }
 }
 
@@ -550,6 +555,21 @@ mod tests {
             // validation at any rate.
             crate::rdf::NorthReferenceTracker::new(&config.north_tick, 48_000.0)
                 .expect("derived config should construct a tracker");
+
+            // Applying the same rotation again must be a no-op (scaling is
+            // from defaults, not compounding from current values).
+            let mut twice = RdfConfig::default();
+            twice.apply_rotation(RotationFrequency::from_hz(hz));
+            twice.apply_rotation(RotationFrequency::from_hz(hz));
+            assert_eq!(
+                twice.north_tick.dpll.frequency_max_hz, config.north_tick.dpll.frequency_max_hz,
+                "repeated apply_rotation compounded"
+            );
+            assert_eq!(twice.doppler.bandpass_high, config.doppler.bandpass_high);
+            assert_eq!(
+                twice.north_tick.min_interval_ms,
+                config.north_tick.min_interval_ms
+            );
         }
     }
 
