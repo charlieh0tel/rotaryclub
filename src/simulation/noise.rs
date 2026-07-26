@@ -369,13 +369,18 @@ fn apply_frequency_drift(
     let mut phase_offset = 0.0f32;
 
     for (i, s) in signal.iter_mut().enumerate() {
-        // Apply phase rotation to the analytic signal:
+        // Apply phase rotation to the analytic signal at this sample:
         // s_drifted = Re{(s + j·s_q) · e^(j·phase_offset)}
         //           = s·cos(φ) - s_q·sin(φ)
         let cos_p = phase_offset.cos();
         let sin_p = phase_offset.sin();
         *s = original[i] * cos_p - quadrature[i] * sin_p;
 
+        // Advance the phase across [i, i+1) by the integral of the deviation
+        // over that interval. Integrate trapezoidally (average of the
+        // interval's start and end deviation) rather than using the endpoint
+        // value, which would overstate the ramp by half a sample step.
+        let prev_deviation = deviation;
         if slew_rate > 0.0 {
             deviation += direction * slew_rate * dt;
             if deviation >= max_dev {
@@ -386,7 +391,7 @@ fn apply_frequency_drift(
                 direction = 1.0;
             }
         }
-        phase_offset += 2.0 * PI * deviation * dt;
+        phase_offset += 2.0 * PI * 0.5 * (prev_deviation + deviation) * dt;
     }
 }
 
