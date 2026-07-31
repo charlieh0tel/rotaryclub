@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-deb:
-    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@main
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@v1
     with:
       build-deps: "libasound2-dev libdbus-1-dev"
     secrets: inherit
