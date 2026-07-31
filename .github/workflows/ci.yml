@@ -11,7 +11,7 @@ env:
 
 jobs:
   rust-ci:
-    uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@main
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@v1
     with:
       build-deps: "libasound2-dev libdbus-1-dev"
 
