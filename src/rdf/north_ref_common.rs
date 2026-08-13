@@ -42,6 +42,22 @@ pub(super) fn derive_delay_compensation(
     }
 }
 
+/// Re-anchor an effective tick time onto the nearest sample index.
+///
+/// Callers accumulate corrections against a whole-sample base; once the total
+/// exceeds half a sample the nearest index is a different one. Splitting here
+/// keeps the reported fraction inside half a sample, so consumers never have
+/// to reason about an offset that points past a neighbouring sample.
+pub(super) fn split_effective_time(base_sample: usize, offset: f32) -> (usize, f32) {
+    if !offset.is_finite() {
+        return (base_sample, 0.0);
+    }
+    let whole = offset.round();
+    let index = (base_sample as i64 + whole as i64).max(0) as usize;
+    let fraction = offset - whole;
+    (index, fraction)
+}
+
 pub(super) fn preprocess_north_buffer(
     filter_buffer: &mut Vec<f32>,
     input: &[f32],
