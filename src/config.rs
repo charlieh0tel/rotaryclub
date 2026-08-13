@@ -249,12 +249,33 @@ pub enum NorthTrackingMode {
 }
 
 /// Sub-sample estimator for the reference pulse arrival time
+///
+/// The two centroids are the same first moment differing only in how the
+/// weight is spread across the pulse. Amplitude weighting gives the skirts
+/// more say, which suits a narrow pulse whose neighbours carry the
+/// interpolation; energy weighting concentrates on the peak, which suits a
+/// wider pulse with skirts worth down-weighting and is measurably better at
+/// the shipped highpass cutoff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum NorthPulseEstimator {
     /// Index of the largest filtered sample, quantized to whole samples
     HardLimiter,
-    /// Energy centroid of the filtered pulse, resolving below one sample
-    Centroid,
+    /// First moment weighted by sample value
+    AmplitudeCentroid,
+    /// First moment weighted by sample value squared
+    EnergyCentroid,
+}
+
+impl NorthPulseEstimator {
+    /// Exponent the sample value is raised to when weighting the first
+    /// moment. Zero marks an estimator that takes no moment at all.
+    pub(crate) fn weight_exponent(self) -> i32 {
+        match self {
+            NorthPulseEstimator::HardLimiter => 0,
+            NorthPulseEstimator::AmplitudeCentroid => 1,
+            NorthPulseEstimator::EnergyCentroid => 2,
+        }
+    }
 }
 
 /// Digital Phase-Locked Loop (DPLL) configuration
@@ -497,7 +518,7 @@ impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
             mode: NorthTrackingMode::Dpll,
-            estimator: NorthPulseEstimator::Centroid,
+            estimator: NorthPulseEstimator::EnergyCentroid,
             gain_db: 0.0,
             highpass_cutoff: 1000.0,
             fir_highpass_taps: 63,

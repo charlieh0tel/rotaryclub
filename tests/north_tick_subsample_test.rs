@@ -333,6 +333,41 @@ fn test_shipped_loop_bandwidth_bounds_acquisition_error() {
     );
 }
 
+/// Both centroids resolve the pulse below one sample.
+///
+/// They are the same first moment, differing only in how weight is spread
+/// across the pulse, and the better of the two depends on the pulse shape the
+/// highpass leaves. Either must beat what a whole-sample peak index can do,
+/// which is the point of having an estimator at all.
+#[test]
+fn test_both_centroids_resolve_below_a_sample() {
+    use rotaryclub::config::NorthPulseEstimator;
+
+    let sample_rate = RdfConfig::default().audio.sample_rate as f32;
+    let period = sample_rate as f64 / 1602.564;
+    let num_samples = (sample_rate * 0.75) as usize;
+
+    for estimator in [
+        NorthPulseEstimator::AmplitudeCentroid,
+        NorthPulseEstimator::EnergyCentroid,
+    ] {
+        let mut config = RdfConfig::default();
+        config.north_tick.mode = NorthTrackingMode::Simple;
+        config.north_tick.estimator = estimator;
+        let amplitude = config.north_tick.expected_pulse_amplitude;
+
+        let (signal, truth) = sinc_pulse_train(num_samples, 64.31, period, amplitude);
+        let ticks = track(&config, &signal, 512);
+        let errors = timing_errors(&ticks, &truth, period);
+        let jitter = std_dev(settled(&errors));
+
+        assert!(
+            jitter <= 0.10,
+            "{estimator:?}: jitter {jitter:.4} samples, no better than a whole-sample index"
+        );
+    }
+}
+
 /// A rate change must not send the tracker into a runaway.
 ///
 /// Coasting covers rotations where no pulse arrived; a detection the gate

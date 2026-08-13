@@ -33,8 +33,16 @@ bearing = (phase_offset / 2π) × 360°
 3. Sub-sample pulse estimation (configurable): the detected peak is an
    integer sample index, and one sample at 48 kHz is 12° of bearing, so the
    arrival time is estimated below the sample grid.
-   - **Centroid mode** (default): energy centroid of the filtered pulse
-   - **Hard limiter mode**: the peak index alone, quantized to whole samples
+   - **Energy centroid** (default): first moment weighted by sample value squared
+   - **Amplitude centroid**: first moment weighted by sample value
+   - **Hard limiter**: the peak index alone, quantized to whole samples
+
+   The two centroids differ only in how weight spreads across the pulse.
+   Amplitude weighting gives the skirts more say and wins on a narrow pulse;
+   energy weighting concentrates on the peak and wins on a wider one.
+   Measured on the captures in `data/` at the 1 kHz cutoff, energy leads
+   0.69 degrees to 0.89; at 5 kHz, where the filter leaves a narrower pulse,
+   that reverses to 1.57 against 0.60.
 4. Rotation tracking (configurable):
    - **DPLL mode** (default): Digital PLL locks onto rotation frequency for smooth tracking
    - **Simple mode**: Exponential smoothing of period measurements
@@ -73,7 +81,7 @@ method: Correlation  // or ZeroCrossing
 // North tick detection
 highpass_cutoff: 5000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
 mode: Dpll  // or Simple
-estimator: Centroid  // or HardLimiter
+estimator: EnergyCentroid  // or AmplitudeCentroid, HardLimiter
 max_coast_ms: 1000.0, gate_sigma: 3.0
 // DPLL tracking band: 1400-1650 Hz. min_interval_ms must stay shorter
 // than the period at frequency_max_hz; conflicting values are a config
