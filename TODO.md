@@ -30,8 +30,6 @@
       degrades the spacing guard the remaining ones are judged against.
       `test_north_tick_detection_under_hum_clipping_and_drift` records the
       current behaviour.
-- [ ] Add config guardrails for threshold/FIR/gain ranges with actionable error messages
-      (done for DPLL frequency band inputs and min_interval_ms vs frequency_max_hz)
 - [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)
 
 ## Bearing Calculator

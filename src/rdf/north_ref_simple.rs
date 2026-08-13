@@ -7,7 +7,7 @@ use std::f32::consts::PI;
 
 use super::north_ref_common::{
     centroid_half_width, derive_delay_compensation, derive_peak_timing, estimate_fraction,
-    preprocess_north_buffer, retain_tail, split_effective_time,
+    preprocess_north_buffer, retain_tail, split_effective_time, validate_north_tick_config,
 };
 
 const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
@@ -37,6 +37,8 @@ pub struct SimpleNorthTracker {
 
 impl SimpleNorthTracker {
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
+        validate_north_tick_config(config, sample_rate)?;
+
         let min_samples = (config.min_interval_ms / 1000.0 * sample_rate) as usize;
         let gain = db_to_amplitude(config.gain_db);
 
