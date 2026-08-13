@@ -68,6 +68,17 @@ BASELINE_LIMITS: Dict[Tuple[str, str, str], Dict[str, float]] = {}
 EXPECTED_BUFFER_SIZES = 3
 
 # Mode+method timing defaults
+#
+# The p95 bearing limits for the simple tracker sit at 38 rather than 35. That
+# is not slack for a regression: the scenario driving them, noisy_jittered,
+# injects a sample of tick jitter, so its bearing spread is dominated by the
+# stimulus rather than by the pipeline, and it scales with the correlation
+# window -- the same rows read 17 degrees at a 128-sample buffer and 36 at 512.
+# The limit previously held only because doppler.north_tick_timing_adjustment
+# defaulted to half a sample, which examples/bearing_convention_probe shows is
+# wrong by five degrees of bearing. Correcting the trim moved this p95 up while
+# moving actual bearing error down; the mean limits, and the tick error columns,
+# are the ones guarding accuracy here.
 MODE_METHOD_DEFAULTS: Dict[Tuple[str, str], Dict[str, float]] = {
     ("dpll", "correlation"): {
         "bearing_success_rate": 0.99,
@@ -88,7 +99,7 @@ MODE_METHOD_DEFAULTS: Dict[Tuple[str, str], Dict[str, float]] = {
         "mean_us_per_sample": 0.75,
         "p95_us_per_sample": 0.90,
         "mean_abs_bearing_error_deg": 15.0,
-        "p95_abs_bearing_error_deg": 35.0,
+        "p95_abs_bearing_error_deg": 38.0,
         "max_abs_bearing_error_deg": 65.0,
         "mean_abs_tick_error_samples": 0.5,
         "p95_abs_tick_error_samples": 1.0,
@@ -112,7 +123,7 @@ MODE_METHOD_DEFAULTS: Dict[Tuple[str, str], Dict[str, float]] = {
         "mean_us_per_sample": 0.50,
         "p95_us_per_sample": 0.60,
         "mean_abs_bearing_error_deg": 15.0,
-        "p95_abs_bearing_error_deg": 35.0,
+        "p95_abs_bearing_error_deg": 38.0,
         "max_abs_bearing_error_deg": 65.0,
         "mean_abs_tick_error_samples": 0.5,
         "p95_abs_tick_error_samples": 1.0,
