@@ -363,8 +363,14 @@ pub struct NorthTickConfig {
     /// Raise it if a receiver bleeds enough audio into the north channel to
     /// cause false detections.
     pub highpass_cutoff: f32,
-    /// Number of taps for FIR highpass filter (must be odd, default 63)
-    pub fir_highpass_taps: usize,
+    /// Length of the FIR highpass in microseconds.
+    ///
+    /// Expressed in time rather than taps so the same configuration produces
+    /// the same filter at any sample rate. A fixed tap count would not: 63
+    /// taps is 1.31 ms at 48 kHz and 0.66 ms at 96, which is a different
+    /// filter with a different transition width, not the one asked for. The
+    /// tap count is derived from this and forced odd to keep linear phase.
+    pub fir_highpass_length_us: f32,
     /// Highpass filter transition bandwidth in Hz (default: 500.0)
     pub highpass_transition_hz: f32,
     /// Peak detection threshold (0-1 range)
@@ -556,7 +562,7 @@ impl Default for NorthTickConfig {
             estimator: NorthPulseEstimator::EnergyCentroid,
             gain_db: 0.0,
             highpass_cutoff: 1000.0,
-            fir_highpass_taps: 63,
+            fir_highpass_length_us: 1312.5,
             highpass_transition_hz: 500.0,
             threshold: 0.15,
             expected_pulse_amplitude: 0.8,

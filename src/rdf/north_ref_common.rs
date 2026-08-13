@@ -52,10 +52,12 @@ pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: 
         )));
     }
 
-    if config.fir_highpass_taps < 3 {
+    finite("fir_highpass_length_us", config.fir_highpass_length_us)?;
+    if highpass_taps(config, sample_rate) < 3 {
         return Err(RdfError::Config(format!(
-            "north_tick.fir_highpass_taps is {}, must be at least 3; an even count is              rounded up to keep the filter linear phase",
-            config.fir_highpass_taps
+            "north_tick.fir_highpass_length_us is {} us, which is fewer than 3 taps at a \
+             {} Hz sample rate; lengthen the filter",
+            config.fir_highpass_length_us, sample_rate
         )));
     }
 
@@ -98,6 +100,20 @@ pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: 
     }
 
     Ok(())
+}
+
+/// Tap count for the highpass, derived from its length in time.
+///
+/// Forced odd so the filter stays Type I linear phase, which is what makes
+/// its group delay an exact half-integer number of samples and therefore
+/// exactly compensable.
+pub(super) fn highpass_taps(config: &NorthTickConfig, sample_rate: f32) -> usize {
+    let taps = (config.fir_highpass_length_us * 1e-6 * sample_rate).round() as usize;
+    if taps.is_multiple_of(2) {
+        taps + 1
+    } else {
+        taps
+    }
 }
 
 pub(super) struct PeakTiming {

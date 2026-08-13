@@ -8,7 +8,8 @@ use std::f32::consts::PI;
 
 use super::north_ref_common::{
     centroid_half_width, derive_delay_compensation, derive_peak_timing, estimate_fraction,
-    preprocess_north_buffer, retain_tail, split_effective_time, validate_north_tick_config,
+    highpass_taps, preprocess_north_buffer, retain_tail, split_effective_time,
+    validate_north_tick_config,
 };
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
@@ -325,7 +326,7 @@ impl DpllNorthTracker {
         let highpass = FirHighpass::new(
             config.highpass_cutoff,
             sample_rate,
-            config.fir_highpass_taps,
+            highpass_taps(config, sample_rate),
             config.highpass_transition_hz,
         )?;
 
