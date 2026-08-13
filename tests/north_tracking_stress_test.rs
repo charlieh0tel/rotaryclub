@@ -746,3 +746,61 @@ fn test_north_tick_config_guardrails() {
         );
     }
 }
+
+/// A north channel too quiet to detect must be visible, not silent.
+///
+/// The detection threshold has wide margin -- detection holds down to a pulse
+/// amplitude of 0.3 against the 0.8 expected -- but below that it does not
+/// degrade, it stops. There are no ticks, so no bearings, and nothing that
+/// would show a problem. The tracker therefore reports how long it has been
+/// since it last saw a pulse, which is the quantity a caller can act on.
+#[test]
+fn test_quiet_north_channel_is_observable() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+    let duration_secs = 2.0;
+    let num_samples = (duration_secs * sample_rate) as usize;
+
+    let positions = generate_pulse_positions(
+        0.05,
+        duration_secs,
+        sample_rate,
+        |_| rotation_hz,
+        |_| true,
+        1,
+    );
+
+    for mode in [NorthTrackingMode::Dpll, NorthTrackingMode::Simple] {
+        // Healthy: pulses at the expected amplitude.
+        let mut healthy = config.clone();
+        healthy.north_tick.mode = mode;
+        let signal = build_north_signal(num_samples, &positions, 0.8);
+        let mut tracker = NorthReferenceTracker::new(&healthy.north_tick, sample_rate).unwrap();
+        for chunk in signal.chunks(512) {
+            let _ = tracker.process_buffer(chunk);
+        }
+        assert!(
+            tracker.samples_since_detection() < sample_rate as usize / 100,
+            "{mode:?}: healthy channel reports {} samples since a detection",
+            tracker.samples_since_detection()
+        );
+
+        // Too quiet: below where the filtered pulse crosses the threshold.
+        let quiet = build_north_signal(num_samples, &positions, 0.1);
+        let mut tracker = NorthReferenceTracker::new(&healthy.north_tick, sample_rate).unwrap();
+        let mut ticks = 0usize;
+        for chunk in quiet.chunks(512) {
+            ticks += tracker.process_buffer(chunk).len();
+        }
+        assert_eq!(
+            ticks, 0,
+            "{mode:?}: expected a 0.1 channel to detect nothing"
+        );
+        assert!(
+            tracker.samples_since_detection() >= num_samples - 512,
+            "{mode:?}: silent channel reports only {} samples since a detection",
+            tracker.samples_since_detection()
+        );
+    }
+}

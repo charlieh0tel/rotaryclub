@@ -40,6 +40,14 @@ pub trait NorthTracker {
     #[allow(dead_code)]
     fn lock_quality(&self) -> Option<f32>;
     fn phase_error_variance(&self) -> Option<f32>;
+
+    /// Samples since a north pulse was last detected.
+    ///
+    /// Grows without bound while the channel is silent, which is the one
+    /// failure that reports nothing on its own: below the detection
+    /// threshold there are no ticks, so no bearings, and no metric that
+    /// would show a problem.
+    fn samples_since_detection(&self) -> usize;
     /// Get the filtered buffer (after highpass) from the last process_buffer call
     fn filtered_buffer(&self) -> &[f32];
 }
@@ -122,6 +130,13 @@ impl NorthTracker for NorthReferenceTracker {
         match self {
             Self::Simple(tracker) => tracker.lock_quality(),
             Self::Dpll(tracker) => tracker.lock_quality(),
+        }
+    }
+
+    fn samples_since_detection(&self) -> usize {
+        match self {
+            Self::Simple(tracker) => tracker.samples_since_detection(),
+            Self::Dpll(tracker) => tracker.samples_since_detection(),
         }
     }
 

@@ -6,8 +6,8 @@ use crate::signal_processing::{FirHighpass, PeakDetector, db_to_amplitude};
 use std::f32::consts::PI;
 
 use super::north_ref_common::{
-    centroid_half_width, derive_delay_compensation, derive_peak_timing, estimate_fraction,
-    highpass_taps, preprocess_north_buffer, retain_tail, split_effective_time,
+    QuietChannelWatch, centroid_half_width, derive_delay_compensation, derive_peak_timing,
+    estimate_fraction, highpass_taps, preprocess_north_buffer, retain_tail, split_effective_time,
     validate_north_tick_config,
 };
 
@@ -34,6 +34,8 @@ pub struct SimpleNorthTracker {
     // Filtered samples preceding filter_buffer, for estimator windows that
     // straddle a buffer boundary.
     filter_tail: Vec<f32>,
+    quiet_watch: QuietChannelWatch,
+    threshold: f32,
 }
 
 impl SimpleNorthTracker {
@@ -99,6 +101,8 @@ impl SimpleNorthTracker {
             sample_rate,
             filter_buffer: Vec::new(),
             filter_tail: Vec::new(),
+            quiet_watch: QuietChannelWatch::new(sample_rate),
+            threshold: config.threshold,
         })
     }
 
@@ -160,6 +164,10 @@ impl SimpleNorthTracker {
         );
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
+        let strongest = peaks.iter().fold(0.0f32, |acc, (_, amp)| acc.max(*amp));
+        self.quiet_watch
+            .note_detections(peaks.len(), strongest, self.threshold);
+        self.quiet_watch.advance(buffer.len(), self.threshold);
 
         let delay = derive_delay_compensation(&self.highpass, self.pulse_reference_offset);
 
@@ -256,6 +264,11 @@ impl SimpleNorthTracker {
 
     pub fn lock_quality(&self) -> Option<f32> {
         None
+    }
+
+    /// Samples since a north pulse was last detected.
+    pub fn samples_since_detection(&self) -> usize {
+        self.quiet_watch.samples_since_detection()
     }
 
     pub fn phase_error_variance(&self) -> Option<f32> {

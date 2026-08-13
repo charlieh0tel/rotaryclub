@@ -183,6 +183,56 @@ fn main() {
     }
     println!();
 
+    let mut probe_rate = |rate: u32, taps: usize| -> Option<f32> {
+        let mut config = RdfConfig::default();
+        config.audio.sample_rate = rate;
+        config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
+        config.doppler.method = BearingMethod::Correlation;
+        config.doppler.north_tick_timing_adjustment_us = 0.0;
+        config.doppler.bandpass_taps = taps;
+        let n = (rate as f32 * 0.5) as usize;
+        let signal = build_signal(
+            n,
+            rate as f32,
+            rotation_hz,
+            truth,
+            Placement::TrueEpoch,
+            Shape::BandLimited,
+            config.north_tick.expected_pulse_amplitude,
+            0,
+            0.0,
+        );
+        measure(&signal, &config, truth)
+    };
+
+    println!("\nresidual at trim 0, against doppler bandpass length");
+    println!(
+        "{:<10} {:>10} {:>12} {:>12}",
+        "rate", "taps", "length (ms)", "error (deg)"
+    );
+    for (rate, taps) in [
+        (48_000u32, 63usize),
+        (48_000, 127),
+        (48_000, 255),
+        (96_000, 63),
+        (96_000, 127),
+        (96_000, 255),
+        (96_000, 511),
+    ] {
+        let text = match probe_rate(rate, taps) {
+            Some(v) => format!("{v:+.2}"),
+            None => "none".into(),
+        };
+        println!(
+            "{:<10} {:>10} {:>12.2} {:>12}",
+            rate,
+            taps,
+            taps as f32 / rate as f32 * 1000.0,
+            text
+        );
+    }
+    println!();
+
     for (name, placement, shape, jitter, noise) in conditions {
         print!("{name:<20}");
         for trim in trims {

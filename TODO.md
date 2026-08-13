@@ -14,13 +14,6 @@
       and a wider loop makes that scatter worse, so holdover may shorten. The
       two now pull in opposite directions and the tradeoff has never been
       measured.
-- [ ] Report a north channel that is too quiet to detect. The threshold
-      sweep in `examples/north_threshold_sweep` shows the shipped threshold
-      has wide margin -- detection holds from a pulse amplitude of 1.0 down
-      to 0.3 against the 0.8 expected -- but below that cliff detection goes
-      to zero rather than degrading, and nothing says so. A warning when
-      detected pulse amplitude runs far below `expected_pulse_amplitude`
-      would turn a silent failure into an obvious one.
 
 - [ ] Measure the estimator against a gentler highpass, or none. The cutoff
       sweep that chose 1 kHz predates both the unclipped energy centroid and
@@ -51,4 +44,9 @@
       the north tracker is not the source -- its own bias measures 0.001
       samples. `examples/bearing_convention_probe` measures it directly and
       shows it is unaffected by pulse placement, pulse shape, tick jitter or
-      noise, which rules those out as causes.
+      noise, which rules those out as causes. Nor is it the doppler bandpass
+      length: sweeping that filter from 0.7 ms to 5.3 ms moves the residual by
+      0.05 degrees. It behaves like a fixed delay of about two microseconds --
+      roughly constant in time rather than in samples, which is why 96 kHz
+      shows a similar angle rather than half of one -- so look for something
+      in the doppler path with a time constant.

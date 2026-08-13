@@ -116,6 +116,77 @@ pub(super) fn highpass_taps(config: &NorthTickConfig, sample_rate: f32) -> usize
     }
 }
 
+/// Watches the north channel for the failure that reports nothing: a level
+/// too low to cross the detection threshold.
+///
+/// Below that point detection does not degrade, it stops -- there are no
+/// ticks, so no bearings, and no metric that would show a problem. The
+/// threshold has wide margin (detection holds to a pulse amplitude of 0.3
+/// against the 0.8 expected, per `examples/north_threshold_sweep`), so a
+/// channel that falls through it is badly wrong rather than marginal, and
+/// worth saying so out loud.
+pub(super) struct QuietChannelWatch {
+    samples_since_detection: usize,
+    warn_after_samples: usize,
+    warned: bool,
+}
+
+impl QuietChannelWatch {
+    /// Roughly a second of rotations before complaining, so a dropout the
+    /// tracker is coasting through does not trip it.
+    pub(super) fn new(sample_rate: f32) -> Self {
+        Self {
+            samples_since_detection: 0,
+            warn_after_samples: (sample_rate.max(1.0)) as usize,
+            warned: false,
+        }
+    }
+
+    /// Samples since a pulse was last detected.
+    pub(super) fn samples_since_detection(&self) -> usize {
+        self.samples_since_detection
+    }
+
+    pub(super) fn note_detections(&mut self, count: usize, peak_amplitude: f32, threshold: f32) {
+        if count == 0 {
+            return;
+        }
+        if self.warned {
+            log::info!(
+                "north reference pulses detected again after {:.2} s",
+                self.samples_since_detection as f32 / self.warn_after_samples.max(1) as f32
+            );
+        }
+        self.samples_since_detection = 0;
+        self.warned = false;
+
+        // Detected, but only just: the margin measured on real captures is a
+        // factor of two or more, so anything under that is worth flagging
+        // before it disappears entirely.
+        if peak_amplitude > 0.0 && peak_amplitude < threshold * 1.5 {
+            log::debug!(
+                "north pulses are close to the detection threshold: peak {:.3} against \
+                 threshold {:.3}",
+                peak_amplitude,
+                threshold
+            );
+        }
+    }
+
+    pub(super) fn advance(&mut self, samples: usize, threshold: f32) {
+        self.samples_since_detection = self.samples_since_detection.saturating_add(samples);
+        if !self.warned && self.samples_since_detection >= self.warn_after_samples {
+            self.warned = true;
+            log::warn!(
+                "no north reference pulses detected for {:.1} s; the north channel may be too \
+                 quiet to cross the {:.2} detection threshold, or wired to the wrong input",
+                self.samples_since_detection as f32 / self.warn_after_samples.max(1) as f32,
+                threshold
+            );
+        }
+    }
+}
+
 pub(super) struct PeakTiming {
     /// Offset from group delay to the point the estimator reports for an
     /// impulse arriving exactly on a sample.
