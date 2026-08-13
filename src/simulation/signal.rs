@@ -3,35 +3,6 @@ use std::f32::consts::PI;
 pub const NORTH_TICK_PULSE_WIDTH_RADIANS: f32 = 0.2;
 pub const NORTH_TICK_AMPLITUDE: f32 = 0.8;
 
-/// Half-width, in samples, of the synthesized north pulse.
-const NORTH_TICK_HALF_WIDTH_SAMPLES: i64 = 12;
-
-/// A band-limited impulse at a fractional sample position.
-///
-/// The hardware pulse is ~20 us, well under one sample at 48 kHz, so what an
-/// anti-aliased converter records is a band-limited impulse centred on the
-/// arrival time rather than a sample that happens to be non-zero. Gating on
-/// rotation phase instead would light the first sample at or after the
-/// rotation boundary -- ceil(epoch) -- which lags the truth by half a sample
-/// on average and shows up downstream as a fixed 6 degrees of bearing.
-fn add_north_pulse(channel: &mut [f32], epoch: f64, amplitude: f32) {
-    let center = epoch.round() as i64;
-    for n in (center - NORTH_TICK_HALF_WIDTH_SAMPLES)..=(center + NORTH_TICK_HALF_WIDTH_SAMPLES) {
-        if n < 0 || n as usize >= channel.len() {
-            continue;
-        }
-        let x = n as f64 - epoch;
-        let value = if x.abs() < f64::EPSILON {
-            1.0
-        } else {
-            let px = std::f64::consts::PI * x;
-            let window = px / NORTH_TICK_HALF_WIDTH_SAMPLES as f64;
-            (px.sin() / px) * (window.sin() / window)
-        };
-        channel[n as usize] += amplitude * value as f32;
-    }
-}
-
 /// Generate synthetic RDF test signal with fixed bearing
 /// Returns interleaved stereo samples [L, R, L, R, ...]
 /// Left = Doppler tone, Right = North tick
@@ -58,25 +29,28 @@ where
     F: Fn(f32) -> f32,
 {
     let num_samples = (duration_secs * sample_rate as f32) as usize;
-    let samples_per_rotation = sample_rate as f64 / rotation_hz as f64;
-
-    let mut north = vec![0.0f32; num_samples];
-    let mut rotation = 0i64;
-    loop {
-        let epoch = rotation as f64 * samples_per_rotation;
-        if epoch >= num_samples as f64 {
-            break;
-        }
-        add_north_pulse(&mut north, epoch, NORTH_TICK_AMPLITUDE);
-        rotation += 1;
-    }
-
     let mut samples = Vec::with_capacity(num_samples * 2);
-    for (i, &north_tick) in north.iter().enumerate() {
+
+    let samples_per_rotation = sample_rate as f32 / rotation_hz;
+
+    for i in 0..num_samples {
         let t = i as f32 / sample_rate as f32;
+
         let bearing_radians = bearing_fn(t).to_radians();
+
+        let rotation_phase = (i as f32 / samples_per_rotation) * 2.0 * PI;
+
         let doppler_phase = rotation_hz * t * 2.0 * PI - bearing_radians;
-        samples.push(doppler_phase.sin());
+        let doppler = doppler_phase.sin();
+
+        let tick_phase = rotation_phase % (2.0 * PI);
+        let north_tick = if tick_phase < NORTH_TICK_PULSE_WIDTH_RADIANS {
+            NORTH_TICK_AMPLITUDE
+        } else {
+            0.0
+        };
+
+        samples.push(doppler);
         samples.push(north_tick);
     }
 

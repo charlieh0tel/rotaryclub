@@ -45,6 +45,25 @@
 
 ## Bearing Calculator
 
+- [ ] Resolve the half-sample convention, with two harnesses that disagree.
+      `doppler.north_tick_timing_adjustment` defaults to half a sample. Two
+      measurements say opposite things about whether it should.
+      Against `generate_test_signal`, whose north pulse was gated on rotation
+      phase and so landed at `ceil(epoch)` -- half a sample late -- the trim
+      was cancelling that artifact. Fixing the generator to place a
+      band-limited pulse at the true epoch and setting the trim to zero gives
+      0.16 degrees of bearing error against 6.18 with the trim, and makes the
+      bearing tests discriminate: the trim then fails two of them.
+      Against `examples/system_pipeline_performance_metrics`, which builds its
+      own signal with pulses at `round(k * period)` and unbiased jitter, the
+      opposite holds: removing the trim moves p95 bearing error from 30.84
+      degrees to 35.58 and trips the perf gate. Neither generator is biased,
+      so something in the shared bearing path carries the half sample, and the
+      two harnesses cannot both be right.
+      Both changes -- the generator fix and the trim removal -- were made and
+      then reverted on the north-timing branch, because shipping half of a
+      coupled pair is worse than shipping neither. They belong together, here,
+      with the perf gate as one of the tests.
 - [ ] Chase the residual bearing error that remains once
       `north_tick_timing_adjustment` is zero: about 0.09 samples at 48 kHz
       and 0.25 at 96 kHz, sample-rate dependent, identical in the
