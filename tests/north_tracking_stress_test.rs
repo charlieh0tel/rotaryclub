@@ -612,3 +612,58 @@ fn test_north_tracking_dropout_reacquisition() {
         rotation_hz
     );
 }
+
+/// The detector dead time is what keeps noise triggers from taking the place
+/// of real pulses at low SNR.
+///
+/// It covers 96% of a rotation at the default rate, which is also why the
+/// timing gate can only act on late detections. Trading dead time for gate
+/// reach was measured and rejected: the gate rejects what disagrees with the
+/// tracked rotation, and a noise trigger arriving where a pulse is due does
+/// not disagree with it.
+#[test]
+fn test_dead_time_rejects_noise_triggers() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+    let duration_secs = 3.0;
+    let num_samples = (duration_secs * sample_rate) as usize;
+
+    let pulse_positions = generate_pulse_positions(
+        0.05,
+        duration_secs,
+        sample_rate,
+        |_| rotation_hz,
+        |_| true,
+        1,
+    );
+    let mut north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
+
+    // Noise a quarter of the pulse amplitude, which is where the tradeoff
+    // between dead time and detection becomes visible.
+    let mut state = 0x9E37_79B9_7F4A_7C15u64;
+    for sample in north_signal.iter_mut() {
+        let mut acc = 0.0f32;
+        for _ in 0..12 {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            acc += (((state >> 33) as u32) as f32) / (u32::MAX as f32);
+        }
+        *sample += (acc - 6.0) * 0.2;
+    }
+
+    let (ticks, _freq) = run_north_tracker(&config, &north_signal);
+    let metrics = detection_metrics(&pulse_positions, &ticks, 4.0);
+
+    assert!(
+        metrics.detection_rate >= 0.75,
+        "detection rate {:.3} at noise 0.2; shortening the dead time drops this to about 0.25",
+        metrics.detection_rate
+    );
+    assert!(
+        metrics.false_positive_rate <= 0.15,
+        "false positive rate {:.3} at noise 0.2; shortening the dead time raises this above 0.6",
+        metrics.false_positive_rate
+    );
+}
