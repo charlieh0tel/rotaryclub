@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 import wave
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
@@ -259,6 +260,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--loop", action="store_true", help="also report DPLL curves")
     args = parser.parse_args(argv)
+
+    # A full sweep takes minutes; stream the first cutoff's table rather than
+    # holding everything in the block buffer until the run ends.
+    sys.stdout.reconfigure(line_buffering=True)
 
     for cutoff in args.cutoff or list(DEFAULT_CUTOFFS):
         measure(args.wav, cutoff, args.skip, args.loop)
