@@ -49,6 +49,16 @@ const MIN_TIMING_GATE_SAMPLES: f32 = 0.25;
 /// from, so without this a tracker whose rotation estimate has gone stale
 /// would reject every real pulse forever.
 const MAX_CONSECUTIVE_REJECTIONS: usize = 8;
+/// Timing error, in samples, that coasting is allowed to accumulate before
+/// the tracker stops predicting.
+///
+/// Holdover integrates the rate estimate, so error grows as the coast length
+/// times the fractional error in that estimate. Bounding the error rather
+/// than the duration lets a settled tracker coast far longer than a freshly
+/// acquired one, which is the behaviour wanted: the duration that is safe is
+/// a property of how well the rate is known, not a constant.
+const MAX_COAST_TIMING_ERROR_SAMPLES: f32 = 0.5;
+
 /// Rotations after a rejected detection during which coasting stays
 /// suppressed. Long enough to break the reject-predict-reject feedback loop,
 /// short enough that a genuine dropout is still coasted through.
@@ -432,20 +442,84 @@ impl DpllNorthTracker {
             .map(|measured| at.saturating_sub(measured))
     }
 
+    /// How far the tracker may coast before its own rate uncertainty puts
+    /// more than `MAX_COAST_TIMING_ERROR_SAMPLES` into a predicted tick.
+    ///
+    /// The spread of the frequency estimate over the recent window stands in
+    /// for that uncertainty. A tracker that has been following a steady
+    /// rotation for a while has a tight spread and earns close to the
+    /// configured maximum; one still settling has a loose spread and is held
+    /// to a short prediction, or none.
+    fn coast_budget_samples(&self) -> usize {
+        if self.frequency <= FREQUENCY_EPSILON {
+            return 0;
+        }
+        let Some(period) = Some(2.0 * PI / self.frequency).filter(|p| p.is_finite() && *p >= 1.0)
+        else {
+            return 0;
+        };
+
+        // Per-rotation timing discrepancy, from two directions.
+        //
+        // The scatter of the frequency estimate says how repeatable the rate
+        // is. On its own that is not enough: a loop still converging on the
+        // true rate is steadily wrong with very little scatter, and would be
+        // granted a long prediction it cannot deliver. The mean phase error
+        // catches exactly that case -- an oscillator sitting at an offset
+        // from the pulses is one whose rate is wrong -- so the tighter of
+        // the two governs.
+        let spread = self
+            .freq_stats
+            .std_dev()
+            .zip(self.freq_stats.mean())
+            .filter(|(s, m)| s.is_finite() && *m > FREQUENCY_EPSILON)
+            .map(|(s, m)| (s / m) * period)
+            .unwrap_or(f32::INFINITY);
+        // Only the part of the mean that stands out from its own noise counts.
+        // The mean of a zero-mean scatter over N ticks is not zero but about
+        // sigma/sqrt(N), and charging that against the budget would hold a
+        // long-settled tracker to the same short prediction as a converging
+        // one.
+        let systematic = match (
+            self.phase_error_stats.mean(),
+            self.phase_error_stats.std_dev(),
+        ) {
+            (Some(mean), Some(std_dev)) if mean.is_finite() && std_dev.is_finite() => {
+                let count = self.phase_error_stats.count().max(1) as f32;
+                let noise_floor = 2.0 * std_dev / count.sqrt();
+                ((mean.abs() - noise_floor).max(0.0) / self.frequency).abs()
+            }
+            _ => f32::INFINITY,
+        };
+
+        let per_rotation = spread.max(systematic);
+        if per_rotation <= f32::EPSILON {
+            return self.max_coast_samples;
+        }
+
+        let rotations = MAX_COAST_TIMING_ERROR_SAMPLES / per_rotation;
+        if !rotations.is_finite() || rotations <= 0.0 {
+            return 0;
+        }
+        self.max_coast_samples.min((rotations * period) as usize)
+    }
+
     /// Whether the rotation estimate is recent enough to predict from.
     fn within_coast_budget(&self, at: usize) -> bool {
+        let budget = self.coast_budget_samples();
         self.coasted_samples(at)
-            .is_some_and(|coasted| coasted <= self.max_coast_samples)
+            .is_some_and(|coasted| coasted <= budget)
     }
 
     /// Confidence in a tick predicted rather than measured, falling to zero at
     /// the end of the coasting budget.
     fn coast_quality_scale(&self, at: usize) -> f32 {
-        if self.max_coast_samples == 0 {
+        let budget = self.coast_budget_samples();
+        if budget == 0 {
             return 0.0;
         }
         let coasted = self.coasted_samples(at).unwrap_or(usize::MAX);
-        1.0 - (coasted as f32 / self.max_coast_samples as f32).clamp(0.0, 1.0)
+        1.0 - (coasted as f32 / budget as f32).clamp(0.0, 1.0)
     }
 
     /// Widest disagreement between a detection and the tracked rotation that
