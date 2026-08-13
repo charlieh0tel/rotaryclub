@@ -140,6 +140,10 @@ pub struct DpllNorthTracker {
     estimator: NorthPulseEstimator,
     centroid_half_width: usize,
     filter_tail_len: usize,
+    /// How far back of the current position a detection can still surface,
+    /// because the detector defers a crossing until its search window and
+    /// trailing context have both been seen.
+    detector_deferral_samples: usize,
     last_tick_sample: Option<usize>,
 
     // PLL state
@@ -357,6 +361,7 @@ impl DpllNorthTracker {
             // detector now waits for, and the estimator then reads a further
             // half-width before it.
             filter_tail_len: 2 * centroid_half_width + peak_timing.peak_search_window_samples,
+            detector_deferral_samples: centroid_half_width + peak_timing.peak_search_window_samples,
             last_tick_sample: None,
             phase: 0.0,
             frequency: omega,
@@ -583,7 +588,15 @@ impl DpllNorthTracker {
         // A predicted tick must not land where a real pulse could still be
         // detected: it would take the detection's place and push the real one
         // inside the dead-time guard.
-        let reserved = (period * MIN_TICK_SPACING_FRACTION).round() as usize;
+        //
+        // "Could still be detected" reaches further back than the current
+        // position, because the detector holds a crossing until its search
+        // window and trailing context have been seen and then reports it at a
+        // position already passed. Reserving only the dead time would leave
+        // room for a predicted tick to land inside the dead time of a
+        // detection that has not surfaced yet.
+        let reserved =
+            (period * MIN_TICK_SPACING_FRACTION).round() as usize + self.detector_deferral_samples;
 
         while let Some(last) = self.last_tick_sample {
             // Advance a fractional epoch. Rounding the period on every
