@@ -212,7 +212,11 @@ impl SimpleNorthTracker {
             });
 
             self.last_tick_sample = Some(compensated_sample);
-            self.last_tick_fraction = fractional_sample_offset;
+            // Relative to compensated_sample, not to the reported index: when
+            // the estimate reanchors onto a neighbouring sample the two differ
+            // by one, and the next period measurement would inherit that.
+            self.last_tick_fraction =
+                fractional_sample_offset + (reported_sample as f32 - compensated_sample as f32);
         }
 
         retain_tail(

@@ -27,6 +27,10 @@ const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 1.0;
 #[cfg(test)]
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
+/// Ticks of history, and phase-error spread, before the oscillator is treated
+/// as locked well enough to overrule a detection or to predict without one.
+const MIN_LOCKED_SAMPLES: usize = 64;
+const MAX_LOCKED_PHASE_STD_RAD: f32 = 0.35;
 const MAX_TIMING_GATE_FRACTION: f32 = 0.25;
 /// Consecutive gate rejections that mean the tracker, not the signal, is
 /// wrong. Rejected detections never reach the statistics the gate is built
@@ -168,6 +172,30 @@ impl DpllNorthTracker {
     #[inline]
     fn stable_enough_for_phase_correction(&self) -> bool {
         self.phase_error_stats.count() >= MIN_PHASE_CORRECTION_SAMPLES
+    }
+
+    /// Whether the oscillator is tracking well enough to be trusted over the
+    /// detector: to reject a detection that disagrees with it, or to predict
+    /// a tick where no detection happened.
+    ///
+    /// A tick count alone is not evidence of that. It says only that pulses
+    /// arrived, not that the loop followed them -- a rotation starting away
+    /// from the configured initial frequency, or moving faster than the loop
+    /// can track, produces plenty of ticks while the oscillator sits at the
+    /// wrong rate. Both callers here would then do damage rather than good,
+    /// gating out valid pulses or coasting at a stale rate, so they also
+    /// require the phase error to have settled.
+    ///
+    /// Phase correction deliberately does not use this predicate: it is
+    /// harmless when the loop is wrong, and a dispersion threshold chatters
+    /// near its limit, which would put a step into the reported tick time.
+    fn locked(&self) -> bool {
+        if self.phase_error_stats.count() < MIN_LOCKED_SAMPLES {
+            return false;
+        }
+        self.phase_error_stats
+            .std_dev()
+            .is_some_and(|std_dev| std_dev.is_finite() && std_dev <= MAX_LOCKED_PHASE_STD_RAD)
     }
 
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
@@ -388,7 +416,7 @@ impl DpllNorthTracker {
     /// a quarter rotation so the gate cannot swallow a genuine half-rate
     /// stream.
     fn timing_gate_samples(&self, period_estimate: f32) -> Option<f32> {
-        if !self.stable_enough_for_phase_correction() || self.frequency <= FREQUENCY_EPSILON {
+        if !self.locked() || self.frequency <= FREQUENCY_EPSILON {
             return None;
         }
         let std_dev = self.phase_error_stats.std_dev()?;
@@ -403,7 +431,7 @@ impl DpllNorthTracker {
     /// usable detection, up to `until_sample`.
     fn coast_to(&mut self, until_sample: usize, ticks: &mut Vec<NorthTick>) {
         // Predicting requires a rotation estimate worth predicting from.
-        if !self.stable_enough_for_phase_correction() || self.frequency <= FREQUENCY_EPSILON {
+        if !self.locked() || self.frequency <= FREQUENCY_EPSILON {
             return;
         }
         // Coasting integrates the rotation rate over many rotations, so the
@@ -425,20 +453,26 @@ impl DpllNorthTracker {
         let reserved = (period * MIN_TICK_SPACING_FRACTION).round() as usize;
 
         while let Some(last) = self.last_tick_sample {
-            let next = last + period.round() as usize;
+            // Advance a fractional epoch. Rounding the period on every
+            // rotation instead would accumulate: the default 624 us rotation
+            // is 29.952 samples, so a rounded step drifts the better part of
+            // a sample every twenty rotations.
+            let position = last as f64 + self.last_tick_fraction as f64 + period as f64;
+            let next = position.round().max(0.0) as usize;
             if next + reserved > until_sample || !self.within_coast_budget(next) {
                 break;
             }
             self.last_tick_sample = Some(next);
+            self.last_tick_fraction = (position - next as f64) as f32;
             ticks.push(NorthTick {
                 sample_index: next,
                 period: Some(period),
                 lock_quality: self
                     .lock_quality()
                     .map(|q| q * self.coast_quality_scale(next)),
-                fractional_sample_offset: 0.0,
+                fractional_sample_offset: self.last_tick_fraction,
                 phase: 0.0,
-                frequency: self.frequency,
+                frequency,
             });
         }
     }
