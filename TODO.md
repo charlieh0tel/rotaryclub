@@ -22,36 +22,23 @@
       Most likely suspect: the peak search window grows at low cutoff (the
       threshold crossing moves much earlier relative to the peak), so more
       peaks are deferred across buffer boundaries and resolved at negative
-      indices, where the estimator falls back to the peak index.
+      indices, where the estimator falls back to the peak index. Instrument
+      the fallback rate per cutoff first, so the cause is measured rather
+      than guessed.
 - [ ] Scale the coasting budget to lock quality rather than the fixed
       `max_coast_ms`: coast further when the rate estimate is well
       established, less when it is not. A still-settling estimate drifts
       about 8 samples over a 300 ms coast, while a settled one should hold
-      far better -- quantify holdover accuracy against coast length first.
-- [ ] Update DESIGN.md for the estimator stage, fractional tick output,
-      coasting and prediction gating; open a PR for the north-timing branch.
+      far better. Sweep dropout length against timing error at several lock
+      ages first and set the scaling from that curve.
 - [ ] Track down the half-sample convention that
       `doppler.north_tick_timing_adjustment` compensates. Its 0.5 default is
       not quantization compensation as suspected -- with sub-sample tick
       timing in place, setting it to zero makes bearing error worse and fails
       three noise-robustness tests. Likely window centering or a group-delay
-      convention on the bearing side; remove the trim once found.
-
-- [x] Measure end-to-end north tick timing latency/jitter vs synthetic ground truth across chunk sizes and chunk-boundary phase offsets
-- [x] Add CSV + markdown timing artifacts and CI reporting for threshold failures (including failed-row artifact)
-- [x] Add realistic false-positive sweeps for impulsive interference/dropout/noise with separate detection/FP metrics
+      convention on the bearing side; remove the trim once found. Bearing
+      work, so a separate branch.
 - [ ] Extend false-positive sweeps to hum, clipping, and DC drift variants
-- [x] Add long-duration drift timing scenario
-- [x] Add frequency-step timing scenario
 - [ ] Add config guardrails for threshold/FIR/gain ranges with actionable error messages
       (done for DPLL frequency band inputs and min_interval_ms vs frequency_max_hz)
 - [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)
-
-## Bearing Calculator
-
-- [x] Add guardrails for degenerate bearing inputs (empty buffer and non-finite north-tick fields) to avoid NaN outputs
-- [x] Add dedicated bearing regression tests for degenerate inputs and bounded/finiteness metrics
-- [x] Run bearing regression tests explicitly in CI
-- [x] Add bearing-only performance metrics benchmark artifact (baseline + strict profiles)
-- [x] Add bearing performance threshold checks and failed-row markdown reporting
-- [x] Add end-to-end system-level performance bars (north tracker + bearing calculator combined)
