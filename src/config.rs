@@ -319,6 +319,16 @@ pub struct NorthTickConfig {
     /// Minimum interval between pulses in milliseconds. Must be shorter
     /// than the period at dpll.frequency_max_hz (0.6 ms supports up to
     /// ~1666 Hz).
+    ///
+    /// At the default rotation rate this covers 96% of a rotation, which is
+    /// why the timing gate can only act on detections arriving late. Trading
+    /// some of it for gate reach was measured and rejected: at a noise RMS of
+    /// 0.20 against a 0.8 pulse, shortening to 0.45 ms drops detection from
+    /// 0.84 to 0.25 and raises false positives from 0.06 to 0.65. The gate
+    /// does not rescue it -- it rejects what disagrees with the tracked
+    /// rotation, and noise triggers arriving where a pulse is due are
+    /// indistinguishable from the pulse. `test_dead_time_rejects_noise_
+    /// triggers` pins the shipped behaviour.
     pub min_interval_ms: f32,
     /// How long to keep emitting ticks from the tracked rotation after
     /// pulses stop arriving, in milliseconds. Past this the tracker declares
