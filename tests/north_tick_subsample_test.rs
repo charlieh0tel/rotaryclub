@@ -510,6 +510,61 @@ fn test_long_capture_gap_keeps_phase() {
     }
 }
 
+/// A handful of displaced detections must not pull the tracked timing.
+///
+/// An interferer arriving just ahead of a real pulse is both detected and
+/// masking: the detector's dead time then hides the real pulse behind it. The
+/// gate exists so that the loop is not dragged onto the interferer's timing,
+/// and so that the rotations it costs are coasted rather than reported wrong.
+#[test]
+fn test_displaced_detections_are_rejected() {
+    let mut config = RdfConfig::default();
+    // A wide loop follows individual detections rather than averaging over a
+    // thousand of them, which is the regime where the gate is what stands
+    // between a displaced detection and the reported tick time.
+    config.north_tick.dpll.natural_frequency_hz = 60.0;
+    let sample_rate = config.audio.sample_rate as f32;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+    let period = sample_rate as f64 / 1602.564;
+    let num_samples = (sample_rate * 1.5) as usize;
+
+    // Displaced by more than the gate should allow, but well inside what a
+    // whole-sample peak index would produce on its own -- so the gate has to
+    // be sized to the estimator in use, not to quantization.
+    let displacement = 0.6f64;
+    let disturbed = 1200..1206;
+
+    let mut signal = vec![0.0f32; num_samples];
+    let mut truth = Vec::new();
+    let mut epoch = 100.3f64;
+    let mut rotation = 0usize;
+    while epoch < num_samples as f64 - 16.0 {
+        let placed = if disturbed.contains(&rotation) {
+            epoch - displacement
+        } else {
+            epoch
+        };
+        let (one, _) = sinc_pulse_train(num_samples, placed, num_samples as f64 * 2.0, amplitude);
+        for (dst, src) in signal.iter_mut().zip(one) {
+            *dst += src;
+        }
+        truth.push(epoch);
+        epoch += period;
+        rotation += 1;
+    }
+
+    let ticks = track(&config, &signal, 512);
+    let errors = timing_errors(&ticks, &truth, period);
+    // Well past acquisition, so the only disturbance is the displaced one.
+    let settled = &errors[900.min(errors.len())..];
+    let pulled = settled.iter().filter(|e| e.abs() > 0.3).count();
+    let worst = settled.iter().fold(0.0f64, |acc, e| acc.max(e.abs()));
+    assert!(
+        pulled == 0,
+        "{pulled} ticks followed the displaced detections instead of the tracked rotation          (worst {worst:.3} samples)"
+    );
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]
