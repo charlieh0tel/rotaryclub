@@ -36,6 +36,14 @@ const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
 const MIN_LOCKED_SAMPLES: usize = 64;
 const MAX_LOCKED_PHASE_STD_RAD: f32 = 0.35;
 const MAX_TIMING_GATE_FRACTION: f32 = 0.25;
+/// Narrowest the timing gate may become, in samples.
+///
+/// A floor keeps the gate from collapsing onto a tracker that happens to be
+/// momentarily quiet. It should not be doing the work the spread term does:
+/// with a whole-sample peak index the spread alone opens the gate to about
+/// 0.87 samples, so a floor near a full sample only overrides the estimator
+/// that reports better than that.
+const MIN_TIMING_GATE_SAMPLES: f32 = 0.25;
 /// Consecutive gate rejections that mean the tracker, not the signal, is
 /// wrong. Rejected detections never reach the statistics the gate is built
 /// from, so without this a tracker whose rotation estimate has gone stale
@@ -455,7 +463,7 @@ impl DpllNorthTracker {
         if !std_dev.is_finite() {
             return None;
         }
-        let gate = (self.gate_sigma * std_dev / self.frequency).max(1.0);
+        let gate = (self.gate_sigma * std_dev / self.frequency).max(MIN_TIMING_GATE_SAMPLES);
         Some(gate.min(period_estimate * MAX_TIMING_GATE_FRACTION))
     }
 
@@ -587,10 +595,18 @@ impl DpllNorthTracker {
             let phase_error = Self::wrap_phase_error(-phase_at_pulse);
 
             // Reject a detection that disagrees with the tracked rotation by
-            // more than the tracker's own timing spread. An impulse from
-            // interference can land anywhere in the rotation; a real pulse
-            // cannot. The gate stays inactive until there is enough history
-            // to know that spread, so the tracker can never lock itself out.
+            // more than the tracker's own timing spread. The gate stays
+            // inactive until there is enough history to know that spread, so
+            // the tracker can never lock itself out.
+            //
+            // What reaches this point is narrower than "interference": the
+            // detector's dead time covers most of the rotation, so an impulse
+            // arriving early is never detected at all. What the gate can act
+            // on is a detection displaced from where the rotation says the
+            // pulse belongs -- an interferer just ahead of a real pulse,
+            // which also masks it, or a pulse whose leading edge noise moved
+            // it. Rejecting those keeps the loop from being pulled, and
+            // coasting covers the rotation they cost.
             if let Some(gate) = self.timing_gate_samples(period_estimate) {
                 let systematic = self.phase_error_stats.mean().unwrap_or(0.0);
                 let disagreement = (phase_error - systematic) / self.frequency;
