@@ -7,21 +7,6 @@
 
 ## North Tick Tracking
 
-- [ ] Narrow the detector dead time so the gate can act on more than late
-      detections. `min_interval_ms` covers 96% of the rotation, so an impulse
-      arriving early is never detected at all. The gate's floor and its
-      description were corrected to match what it can reach; widening that
-      reach means shortening the dead time, which trades against low-SNR
-      detection and needs its own measurement.
-- [ ] Give the detection gate a test that discriminates at the shipped loop
-      bandwidth. The current one runs at 60 Hz because a narrow loop absorbs
-      a handful of displaced detections whether they are gated or not, so
-      what the gate is worth in the shipped configuration is unmeasured.
-- [ ] Size the end-of-buffer coasting guard against the detector's deferral
-      window rather than the rotation period. A crossing near a buffer end
-      resolves in the next buffer at a negative index, so a predicted tick
-      can in principle land inside the dead time before a real detection.
-      Not observed in probes across chunk sizes 32 to 100000; suspicion only.
 - [ ] Harden the simple tracker against baseline disturbance. Under combined
       hum, clipping and drift it detects about half the pulses where the DPLL
       detects nearly all of them, and an initial DC offset stepping into a
