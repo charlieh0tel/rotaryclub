@@ -96,27 +96,34 @@ def find_picks(y: np.ndarray, rate: float) -> np.ndarray:
     return np.array(sorted(set(picks)))
 
 
-def centroid_offset(y: np.ndarray, j: int, half_width: int, exponent: int, clip: bool) -> float:
-    """Fractional offset of the weighted first moment from the peak index.
+def centroid_offsets(
+    y: np.ndarray, picks: np.ndarray, half_width: int, exponent: int, clip: bool
+) -> np.ndarray:
+    """Fractional offset of the weighted first moment from each peak index.
 
-    An unclipped odd exponent leaves signed weights, so the denominator can pass
-    through zero and throw the moment far outside the window; that case is
-    rejected rather than allowed to dominate the RMS.
+    Batched over every pick at once: a full capture is ~121k ticks, and a
+    per-tick Python loop over the whole sweep runs for half an hour. Callers
+    must have trimmed picks so that every window lies inside the signal.
+
+    An unclipped odd exponent would leave signed weights, so the denominator
+    could pass through zero and throw the moment far outside the window; the
+    odd case is rectified instead, and any residual out-of-window result is
+    dropped rather than allowed to dominate the RMS.
     """
-    lo, hi = max(0, j - half_width), min(len(y), j + half_width + 1)
-    segment = y[lo:hi]
-    indices = np.arange(lo, hi)
+    taps = np.arange(-half_width, half_width + 1)
+    indices = picks[:, None] + taps[None, :]
+    segment = y[indices]
     if clip:
         weights = np.clip(segment, 0.0, None) ** exponent
     elif exponent % 2 == 0:
         weights = segment**exponent
     else:
         weights = np.abs(segment) ** exponent
-    total = weights.sum()
-    if abs(total) < 1e-12:
-        return 0.0
-    offset = float((indices * weights).sum() / total) - j
-    return offset if abs(offset) <= half_width else 0.0
+    total = weights.sum(axis=1)
+    safe = np.where(np.abs(total) < 1e-12, 1.0, total)
+    offset = (indices * weights).sum(axis=1) / safe - picks
+    offset = np.where(np.abs(total) < 1e-12, 0.0, offset)
+    return np.where(np.abs(offset) <= half_width, offset, 0.0)
 
 
 def parabolic_offset(v: np.ndarray, j: int) -> float:
@@ -190,11 +197,14 @@ def run_dpll(epochs: np.ndarray, rate: float, f0: float, bandwidth: float, zeta:
     return out
 
 
-def measure(path: Path, cutoff: float, skip: int, with_loop: bool) -> None:
+def measure(path: Path, cutoff: float, skip: int, with_loop: bool, stride: int) -> None:
     rate, x = read_channel(path, 1)
     y = highpass(x, rate, cutoff)
     picks = find_picks(y, rate)
-    picks = picks[(picks > 40) & (picks < len(y) - 40)]
+    guard = max(WIDTHS) + 24  # widest centroid window, and the template's reach
+    picks = picks[(picks > guard) & (picks < len(y) - guard)]
+    if stride > 1:
+        picks = picks[::stride]
 
     parabolic = np.array([parabolic_offset(np.abs(y), j) for j in picks])
     template = build_template(y, picks, parabolic)
@@ -219,7 +229,7 @@ def measure(path: Path, cutoff: float, skip: int, with_loop: bool) -> None:
     for name, (exponent, clip) in SCHEMES.items():
         row = []
         for w in WIDTHS:
-            offsets = np.array([centroid_offset(y, j, w, exponent, clip) for j in picks])
+            offsets = centroid_offsets(y, picks, w, exponent, clip)
             row.append(bearing_rms((picks + offsets - model)[skip:]))
         best[name] = (WIDTHS[int(np.argmin(row))], min(row))
         print(f"{name:<21}" + "".join(f"{v:7.3f} " for v in row))
@@ -234,13 +244,17 @@ def measure(path: Path, cutoff: float, skip: int, with_loop: bool) -> None:
     print(f"{'scheme':<21}" + "".join(f"{b:>8g} Hz" for b in LOOP_BANDWIDTHS))
     for name, (exponent, clip) in SCHEMES.items():
         w = best[name][0]
-        offsets = np.array([centroid_offset(y, j, w, exponent, clip) for j in picks])
-        epochs = picks + offsets
+        epochs = picks + centroid_offsets(y, picks, w, exponent, clip)
         curve = [
             bearing_rms((run_dpll(epochs, rate, f0, bw) - model)[skip:])
             for bw in LOOP_BANDWIDTHS
         ]
         print(f"{name + f' w={w}':<21}" + "".join(f"{c:9.3f} " for c in curve))
+    mf_curve = [
+        bearing_rms((run_dpll(picks + mf, rate, f0, bw) - model)[skip:])
+        for bw in LOOP_BANDWIDTHS
+    ]
+    print(f"{'matched filter':<21}" + "".join(f"{c:9.3f} " for c in mf_curve))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -259,6 +273,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="ticks to discard before scoring, to let the loop settle",
     )
     parser.add_argument("--loop", action="store_true", help="also report DPLL curves")
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=1,
+        help="keep every Nth tick; the published page used 10 (12k of 121k ticks)",
+    )
     args = parser.parse_args(argv)
 
     # A full sweep takes minutes; stream the first cutoff's table rather than
@@ -266,7 +286,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sys.stdout.reconfigure(line_buffering=True)
 
     for cutoff in args.cutoff or list(DEFAULT_CUTOFFS):
-        measure(args.wav, cutoff, args.skip, args.loop)
+        measure(args.wav, cutoff, args.skip, args.loop, args.stride)
     return 0
 
 

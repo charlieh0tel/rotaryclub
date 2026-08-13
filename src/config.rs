@@ -282,6 +282,35 @@ impl NorthPulseEstimator {
             NorthPulseEstimator::EnergyCentroid => 2,
         }
     }
+
+    /// Whether the negative part of the filtered pulse is discarded before
+    /// weighting.
+    ///
+    /// This follows from the exponent rather than being a choice. The
+    /// highpassed pulse is bipolar, so a linear moment over it is ill-posed:
+    /// negative weights, and a denominator that can pass through zero. A
+    /// squared one is not -- squaring already makes sign irrelevant -- and
+    /// discarding the negative lobes there throws away weight that sits
+    /// symmetrically about the peak. Measured, that costs the energy centroid
+    /// 0.69 degrees against 0.44 at the shipped cutoff.
+    pub(crate) fn clips_negative(self) -> bool {
+        self.weight_exponent() % 2 == 1
+    }
+
+    /// Half-width of the window the moment is taken over, in microseconds.
+    ///
+    /// Wider suits a weighting that spreads across the pulse and narrower one
+    /// that concentrates on the peak, so it belongs to the estimator rather
+    /// than being one number for all of them. Measured optima on the captures
+    /// in `data/` at 48 kHz: two samples for the amplitude centroid, four for
+    /// the energy centroid.
+    pub(crate) fn window_half_width_us(self) -> f32 {
+        match self {
+            NorthPulseEstimator::HardLimiter => 0.0,
+            NorthPulseEstimator::AmplitudeCentroid => 42.0,
+            NorthPulseEstimator::EnergyCentroid => 85.0,
+        }
+    }
 }
 
 /// Digital Phase-Locked Loop (DPLL) configuration
