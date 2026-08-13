@@ -522,11 +522,7 @@ fn test_north_tracking_dropout_reacquisition() {
     let det_metrics = detection_metrics(&pulse_positions, &ticks, 4.0);
     // Scored against the uninterrupted train: a tick emitted during the
     // dropout is only legitimate if it lands where the missing pulse was.
-    // The tolerance is wider than for a measured pulse because holdover
-    // accuracy decays with coast length -- the tracker is integrating its
-    // rate estimate, and any error in that estimate accumulates every
-    // rotation it has to predict.
-    let coast_metrics = detection_metrics(&uninterrupted_positions, &ticks, 16.0);
+    let coast_metrics = detection_metrics(&uninterrupted_positions, &ticks, 4.0);
 
     assert!(
         det_metrics.detection_rate >= 0.85,
