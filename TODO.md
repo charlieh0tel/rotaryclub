@@ -22,7 +22,14 @@
       resolves in the next buffer at a negative index, so a predicted tick
       can in principle land inside the dead time before a real detection.
       Not observed in probes across chunk sizes 32 to 100000; suspicion only.
-- [ ] Extend false-positive sweeps to hum, clipping, and DC drift variants
+- [ ] Harden the simple tracker against baseline disturbance. Under combined
+      hum, clipping and drift it detects about half the pulses where the DPLL
+      detects nearly all of them, and an initial DC offset stepping into a
+      zero-state highpass drops it to 0.22. Its period estimate averages
+      measured intervals, so a disturbance that costs it detections also
+      degrades the spacing guard the remaining ones are judged against.
+      `test_north_tick_detection_under_hum_clipping_and_drift` records the
+      current behaviour.
 - [ ] Add config guardrails for threshold/FIR/gain ranges with actionable error messages
       (done for DPLL frequency band inputs and min_interval_ms vs frequency_max_hz)
 - [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)

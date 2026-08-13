@@ -71,6 +71,30 @@ fn add_impulses(signal: &mut [f32], stride: usize, amplitude: f32) {
     }
 }
 
+/// Mains hum, which the highpass is meant to reject outright.
+fn add_hum(signal: &mut [f32], sample_rate: f32, hum_hz: f32, amplitude: f32) {
+    for (i, sample) in signal.iter_mut().enumerate() {
+        let phase = 2.0 * std::f32::consts::PI * hum_hz * i as f32 / sample_rate;
+        *sample += amplitude * phase.sin();
+    }
+}
+
+/// Clipping, which flattens the pulse peak the estimator reads.
+fn apply_clipping(signal: &mut [f32], limit: f32) {
+    for sample in signal.iter_mut() {
+        *sample = sample.clamp(-limit, limit);
+    }
+}
+
+/// A slow baseline wander, as from thermal drift or a settling coupling
+/// capacitor.
+fn add_dc_drift(signal: &mut [f32], sample_rate: f32, drift_hz: f32, amplitude: f32) {
+    for (i, sample) in signal.iter_mut().enumerate() {
+        let phase = 2.0 * std::f32::consts::PI * drift_hz * i as f32 / sample_rate;
+        *sample += amplitude * phase.sin();
+    }
+}
+
 fn apply_deterministic_dropouts(positions: &[usize], stride: usize) -> Vec<usize> {
     if stride <= 1 {
         return positions.to_vec();
@@ -416,6 +440,97 @@ fn test_north_tick_timing_frequency_step_across_modes() {
             assert!(
                 p95_abs_error <= 2.3,
                 "mode={mode:?}, chunk_size={chunk_size} freq_step p95_abs_error={p95_abs_error:.3} samples",
+            );
+        }
+    }
+}
+
+/// Detection under mains hum, clipping and baseline drift.
+///
+/// These are the disturbances a real receiver contributes that noise and
+/// impulses do not model: hum and drift sit far below the pulse in frequency
+/// and should be rejected by the highpass outright, while clipping flattens
+/// the peak that the estimator reads.
+#[test]
+fn test_north_tick_detection_under_hum_clipping_and_drift() {
+    let sample_rate = RdfConfig::default().audio.sample_rate as f32;
+    let rotation_hz = RdfConfig::default().doppler.expected_freq;
+    let duration_secs = 1.2f32;
+    let num_samples = (duration_secs * sample_rate) as usize;
+    let pulse_amplitude = RdfConfig::default().north_tick.expected_pulse_amplitude;
+
+    // Detection floor per disturbance: the combined case is harder than any
+    // of its parts, since clipping removes the headroom the others consume.
+    type Disturbance = (&'static str, fn(&mut Vec<f32>, f32), f32);
+    let disturbances: [Disturbance; 5] = [
+        (
+            "hum 50 Hz",
+            |signal, rate| add_hum(signal, rate, 50.0, 0.4),
+            0.95,
+        ),
+        (
+            "hum 60 Hz",
+            |signal, rate| add_hum(signal, rate, 60.0, 0.4),
+            0.95,
+        ),
+        ("clipping", |signal, _| apply_clipping(signal, 0.5), 0.95),
+        (
+            "dc drift",
+            |signal, rate| add_dc_drift(signal, rate, 0.5, 0.6),
+            0.95,
+        ),
+        // Clipped where a converter would clip -- above the pulse, so what is
+        // lost is the disturbance riding on top of it rather than the pulse.
+        (
+            "hum + clipping + drift",
+            |signal, rate| {
+                add_hum(signal, rate, 50.0, 0.3);
+                add_dc_drift(signal, rate, 0.5, 0.4);
+                apply_clipping(signal, 0.9);
+            },
+            0.90,
+        ),
+    ];
+
+    for &mode in &[NorthTrackingMode::Dpll, NorthTrackingMode::Simple] {
+        for (name, disturb, min_detection) in &disturbances {
+            let expected = generate_truth_pulses(sample_rate, duration_secs, 0.017, rotation_hz);
+            let mut north = build_north_signal(num_samples, &expected, pulse_amplitude);
+            disturb(&mut north, sample_rate);
+
+            let mut config = RdfConfig::default();
+            config.north_tick.mode = mode;
+            let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+            let mut detected = Vec::new();
+            for chunk in north.chunks(512) {
+                detected.extend(tracker.process_buffer(chunk));
+            }
+
+            let errors = match_timing_errors_samples(&expected, &detected, 3.0);
+            let detection_rate = errors.len() as f32 / expected.len().max(1) as f32;
+            let fp_rate = false_positive_rate(&expected, &detected, errors.len());
+
+            // The simple tracker has no oscillator to fall back on, and its
+            // period estimate is an average of measured intervals, so a
+            // disturbance that costs it detections also degrades the spacing
+            // guard those detections are judged against. It gives up about
+            // half the pulses where the loop gives up none.
+            let floor = match (mode, *name) {
+                (NorthTrackingMode::Simple, "hum + clipping + drift") => 0.45,
+                _ => *min_detection,
+            };
+            assert!(
+                detection_rate >= floor,
+                "mode={mode:?} {name}: detection rate {detection_rate:.3} (min {floor})"
+            );
+            assert!(
+                fp_rate <= 0.05,
+                "mode={mode:?} {name}: false positive rate {fp_rate:.3}"
+            );
+            assert!(
+                mean(&errors) <= 1.0,
+                "mode={mode:?} {name}: mean error {:.3} samples",
+                mean(&errors)
             );
         }
     }
