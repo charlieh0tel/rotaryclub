@@ -624,8 +624,11 @@ impl DpllNorthTracker {
             // phase here would introduce reference drift across rotations.
             self.last_tick_sample = Some(compensated_sample);
             self.last_measured_sample = Some(compensated_sample);
-            self.last_tick_fraction =
-                fractional_sample_offset + (reported_sample as f32 - compensated_sample as f32);
+            // Differenced in integers: these are absolute sample counts, and
+            // past 2^24 an f32 cannot represent them to within a sample, so
+            // converting before subtracting loses the quantity being measured.
+            self.last_tick_fraction = fractional_sample_offset
+                + (reported_sample as i64 - compensated_sample as i64) as f32;
             ticks.push(NorthTick {
                 sample_index: reported_sample,
                 period: Some(period),

@@ -214,9 +214,13 @@ impl SimpleNorthTracker {
             self.last_tick_sample = Some(compensated_sample);
             // Relative to compensated_sample, not to the reported index: when
             // the estimate reanchors onto a neighbouring sample the two differ
-            // by one, and the next period measurement would inherit that.
-            self.last_tick_fraction =
-                fractional_sample_offset + (reported_sample as f32 - compensated_sample as f32);
+            // by one, and the next period measurement would inherit that. The
+            // difference is taken in integers because these are absolute
+            // sample counts -- past 2^24 an f32 cannot represent them to
+            // within a sample, and subtracting after the conversion loses the
+            // very quantity being measured.
+            self.last_tick_fraction = fractional_sample_offset
+                + (reported_sample as i64 - compensated_sample as i64) as f32;
         }
 
         retain_tail(
