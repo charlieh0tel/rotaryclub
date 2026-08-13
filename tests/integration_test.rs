@@ -640,7 +640,7 @@ fn test_north_tick_fir_delay_compensation() {
     let sample_rate = 48000.0;
 
     let config = NorthTickConfig {
-        fir_highpass_taps: 63,
+        fir_highpass_length_us: 1312.5,
         ..Default::default()
     };
 

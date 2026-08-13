@@ -695,9 +695,9 @@ fn test_north_tick_config_guardrails() {
             "expected_pulse_amplitude",
         ),
         (
-            "too few filter taps",
-            |c| c.north_tick.fir_highpass_taps = 2,
-            "fir_highpass_taps",
+            "filter too short for three taps",
+            |c| c.north_tick.fir_highpass_length_us = 20.0,
+            "fir_highpass_length_us",
         ),
         (
             "cutoff above Nyquist",

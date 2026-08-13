@@ -79,7 +79,7 @@ expected_freq: 1602.56, bandpass: 1350-1850 Hz
 method: Correlation  // or ZeroCrossing
 
 // North tick detection
-highpass_cutoff: 5000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
+highpass_cutoff: 1000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
 mode: Dpll  // or Simple
 estimator: EnergyCentroid  // or AmplitudeCentroid, HardLimiter
 max_coast_ms: 1000.0, gate_sigma: 3.0
