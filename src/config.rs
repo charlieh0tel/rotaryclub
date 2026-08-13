@@ -298,12 +298,14 @@ pub struct NorthTickConfig {
     pub gain_db: f32,
     /// Highpass filter cutoff in Hz to isolate pulse transients.
     ///
-    /// Measured with `north_hpf_sweep` on the captures in `data/`: centroid
-    /// timing improves roughly threefold going from 5 kHz to 1 kHz, because
-    /// the filter discards pulse energy that carries timing information, and
-    /// detection is unaffected at every cutoff tried. The default has not
-    /// moved yet: a lower cutoff rings for longer than the centroid window
-    /// covers, so the window has to scale with the filter response first.
+    /// The filter rejects audio bleeding into the north channel, but it also
+    /// discards pulse energy that carries timing information, so the cutoff
+    /// is a tradeoff rather than a free choice. Measured with
+    /// `north_hpf_sweep` on the captures in `data/`, centroid timing is about
+    /// three times better at 1 kHz than at the 5 kHz used previously, and
+    /// detection is unaffected at every cutoff tried including none at all.
+    /// Raise it if a receiver bleeds enough audio into the north channel to
+    /// cause false detections.
     pub highpass_cutoff: f32,
     /// Number of taps for FIR highpass filter (must be odd, default 63)
     pub fir_highpass_taps: usize,
@@ -487,7 +489,7 @@ impl Default for NorthTickConfig {
             mode: NorthTrackingMode::Dpll,
             estimator: NorthPulseEstimator::Centroid,
             gain_db: 0.0,
-            highpass_cutoff: 5000.0,
+            highpass_cutoff: 1000.0,
             fir_highpass_taps: 63,
             highpass_transition_hz: 500.0,
             threshold: 0.15,
