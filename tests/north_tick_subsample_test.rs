@@ -330,6 +330,62 @@ fn test_shipped_loop_bandwidth_bounds_acquisition_error() {
     );
 }
 
+/// A rate change must not send the tracker into a runaway.
+///
+/// Coasting covers rotations where no pulse arrived; a detection the gate
+/// rejected is not one. If the two are confused, the prediction stands in for
+/// the measurement, the loop gets no correction, its disagreement with the
+/// next detection grows, and that one is rejected too.
+#[test]
+fn test_rate_step_does_not_run_away() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+    let num_samples = (sample_rate * 3.0) as usize;
+    let before = sample_rate as f64 / 1602.564;
+    let after = sample_rate as f64 / 1645.0;
+    let step_at = 2.0 * sample_rate as f64;
+
+    // Build the pulse train by hand so the rate changes partway through.
+    let mut truth = Vec::new();
+    let mut epoch = 100.3f64;
+    while epoch < num_samples as f64 - 16.0 {
+        truth.push(epoch);
+        epoch += if epoch >= step_at { after } else { before };
+    }
+    let (signal, _) = sinc_pulse_train(num_samples, 1e9, before, amplitude);
+    let mut signal = signal;
+    for &e in &truth {
+        let (one, _) = sinc_pulse_train(num_samples, e, num_samples as f64 * 2.0, amplitude);
+        for (dst, src) in signal.iter_mut().zip(one) {
+            *dst += src;
+        }
+    }
+
+    let ticks = track(&config, &signal, 512);
+    let errors = timing_errors(&ticks, &truth, before);
+    let after_step: Vec<f64> = ticks
+        .iter()
+        .zip(&errors)
+        .filter(|(t, _)| **t >= step_at)
+        .map(|(_, e)| *e)
+        .collect();
+    assert!(
+        after_step.len() > 500,
+        "expected ticks after the step, got {}",
+        after_step.len()
+    );
+
+    // Measured 5.94 samples when a rejected detection was coasted over,
+    // 0.96 when it is not. The loop legitimately lags a 42 Hz step at its
+    // 1 Hz bandwidth; what it must not do is diverge.
+    let worst = after_step.iter().fold(0.0f64, |acc, e| acc.max(e.abs()));
+    assert!(
+        worst <= 2.0,
+        "worst timing error {worst:.3} samples after a rate step"
+    );
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]

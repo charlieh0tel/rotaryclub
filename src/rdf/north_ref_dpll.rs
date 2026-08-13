@@ -438,6 +438,17 @@ impl DpllNorthTracker {
         if !self.locked() || self.frequency <= FREQUENCY_EPSILON {
             return;
         }
+
+        // Coasting covers rotations where no pulse arrived. A rejected
+        // detection is not that: a pulse did arrive and the tracker distrusted
+        // it. Predicting through a rejection closes a feedback loop -- the
+        // prediction stands in for the measurement, so the loop gets no
+        // correction, so its disagreement with the next detection grows, so
+        // that one is rejected too. Measured across a rate step, disagreement
+        // ran away from 1.5 to 7 samples over eight rotations this way.
+        if self.consecutive_rejections > 0 {
+            return;
+        }
         // Coasting integrates the rotation rate over many rotations, so the
         // instantaneous estimate's tick-to-tick noise would accumulate into a
         // drift. The averaged estimate is what the loop actually knows.
