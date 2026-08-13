@@ -27,6 +27,12 @@ const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 1.0;
 #[cfg(test)]
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
+const MAX_TIMING_GATE_FRACTION: f32 = 0.25;
+/// Consecutive gate rejections that mean the tracker, not the signal, is
+/// wrong. Rejected detections never reach the statistics the gate is built
+/// from, so without this a tracker whose rotation estimate has gone stale
+/// would reject every real pulse forever.
+const MAX_CONSECUTIVE_REJECTIONS: usize = 8;
 const LOCK_STATS_WINDOW_TICKS: usize = 128;
 
 struct RollingWindowStats {
@@ -59,6 +65,12 @@ impl RollingWindowStats {
         let v = value as f64;
         self.sum += v;
         self.sum_sq += v * v;
+    }
+
+    fn clear(&mut self) {
+        self.window.clear();
+        self.sum = 0.0;
+        self.sum_sq = 0.0;
     }
 
     fn count(&self) -> usize {
@@ -125,6 +137,14 @@ pub struct DpllNorthTracker {
     // Filtered samples preceding filter_buffer, for estimator windows that
     // straddle a buffer boundary.
     filter_tail: Vec<f32>,
+    /// Where a pulse was last accepted, for coasting and lock state.
+    last_measured_sample: Option<usize>,
+    /// Sub-sample part of the last emitted tick, so coasting advances by the
+    /// true period instead of accumulating a rounding error every rotation.
+    last_tick_fraction: f32,
+    consecutive_rejections: usize,
+    max_coast_samples: usize,
+    gate_sigma: f32,
 }
 
 impl DpllNorthTracker {
@@ -286,6 +306,11 @@ impl DpllNorthTracker {
             lock_quality_weights: config.lock_quality_weights,
             filter_buffer: Vec::new(),
             filter_tail: Vec::new(),
+            last_measured_sample: None,
+            last_tick_fraction: 0.0,
+            consecutive_rejections: 0,
+            max_coast_samples: ((config.max_coast_ms / 1000.0 * sample_rate).max(0.0)) as usize,
+            gate_sigma: config.gate_sigma.max(0.0),
         })
     }
 
@@ -295,6 +320,8 @@ impl DpllNorthTracker {
     pub fn advance_samples(&mut self, samples: usize) {
         self.phase = Self::wrap_phase(self.phase + self.frequency * samples as f32);
         self.sample_counter += samples;
+        // A capture gap is time with no pulses, so it spends coasting budget
+        // like any other dropout.
         self.peak_detector.reset_continuity();
         self.filter_tail.clear();
         // The next tick begins a fresh interval; the min-spacing guard must
@@ -329,6 +356,91 @@ impl DpllNorthTracker {
             phase: 0.0,
             frequency: self.frequency,
         }]
+    }
+
+    /// Samples since a pulse was last accepted at the given position.
+    fn coasted_samples(&self, at: usize) -> Option<usize> {
+        self.last_measured_sample
+            .map(|measured| at.saturating_sub(measured))
+    }
+
+    /// Whether the rotation estimate is recent enough to predict from.
+    fn within_coast_budget(&self, at: usize) -> bool {
+        self.coasted_samples(at)
+            .is_some_and(|coasted| coasted <= self.max_coast_samples)
+    }
+
+    /// Confidence in a tick predicted rather than measured, falling to zero at
+    /// the end of the coasting budget.
+    fn coast_quality_scale(&self, at: usize) -> f32 {
+        if self.max_coast_samples == 0 {
+            return 0.0;
+        }
+        let coasted = self.coasted_samples(at).unwrap_or(usize::MAX);
+        1.0 - (coasted as f32 / self.max_coast_samples as f32).clamp(0.0, 1.0)
+    }
+
+    /// Widest disagreement between a detection and the tracked rotation that
+    /// is still treated as the same pulse, in samples.
+    ///
+    /// Scaled to the phase error the tracker is actually seeing, with a floor
+    /// of one sample so quantization alone can never trip it and a ceiling of
+    /// a quarter rotation so the gate cannot swallow a genuine half-rate
+    /// stream.
+    fn timing_gate_samples(&self, period_estimate: f32) -> Option<f32> {
+        if !self.stable_enough_for_phase_correction() || self.frequency <= FREQUENCY_EPSILON {
+            return None;
+        }
+        let std_dev = self.phase_error_stats.std_dev()?;
+        if !std_dev.is_finite() {
+            return None;
+        }
+        let gate = (self.gate_sigma * std_dev / self.frequency).max(1.0);
+        Some(gate.min(period_estimate * MAX_TIMING_GATE_FRACTION))
+    }
+
+    /// Emit ticks from the tracked rotation for rotations that produced no
+    /// usable detection, up to `until_sample`.
+    fn coast_to(&mut self, until_sample: usize, ticks: &mut Vec<NorthTick>) {
+        // Predicting requires a rotation estimate worth predicting from.
+        if !self.stable_enough_for_phase_correction() || self.frequency <= FREQUENCY_EPSILON {
+            return;
+        }
+        // Coasting integrates the rotation rate over many rotations, so the
+        // instantaneous estimate's tick-to-tick noise would accumulate into a
+        // drift. The averaged estimate is what the loop actually knows.
+        let frequency = self
+            .freq_stats
+            .mean()
+            .filter(|f| f.is_finite() && *f > FREQUENCY_EPSILON)
+            .unwrap_or(self.frequency);
+        let period = 2.0 * PI / frequency;
+        if !period.is_finite() || period < 1.0 {
+            return;
+        }
+
+        // A predicted tick must not land where a real pulse could still be
+        // detected: it would take the detection's place and push the real one
+        // inside the dead-time guard.
+        let reserved = (period * MIN_TICK_SPACING_FRACTION).round() as usize;
+
+        while let Some(last) = self.last_tick_sample {
+            let next = last + period.round() as usize;
+            if next + reserved > until_sample || !self.within_coast_budget(next) {
+                break;
+            }
+            self.last_tick_sample = Some(next);
+            ticks.push(NorthTick {
+                sample_index: next,
+                period: Some(period),
+                lock_quality: self
+                    .lock_quality()
+                    .map(|q| q * self.coast_quality_scale(next)),
+                fractional_sample_offset: 0.0,
+                phase: 0.0,
+                frequency: self.frequency,
+            });
+        }
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
@@ -366,6 +478,12 @@ impl DpllNorthTracker {
             let global_sample = (self.sample_counter as isize + peak_idx).max(0) as usize;
             let compensated_sample = global_sample.saturating_sub(delay.delay_samples);
             let period_estimate = 2.0 * PI / self.frequency;
+
+            // Fill in rotations that produced no usable detection before
+            // accounting for this one, so a dropout in the middle of a buffer
+            // is coasted through rather than left as a gap.
+            self.coast_to(compensated_sample, &mut ticks);
+
             if let Some(last) = self.last_tick_sample {
                 let min_spacing = period_estimate * MIN_TICK_SPACING_FRACTION;
                 let delta = compensated_sample.saturating_sub(last) as f32;
@@ -382,6 +500,30 @@ impl DpllNorthTracker {
             // grid.
             let phase_at_pulse = Self::wrap_phase(self.phase + self.frequency * estimator_fraction);
             let phase_error = Self::wrap_phase_error(-phase_at_pulse);
+
+            // Reject a detection that disagrees with the tracked rotation by
+            // more than the tracker's own timing spread. An impulse from
+            // interference can land anywhere in the rotation; a real pulse
+            // cannot. The gate stays inactive until there is enough history
+            // to know that spread, so the tracker can never lock itself out.
+            if let Some(gate) = self.timing_gate_samples(period_estimate) {
+                let systematic = self.phase_error_stats.mean().unwrap_or(0.0);
+                let disagreement = (phase_error - systematic) / self.frequency;
+                if disagreement.abs() > gate {
+                    self.consecutive_rejections += 1;
+                    if self.consecutive_rejections < MAX_CONSECUTIVE_REJECTIONS {
+                        last_sample_idx = peak_idx;
+                        continue;
+                    }
+                    // Everything is being rejected, so the rotation estimate
+                    // is what is wrong. Drop the history the gate is built
+                    // from and reacquire from this pulse.
+                    self.phase_error_stats.clear();
+                    self.freq_stats.clear();
+                    self.last_measured_sample = None;
+                }
+            }
+            self.consecutive_rejections = 0;
 
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
@@ -447,6 +589,9 @@ impl DpllNorthTracker {
             // Jitter is represented by sample_index timing; using absolute DPLL oscillator
             // phase here would introduce reference drift across rotations.
             self.last_tick_sample = Some(compensated_sample);
+            self.last_measured_sample = Some(compensated_sample);
+            self.last_tick_fraction =
+                fractional_sample_offset + (reported_sample as f32 - compensated_sample as f32);
             ticks.push(NorthTick {
                 sample_index: reported_sample,
                 period: Some(period),
@@ -473,6 +618,14 @@ impl DpllNorthTracker {
         );
 
         self.sample_counter += buffer.len();
+
+        // Cover the tail of the buffer, where a dropout that started mid-way
+        // through leaves rotations with no detection to trigger the fill.
+        let buffer_end = self
+            .sample_counter
+            .saturating_sub(delay.delay_samples.max(1));
+        self.coast_to(buffer_end, &mut ticks);
+
         ticks
     }
 

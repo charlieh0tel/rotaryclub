@@ -507,9 +507,26 @@ fn test_north_tracking_dropout_reacquisition() {
         |t| !(dropout_start..=dropout_end).contains(&t),
         1,
     );
+    // The rotation continues through the dropout even though the pulses do
+    // not, so a coasted tick belongs at every one of these positions.
+    let uninterrupted_positions = generate_pulse_positions(
+        start_time_secs,
+        duration_secs,
+        sample_rate,
+        |_| rotation_hz,
+        |_| true,
+        1,
+    );
     let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
     let (ticks, _freq_opt) = run_north_tracker(&config, &north_signal);
     let det_metrics = detection_metrics(&pulse_positions, &ticks, 4.0);
+    // Scored against the uninterrupted train: a tick emitted during the
+    // dropout is only legitimate if it lands where the missing pulse was.
+    // The tolerance is wider than for a measured pulse because holdover
+    // accuracy decays with coast length -- the tracker is integrating its
+    // rate estimate, and any error in that estimate accumulates every
+    // rotation it has to predict.
+    let coast_metrics = detection_metrics(&uninterrupted_positions, &ticks, 16.0);
 
     assert!(
         det_metrics.detection_rate >= 0.85,
@@ -517,9 +534,14 @@ fn test_north_tracking_dropout_reacquisition() {
         det_metrics.detection_rate
     );
     assert!(
-        det_metrics.false_positive_rate <= 0.08,
+        coast_metrics.false_positive_rate <= 0.08,
         "Dropout: false positive rate {:.2} too high",
-        det_metrics.false_positive_rate
+        coast_metrics.false_positive_rate
+    );
+    assert!(
+        coast_metrics.detection_rate >= 0.95,
+        "Dropout: coasting left {:.2} of the rotation unaccounted for",
+        1.0 - coast_metrics.detection_rate
     );
 
     let ticks_before: Vec<&NorthTick> = ticks
@@ -548,10 +570,14 @@ fn test_north_tracking_dropout_reacquisition() {
         "Expected many ticks after dropout, got {}",
         ticks_after.len()
     );
+    // Coasting keeps the reference alive across the dropout rather than
+    // leaving a hole in the bearing output.
+    let expected_in_dropout = ((dropout_end - dropout_start) * rotation_hz) as usize;
     assert!(
-        ticks_in_dropout.len() <= 3,
-        "Too many ticks during dropout: {}",
-        ticks_in_dropout.len()
+        ticks_in_dropout.len() >= expected_in_dropout * 9 / 10,
+        "Expected coasting to cover the dropout: {} ticks, expected about {}",
+        ticks_in_dropout.len(),
+        expected_in_dropout
     );
 
     let first_after = ticks_after
