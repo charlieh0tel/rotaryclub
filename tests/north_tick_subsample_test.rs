@@ -66,14 +66,17 @@ fn sinc_pulse_train(
 /// here, not acquisition time, so the loop is opened up to keep runs short.
 const TEST_LOOP_HZ: f32 = 10.0;
 
-/// Bound on reported timing jitter, in samples. The DPLL reports its
-/// oscillator's estimate, which is not quantized; the simple tracker reports
-/// the detected peak index, whose error is uniform over one sample
-/// (1/sqrt(12) = 0.289).
+/// Bound on reported timing jitter, in samples.
+///
+/// Both bounds are below what a whole-sample peak index can achieve, whose
+/// error is uniform over one sample (1/sqrt(12) = 0.289). The DPLL would meet
+/// them by averaging even so; the simple tracker times each pulse
+/// independently and can only meet them with a sub-sample estimator, which is
+/// what keeps the estimator covered rather than merely present.
 fn jitter_bound(mode: NorthTrackingMode) -> f64 {
     match mode {
         NorthTrackingMode::Dpll => 0.05,
-        NorthTrackingMode::Simple => 0.35,
+        NorthTrackingMode::Simple => 0.10,
     }
 }
 
