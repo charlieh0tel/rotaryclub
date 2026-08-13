@@ -398,7 +398,11 @@ fn test_rate_step_does_not_run_away() {
 /// are exactly what coasting exists to cover.
 #[test]
 fn test_glitch_during_dropout_does_not_disable_coasting() {
-    let config = RdfConfig::default();
+    // Settled loop: how far a tracker may coast depends on how well it knows
+    // the rotation rate, and this test is about the rejection hold rather
+    // than about holdover duration.
+    let mut config = RdfConfig::default();
+    config.north_tick.dpll.natural_frequency_hz = TEST_LOOP_HZ;
     let sample_rate = config.audio.sample_rate as f32;
     let amplitude = config.north_tick.expected_pulse_amplitude;
     let period = sample_rate as f64 / 1602.564;

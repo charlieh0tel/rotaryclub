@@ -493,10 +493,13 @@ fn test_north_tracking_dropout_reacquisition() {
     let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
     let rotation_hz = config.doppler.expected_freq;
-    let duration_secs = 1.4;
+    // The dropout starts well after the loop has settled: how far the
+    // tracker may coast depends on how well it knows the rotation rate, and
+    // at the shipped 1 Hz loop bandwidth that takes a couple of seconds.
+    let duration_secs = 4.0;
     let start_time_secs = 0.05;
-    let dropout_start = 0.45;
-    let dropout_end = 0.75;
+    let dropout_start = 2.5;
+    let dropout_end = 2.8;
     let num_samples = (duration_secs * sample_rate) as usize;
 
     let pulse_positions = generate_pulse_positions(
