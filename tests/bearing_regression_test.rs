@@ -1129,3 +1129,59 @@ fn test_bearing_low_snr_plus_dc_offset_interaction() {
         }
     }
 }
+
+/// Bearing accuracy across rotation rates and sample rates.
+///
+/// Every other bearing test runs at one rotation rate and one sample rate, so
+/// nothing covered `apply_rotation`, which retunes the tracking band, the
+/// bandpass and the detector dead time together. Setting `expected_freq`
+/// alone leaves the tracker hunting for a rate it cannot reach, which costs
+/// tens of degrees and looks exactly like a bearing-path defect.
+#[test]
+fn test_bearing_accuracy_across_rotation_and_sample_rates() {
+    use rotaryclub::config::{BearingMethod, RdfConfig, RotationFrequency};
+    use rotaryclub::processing::RdfProcessor;
+    use rotaryclub::simulation::generate_test_signal;
+
+    let truth = 200.0f32;
+
+    for sample_rate in [48_000u32, 96_000] {
+        for rotation_hz in [1450.0f32, 1550.0, 1602.564, 1650.0] {
+            for method in [BearingMethod::Correlation, BearingMethod::ZeroCrossing] {
+                let mut config = RdfConfig::default();
+                config.audio.sample_rate = sample_rate;
+                config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
+                config.doppler.method = method;
+
+                let signal = generate_test_signal(0.5, sample_rate, rotation_hz, truth);
+                let mut processor = RdfProcessor::new(&config, false, true).unwrap();
+                let bearings: Vec<f32> = processor
+                    .process_signal(&signal)
+                    .iter()
+                    .filter_map(|r| r.bearing.map(|b| b.bearing_degrees))
+                    .collect();
+
+                assert!(
+                    bearings.len() > 5,
+                    "{sample_rate} Hz, rotation {rotation_hz} Hz, {method:?}: only {} bearings",
+                    bearings.len()
+                );
+
+                let (mut x, mut y) = (0.0f32, 0.0f32);
+                for bearing in &bearings[3..] {
+                    let radians = bearing.to_radians();
+                    x += radians.cos();
+                    y += radians.sin();
+                }
+                let mean = y.atan2(x).to_degrees().rem_euclid(360.0);
+                let error = ((mean - truth + 540.0).rem_euclid(360.0)) - 180.0;
+
+                assert!(
+                    error.abs() <= 2.5,
+                    "{sample_rate} Hz, rotation {rotation_hz} Hz, {method:?}: \
+                     bearing {mean:.2} is {error:+.2} degrees from {truth}"
+                );
+            }
+        }
+    }
+}
