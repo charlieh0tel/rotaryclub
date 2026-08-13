@@ -133,7 +133,8 @@ pub(super) fn estimate_fraction(
     estimator: NorthPulseEstimator,
     half_width: usize,
 ) -> f32 {
-    if estimator == NorthPulseEstimator::HardLimiter {
+    let exponent = estimator.weight_exponent();
+    if exponent == 0 {
         return 0.0;
     }
 
@@ -156,7 +157,7 @@ pub(super) fn estimate_fraction(
             return 0.0;
         };
         let value = sample.max(0.0) as f64;
-        let weight = value * value;
+        let weight = value.powi(exponent);
         weighted += weight * index as f64;
         total += weight;
     }
@@ -209,9 +210,9 @@ pub(super) fn derive_peak_timing(
     // Referencing the delay compensation to that point keeps the emitted tick
     // time -- and any north-offset calibration against it -- unchanged when
     // the estimator changes.
-    let pulse_reference_offset = match estimator {
-        NorthPulseEstimator::HardLimiter => peak_offset,
-        NorthPulseEstimator::Centroid => highpass.centroid_offset(centroid_half_width),
+    let pulse_reference_offset = match estimator.weight_exponent() {
+        0 => peak_offset,
+        exponent => highpass.centroid_offset(centroid_half_width, exponent),
     };
 
     PeakTiming {

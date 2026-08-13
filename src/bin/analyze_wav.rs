@@ -35,8 +35,8 @@ struct Args {
     #[arg(short = 'n', long, value_enum, default_value = "dpll")]
     north_mode: NorthTrackingMode,
 
-    /// North pulse sub-sample estimator: centroid, hard-limiter
-    #[arg(long, value_enum, default_value = "centroid")]
+    /// North pulse sub-sample estimator
+    #[arg(long, value_enum, default_value = "energy-centroid")]
     north_estimator: NorthPulseEstimator,
 
     /// Bearing calculation method: correlation, zero-crossing
