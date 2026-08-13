@@ -30,9 +30,23 @@ bearing = (phase_offset / 2π) × 360°
 ### North Tick Detection (Right Channel)
 1. Highpass filter at 5 kHz (isolate 20µs pulse transients)
 2. Peak detection with 0.15 threshold and 0.6ms minimum spacing
-3. Rotation tracking (configurable):
+3. Sub-sample pulse estimation (configurable): the detected peak is an
+   integer sample index, and one sample at 48 kHz is 12° of bearing, so the
+   arrival time is estimated below the sample grid.
+   - **Centroid mode** (default): energy centroid of the filtered pulse
+   - **Hard limiter mode**: the peak index alone, quantized to whole samples
+4. Rotation tracking (configurable):
    - **DPLL mode** (default): Digital PLL locks onto rotation frequency for smooth tracking
    - **Simple mode**: Exponential smoothing of period measurements
+
+Both trackers consume and emit fractional sample times. The DPLL reports the
+tick time its own oscillator predicts rather than the raw detection, which is
+where most of the timing accuracy comes from: quantization error dithers as
+the pulse walks across the sample interval, so averaging over the loop's
+memory removes it. The oscillator also coasts through dropouts, emitting
+ticks for rotations that produced no detection with lock quality falling as
+the coasting budget is spent, and gates detections that disagree with the
+tracked rotation by more than the tracker's own timing spread.
 
 ### Doppler Tone Extraction (Left Channel)
 1. AGC (Automatic Gain Control) normalizes signal amplitude to 0.3 RMS
@@ -59,6 +73,8 @@ method: Correlation  // or ZeroCrossing
 // North tick detection
 highpass_cutoff: 5000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
 mode: Dpll  // or Simple
+estimator: Centroid  // or HardLimiter
+max_coast_ms: 1000.0, gate_sigma: 3.0
 // DPLL tracking band: 1400-1650 Hz. min_interval_ms must stay shorter
 // than the period at frequency_max_hz; conflicting values are a config
 // error (0.6 ms supports up to ~1666 Hz).
@@ -79,6 +95,17 @@ Channel assignment is configurable via `ChannelRole` enum.
   - **Zero-crossing**: Sub-sample interpolation, lower CPU usage
 - **DPLL for north tracking**: Locks onto rotation frequency, tolerates missed pulses,
   provides smooth frequency estimates
+- **Pulse estimator separate from the loop**: they solve different problems.
+  The estimator decides where one pulse arrived; the loop decides what the
+  rotation is doing. Against a tight loop the estimator choice is worth
+  little — measured 0.05° with the centroid against 0.10° with the hard
+  limiter — but the centroid costs almost nothing and is what keeps a
+  commensurate rotation rate from becoming a fixed bearing offset.
+- **Delay compensation is per-estimator**: each estimator reports a different
+  point on the same filtered pulse, so its delay is referenced to the point
+  it would report for an impulse arriving exactly on a sample. Emitted tick
+  times, and north-offset calibrations made against them, therefore do not
+  move when the estimator changes.
 - **48 kHz sample rate**: Standard audio hardware
   support. Alternative: 96/192 kHz would better capture 20µs pulse but
   increases CPU load. WAV input at other rates is supported: the file's
@@ -99,9 +126,21 @@ Test file (11.6s, moving radio source):
 
 ## Known Limitations
 
-1. **North pulse subsampling**: 20µs pulse < 1 sample at 48kHz. Relies
-   on high-frequency content (mitigated by DPLL tracking).
-2. **No multipath handling**: Reflections can distort phase measurements.
+1. **North pulse subsampling**: 20µs pulse < 1 sample at 48kHz. Relies on
+   high-frequency content, sub-sample estimation, and DPLL averaging.
+2. **Commensurate rotation rates**: the averaging above works because the
+   pulse arrives at a different point between samples on each rotation. If
+   the rotation rate were commensurate with the sample clock — 1600.000 Hz
+   at 48 kHz, exactly 30 samples per rotation — it would land in the same
+   place every time, and a quantized estimator's error would become a fixed
+   offset of up to half a sample that no amount of loop averaging removes.
+   Measured: 3.6° with the hard limiter, 0.6° with the centroid, and zero
+   jitter in both cases, so no confidence metric would reveal it. The 624 µs
+   hardware period gives 29.952 samples per rotation and avoids this.
+3. **Holdover accuracy**: coasting integrates the rate estimate, so error
+   accumulates every rotation it has to predict — several samples across a
+   few hundred milliseconds if the loop is still settling.
+4. **No multipath handling**: Reflections can distort phase measurements.
 
 ## Future Enhancements
 
