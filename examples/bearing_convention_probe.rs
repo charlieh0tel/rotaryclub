@@ -183,7 +183,7 @@ fn main() {
     }
     println!();
 
-    let mut probe_rate = |rate: u32, taps: usize| -> Option<f32> {
+    let probe_rate = |rate: u32, taps: usize| -> Option<f32> {
         let mut config = RdfConfig::default();
         config.audio.sample_rate = rate;
         config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
