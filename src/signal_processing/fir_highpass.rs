@@ -75,6 +75,11 @@ impl FirHighpass {
         self.core.process(sample)
     }
 
+    /// Discard filter state, for a discontinuity in the sample stream.
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
     /// Process an entire buffer of audio samples in-place
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         self.core.process_buffer(buffer)

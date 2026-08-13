@@ -366,8 +366,17 @@ impl DpllNorthTracker {
     /// frequency and the sample clock advances, so tick indices after a
     /// capture gap stay on the real timeline.
     pub fn advance_samples(&mut self, samples: usize) {
-        self.phase = Self::wrap_phase(self.phase + self.frequency * samples as f32);
+        // Advance in f64 and reduce before narrowing: a long gap makes
+        // frequency * samples large enough that an f32 product cannot
+        // resolve where in the rotation the oscillator lands, and the loop
+        // then rejects valid pulses on the far side of the gap.
+        let advance =
+            (self.frequency as f64 * samples as f64).rem_euclid(2.0 * std::f64::consts::PI);
+        self.phase = Self::wrap_phase(self.phase + advance as f32);
         self.sample_counter += samples;
+        // The delay line holds pre-gap audio that no longer adjoins what
+        // follows it.
+        self.highpass.reset();
         // A capture gap is time with no pulses, so it spends coasting budget
         // like any other dropout. Nothing was disputed across it, so a
         // rejection from before the gap must not hold coasting off after it.

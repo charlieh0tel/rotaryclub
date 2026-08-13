@@ -19,6 +19,18 @@ impl FirFilterCore {
         }
     }
 
+    /// Discard the delay line.
+    ///
+    /// After a gap in the sample stream the retained history belongs to audio
+    /// that no longer adjoins what follows, so convolving the two together
+    /// produces an output corresponding to no real signal. Starting from
+    /// zeros still costs a settling transient the length of the filter, but a
+    /// predictable one.
+    pub fn reset(&mut self) {
+        self.delay_line.fill(0.0);
+        self.pos = 0;
+    }
+
     /// Process a single sample through the filter
     pub fn process(&mut self, sample: f32) -> f32 {
         self.delay_line[self.pos] = sample as f64;
