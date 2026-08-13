@@ -1,8 +1,90 @@
+use crate::config::NorthPulseEstimator;
 use crate::signal_processing::FirHighpass;
 
+/// Half-width of the centroid window, in microseconds. Wide enough to hold
+/// the main lobe of a highpassed impulse and narrow enough to exclude the
+/// next pulse; expressed in time so it means the same thing at any sample
+/// rate.
+const CENTROID_HALF_WIDTH_US: f32 = 65.0;
+
 pub(super) struct PeakTiming {
-    pub pulse_peak_offset: f32,
+    /// Offset from group delay to the point the estimator reports for an
+    /// impulse arriving exactly on a sample.
+    pub pulse_reference_offset: f32,
     pub peak_search_window_samples: usize,
+}
+
+pub(super) fn centroid_half_width(sample_rate: f32) -> usize {
+    ((CENTROID_HALF_WIDTH_US * 1e-6 * sample_rate).round() as usize).max(2)
+}
+
+/// Sub-sample arrival time of a pulse, relative to `peak_index`.
+///
+/// `tail` holds the filtered samples immediately preceding `buffer`, so a
+/// peak resolved across a buffer boundary -- which the detector reports at a
+/// negative index -- still has a symmetric window. Indices are relative to
+/// the start of `buffer`.
+///
+/// Returns zero when the window cannot be filled even with the tail, which
+/// leaves that tick on the peak index. A tracking loop absorbs the occasional
+/// coarser measurement.
+pub(super) fn estimate_fraction(
+    tail: &[f32],
+    buffer: &[f32],
+    peak_index: isize,
+    estimator: NorthPulseEstimator,
+    half_width: usize,
+) -> f32 {
+    if estimator == NorthPulseEstimator::HardLimiter {
+        return 0.0;
+    }
+
+    let sample_at = |index: isize| -> Option<f32> {
+        if index >= 0 {
+            buffer.get(index as usize).copied()
+        } else {
+            let from_end = (-index) as usize;
+            tail.len()
+                .checked_sub(from_end)
+                .and_then(|i| tail.get(i).copied())
+        }
+    };
+
+    let half = half_width as isize;
+    let mut weighted = 0.0f64;
+    let mut total = 0.0f64;
+    for index in (peak_index - half)..=(peak_index + half) {
+        let Some(sample) = sample_at(index) else {
+            return 0.0;
+        };
+        let value = sample.max(0.0) as f64;
+        let weight = value * value;
+        weighted += weight * index as f64;
+        total += weight;
+    }
+
+    if total > 0.0 {
+        (weighted / total - peak_index as f64) as f32
+    } else {
+        0.0
+    }
+}
+
+/// Retain the trailing filtered samples a later buffer needs to complete an
+/// estimator window that straddles the boundary.
+pub(super) fn retain_tail(tail: &mut Vec<f32>, buffer: &[f32], len: usize) {
+    if len == 0 {
+        tail.clear();
+        return;
+    }
+    if buffer.len() >= len {
+        tail.clear();
+        tail.extend_from_slice(&buffer[buffer.len() - len..]);
+    } else {
+        let overflow = (tail.len() + buffer.len()).saturating_sub(len);
+        tail.drain(..overflow.min(tail.len()));
+        tail.extend_from_slice(buffer);
+    }
 }
 
 pub(super) struct DelayCompensation {
@@ -14,15 +96,26 @@ pub(super) fn derive_peak_timing(
     highpass: &FirHighpass,
     threshold: f32,
     effective_pulse_amplitude: f32,
+    estimator: NorthPulseEstimator,
+    centroid_half_width: usize,
 ) -> PeakTiming {
     let threshold_crossing_offset =
         highpass.threshold_crossing_offset(threshold, effective_pulse_amplitude);
-    let pulse_peak_offset = highpass.peak_offset();
+    let peak_offset = highpass.peak_offset();
     let peak_search_window_samples =
-        ((pulse_peak_offset - threshold_crossing_offset).max(0.0)).ceil() as usize + 3;
+        ((peak_offset - threshold_crossing_offset).max(0.0)).ceil() as usize + 3;
+
+    // Each estimator reports a different point on the same filtered pulse.
+    // Referencing the delay compensation to that point keeps the emitted tick
+    // time -- and any north-offset calibration against it -- unchanged when
+    // the estimator changes.
+    let pulse_reference_offset = match estimator {
+        NorthPulseEstimator::HardLimiter => peak_offset,
+        NorthPulseEstimator::Centroid => highpass.centroid_offset(centroid_half_width),
+    };
 
     PeakTiming {
-        pulse_peak_offset,
+        pulse_reference_offset,
         peak_search_window_samples,
     }
 }

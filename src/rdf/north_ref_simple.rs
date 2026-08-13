@@ -1,4 +1,4 @@
-use crate::config::NorthTickConfig;
+use crate::config::{NorthPulseEstimator, NorthTickConfig};
 use crate::constants::FREQUENCY_EPSILON;
 use crate::error::Result;
 use crate::rdf::NorthTick;
@@ -6,7 +6,8 @@ use crate::signal_processing::{FirHighpass, PeakDetector, db_to_amplitude};
 use std::f32::consts::PI;
 
 use super::north_ref_common::{
-    derive_delay_compensation, derive_peak_timing, preprocess_north_buffer,
+    centroid_half_width, derive_delay_compensation, derive_peak_timing, estimate_fraction,
+    preprocess_north_buffer, retain_tail, split_effective_time,
 };
 
 const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
@@ -16,13 +17,22 @@ pub struct SimpleNorthTracker {
     gain: f32,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
-    pulse_peak_offset: f32,
+    pulse_reference_offset: f32,
+    estimator: NorthPulseEstimator,
+    centroid_half_width: usize,
+    filter_tail_len: usize,
     nominal_period_samples: f32,
     last_tick_sample: Option<usize>,
+    /// Sub-sample position of the last tick, so the period estimate is not
+    /// requantized to whole samples on every rotation.
+    last_tick_fraction: f32,
     samples_per_rotation: Option<f32>,
     sample_counter: usize,
     sample_rate: f32,
     filter_buffer: Vec<f32>,
+    // Filtered samples preceding filter_buffer, for estimator windows that
+    // straddle a buffer boundary.
+    filter_tail: Vec<f32>,
 }
 
 impl SimpleNorthTracker {
@@ -38,8 +48,14 @@ impl SimpleNorthTracker {
         )?;
 
         let effective_pulse_amplitude = (config.expected_pulse_amplitude * gain).max(f32::EPSILON);
-        let peak_timing =
-            derive_peak_timing(&highpass, config.threshold, effective_pulse_amplitude);
+        let centroid_half_width = centroid_half_width(sample_rate);
+        let peak_timing = derive_peak_timing(
+            &highpass,
+            config.threshold,
+            effective_pulse_amplitude,
+            config.estimator,
+            centroid_half_width,
+        );
         let nominal_period_samples = if config.dpll.initial_frequency_hz > FREQUENCY_EPSILON {
             sample_rate / config.dpll.initial_frequency_hz
         } else {
@@ -54,13 +70,22 @@ impl SimpleNorthTracker {
                 min_samples,
                 peak_timing.peak_search_window_samples,
             ),
-            pulse_peak_offset: peak_timing.pulse_peak_offset,
+            pulse_reference_offset: peak_timing.pulse_reference_offset,
+            estimator: config.estimator,
+            centroid_half_width,
+            // A peak whose search window straddled a buffer boundary is
+            // reported at a negative index in the next buffer, so the tail
+            // must reach back past the search window as well as the
+            // estimator's own half-width.
+            filter_tail_len: centroid_half_width + peak_timing.peak_search_window_samples,
             nominal_period_samples,
             last_tick_sample: None,
+            last_tick_fraction: 0.0,
             samples_per_rotation: None,
             sample_counter: 0,
             sample_rate,
             filter_buffer: Vec::new(),
+            filter_tail: Vec::new(),
         })
     }
 
@@ -69,6 +94,7 @@ impl SimpleNorthTracker {
     pub fn advance_samples(&mut self, samples: usize) {
         self.sample_counter += samples;
         self.peak_detector.reset_continuity();
+        self.filter_tail.clear();
         // Don't measure the first post-gap interval across the gap: it would
         // fold the whole gap into the period EMA and yank the estimate.
         self.last_tick_sample = None;
@@ -80,7 +106,7 @@ impl SimpleNorthTracker {
         let Some((rel, _amp)) = self.peak_detector.flush() else {
             return Vec::new();
         };
-        let delay = derive_delay_compensation(&self.highpass, self.pulse_peak_offset);
+        let delay = derive_delay_compensation(&self.highpass, self.pulse_reference_offset);
         let global_sample = (self.sample_counter as isize + rel).max(0) as usize;
         let compensated_sample = global_sample.saturating_sub(delay.delay_samples);
         if let Some(last) = self.last_tick_sample {
@@ -96,12 +122,14 @@ impl SimpleNorthTracker {
             .samples_per_rotation
             .map(|p| 2.0 * PI / p)
             .unwrap_or(0.0);
+        let (reported_sample, fractional_sample_offset) =
+            split_effective_time(compensated_sample, delay.fractional_sample_offset);
         self.last_tick_sample = Some(compensated_sample);
         vec![NorthTick {
-            sample_index: compensated_sample,
+            sample_index: reported_sample,
             period: self.samples_per_rotation,
             lock_quality: self.lock_quality(),
-            fractional_sample_offset: delay.fractional_sample_offset,
+            fractional_sample_offset,
             phase: 0.0,
             frequency,
         }]
@@ -117,11 +145,18 @@ impl SimpleNorthTracker {
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
 
-        let delay = derive_delay_compensation(&self.highpass, self.pulse_peak_offset);
+        let delay = derive_delay_compensation(&self.highpass, self.pulse_reference_offset);
 
         let mut ticks = Vec::with_capacity(peaks.len());
 
         for (peak_idx, _amplitude) in peaks {
+            let estimator_fraction = estimate_fraction(
+                &self.filter_tail,
+                &self.filter_buffer,
+                peak_idx,
+                self.estimator,
+                self.centroid_half_width,
+            );
             // Compensate for FIR filter delay: the filtered output at peak_idx
             // corresponds to an input pulse that occurred earlier by the
             // configured delay compensation. peak_idx can be slightly
@@ -141,9 +176,15 @@ impl SimpleNorthTracker {
                 }
             }
 
+            let (reported_sample, fractional_sample_offset) = split_effective_time(
+                compensated_sample,
+                delay.fractional_sample_offset + estimator_fraction,
+            );
+
             // Update rotation period estimate with exponential averaging
             if let Some(last) = self.last_tick_sample {
-                let period = (compensated_sample - last) as f32;
+                let period = (compensated_sample - last) as f32 + fractional_sample_offset
+                    - self.last_tick_fraction;
 
                 self.samples_per_rotation = Some(
                     self.samples_per_rotation
@@ -162,16 +203,23 @@ impl SimpleNorthTracker {
                 .unwrap_or(0.0);
 
             ticks.push(NorthTick {
-                sample_index: compensated_sample,
+                sample_index: reported_sample,
                 period: self.samples_per_rotation,
                 lock_quality: self.lock_quality(),
-                fractional_sample_offset: delay.fractional_sample_offset,
+                fractional_sample_offset,
                 phase: 0.0, // By definition, tick = north = 0 radians
                 frequency,
             });
 
             self.last_tick_sample = Some(compensated_sample);
+            self.last_tick_fraction = fractional_sample_offset;
         }
+
+        retain_tail(
+            &mut self.filter_tail,
+            &self.filter_buffer,
+            self.filter_tail_len,
+        );
 
         self.sample_counter += buffer.len();
         ticks

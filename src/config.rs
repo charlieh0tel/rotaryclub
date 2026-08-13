@@ -240,6 +240,15 @@ pub enum NorthTrackingMode {
     Dpll,
 }
 
+/// Sub-sample estimator for the reference pulse arrival time
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum NorthPulseEstimator {
+    /// Index of the largest filtered sample, quantized to whole samples
+    HardLimiter,
+    /// Energy centroid of the filtered pulse, resolving below one sample
+    Centroid,
+}
+
 /// Digital Phase-Locked Loop (DPLL) configuration
 #[derive(Debug, Clone)]
 pub struct DpllConfig {
@@ -275,6 +284,8 @@ impl Default for DpllConfig {
 pub struct NorthTickConfig {
     /// Tracking mode (DPLL recommended)
     pub mode: NorthTrackingMode,
+    /// Sub-sample estimator for the pulse arrival time
+    pub estimator: NorthPulseEstimator,
     /// Input gain in dB (0.0 = unity, applied before filtering)
     pub gain_db: f32,
     /// Highpass filter cutoff in Hz to isolate pulse transients
@@ -450,6 +461,7 @@ impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
             mode: NorthTrackingMode::Dpll,
+            estimator: NorthPulseEstimator::Centroid,
             gain_db: 0.0,
             highpass_cutoff: 5000.0,
             fir_highpass_taps: 63,

@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use rotaryclub::audio::{AudioSource, WavFileSource};
 use rotaryclub::config::{
-    BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
+    BearingMethod, ChannelRole, NorthPulseEstimator, NorthTrackingMode, RdfConfig,
+    RotationFrequency,
 };
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::stats::CircularStats;
@@ -33,6 +34,10 @@ struct Args {
     /// North tracking mode: simple, dpll
     #[arg(short = 'n', long, value_enum, default_value = "dpll")]
     north_mode: NorthTrackingMode,
+
+    /// North pulse sub-sample estimator: centroid, hard-limiter
+    #[arg(long, value_enum, default_value = "centroid")]
+    north_estimator: NorthPulseEstimator,
 
     /// Bearing calculation method: correlation, zero-crossing
     #[arg(short = 'm', long, value_enum, default_value = "correlation")]
@@ -164,6 +169,7 @@ fn main() -> anyhow::Result<()> {
     let mut config = RdfConfig::default();
     config.doppler.method = args.method;
     config.north_tick.mode = args.north_mode;
+    config.north_tick.estimator = args.north_estimator;
     if let Some(rotation) = args.rotation {
         config.apply_rotation(rotation);
     }

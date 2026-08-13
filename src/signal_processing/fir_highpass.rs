@@ -115,6 +115,43 @@ impl FirHighpass {
         0.0
     }
 
+    /// Energy centroid of the filtered impulse response, as an offset from
+    /// group delay.
+    ///
+    /// An impulse arriving exactly on a sample produces this centroid, so a
+    /// centroid estimator's reading must be referenced to it. Using the peak
+    /// offset instead would show up as a constant bearing bias whenever the
+    /// estimator changes.
+    pub fn centroid_offset(&self, half_width: usize) -> f32 {
+        let taps = self.core.taps();
+        let group_delay = self.core.group_delay_samples();
+        let Some(peak_idx) = taps
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i)
+        else {
+            return 0.0;
+        };
+
+        let low = peak_idx.saturating_sub(half_width);
+        let high = (peak_idx + half_width).min(taps.len() - 1);
+        let mut weighted = 0.0f64;
+        let mut total = 0.0f64;
+        for (offset, &tap) in taps[low..=high].iter().enumerate() {
+            let value = tap.max(0.0);
+            let weight = value * value;
+            weighted += weight * (low + offset) as f64;
+            total += weight;
+        }
+
+        if total > 0.0 {
+            (weighted / total) as f32 - group_delay as f32
+        } else {
+            peak_idx as f32 - group_delay as f32
+        }
+    }
+
     /// Compute the filtered impulse peak offset for pulse detection
     ///
     /// Returns the sample offset from group delay to the maximum positive
