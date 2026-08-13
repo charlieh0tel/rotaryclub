@@ -227,7 +227,13 @@ pub struct DopplerConfig {
     /// after tracker delay compensation.
     ///
     /// Positive values shift the effective tick time later; negative values
-    /// shift it earlier. Default is 0.5 for backward-compatible calibration.
+    /// shift it earlier.
+    ///
+    /// The default of 0.5 was suspected of compensating for the north tick
+    /// being quantized to whole samples, whose mean error is exactly half a
+    /// sample. It is not: with sub-sample tick timing in place, removing it
+    /// makes bearing error worse, so it is compensating a real half-sample
+    /// convention elsewhere in the bearing calculation.
     pub north_tick_timing_adjustment: f32,
 }
 
@@ -288,7 +294,14 @@ pub struct NorthTickConfig {
     pub estimator: NorthPulseEstimator,
     /// Input gain in dB (0.0 = unity, applied before filtering)
     pub gain_db: f32,
-    /// Highpass filter cutoff in Hz to isolate pulse transients
+    /// Highpass filter cutoff in Hz to isolate pulse transients.
+    ///
+    /// Measured with `north_hpf_sweep` on the captures in `data/`: centroid
+    /// timing improves roughly threefold going from 5 kHz to 1 kHz, because
+    /// the filter discards pulse energy that carries timing information, and
+    /// detection is unaffected at every cutoff tried. The default has not
+    /// moved yet: a lower cutoff rings for longer than the centroid window
+    /// covers, so the window has to scale with the filter response first.
     pub highpass_cutoff: f32,
     /// Number of taps for FIR highpass filter (must be odd, default 63)
     pub fir_highpass_taps: usize,

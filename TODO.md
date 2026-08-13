@@ -7,6 +7,16 @@
 
 ## North Tick Tracking
 
+- [ ] Scale the centroid window to the highpass impulse response, then lower
+      `highpass_cutoff`. `north_hpf_sweep` measures ~3x better centroid timing
+      at 1 kHz than at the current 5 kHz on the captures in `data/`, with no
+      detection loss, but a longer-ringing filter outgrows the fixed window
+      and boundary fallbacks start to show up as a whole-sample shift
+      dependence.
+- [ ] Quantify holdover accuracy against coast length and pick
+      `max_coast_ms` from it; a rate estimate that is still settling drifts
+      several samples over a 300 ms coast.
+
 - [x] Measure end-to-end north tick timing latency/jitter vs synthetic ground truth across chunk sizes and chunk-boundary phase offsets
 - [x] Add CSV + markdown timing artifacts and CI reporting for threshold failures (including failed-row artifact)
 - [x] Add realistic false-positive sweeps for impulsive interference/dropout/noise with separate detection/FP metrics
