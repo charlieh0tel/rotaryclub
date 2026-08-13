@@ -41,6 +41,10 @@ const MAX_TIMING_GATE_FRACTION: f32 = 0.25;
 /// from, so without this a tracker whose rotation estimate has gone stale
 /// would reject every real pulse forever.
 const MAX_CONSECUTIVE_REJECTIONS: usize = 8;
+/// Rotations after a rejected detection during which coasting stays
+/// suppressed. Long enough to break the reject-predict-reject feedback loop,
+/// short enough that a genuine dropout is still coasted through.
+const REJECTION_COAST_HOLDOFF_ROTATIONS: f32 = 2.0;
 const LOCK_STATS_WINDOW_TICKS: usize = 128;
 
 struct RollingWindowStats {
@@ -147,6 +151,9 @@ pub struct DpllNorthTracker {
     filter_tail: Vec<f32>,
     /// Where a pulse was last accepted, for coasting and lock state.
     last_measured_sample: Option<usize>,
+    /// Where a detection was last rejected, so coasting can stand aside while
+    /// detections are being disputed without standing aside forever.
+    last_rejection_sample: Option<usize>,
     /// Sub-sample part of the last emitted tick, so coasting advances by the
     /// true period instead of accumulating a rounding error every rotation.
     last_tick_fraction: f32,
@@ -347,6 +354,7 @@ impl DpllNorthTracker {
             filter_buffer: Vec::new(),
             filter_tail: Vec::new(),
             last_measured_sample: None,
+            last_rejection_sample: None,
             last_tick_fraction: 0.0,
             consecutive_rejections: 0,
             max_coast_samples: ((config.max_coast_ms / 1000.0 * sample_rate).max(0.0)) as usize,
@@ -361,7 +369,10 @@ impl DpllNorthTracker {
         self.phase = Self::wrap_phase(self.phase + self.frequency * samples as f32);
         self.sample_counter += samples;
         // A capture gap is time with no pulses, so it spends coasting budget
-        // like any other dropout.
+        // like any other dropout. Nothing was disputed across it, so a
+        // rejection from before the gap must not hold coasting off after it.
+        self.consecutive_rejections = 0;
+        self.last_rejection_sample = None;
         self.peak_detector.reset_continuity();
         self.filter_tail.clear();
         // The next tick begins a fresh interval; the min-spacing guard must
@@ -454,8 +465,16 @@ impl DpllNorthTracker {
         // correction, so its disagreement with the next detection grows, so
         // that one is rejected too. Measured across a rate step, disagreement
         // ran away from 1.5 to 7 samples over eight rotations this way.
-        if self.consecutive_rejections > 0 {
-            return;
+        //
+        // The hold is on recency, not on a flag: while detections keep being
+        // rejected it keeps renewing and the loop stays broken, but a single
+        // disputed pulse at the start of a real dropout must not switch
+        // coasting off for the rest of it.
+        if let Some(rejected_at) = self.last_rejection_sample {
+            let holdoff = 2.0 * PI / self.frequency * REJECTION_COAST_HOLDOFF_ROTATIONS;
+            if (until_sample.saturating_sub(rejected_at) as f32) < holdoff {
+                return;
+            }
         }
         // Coasting integrates the rotation rate over many rotations, so the
         // instantaneous estimate's tick-to-tick noise would accumulate into a
@@ -568,6 +587,7 @@ impl DpllNorthTracker {
                 let disagreement = (phase_error - systematic) / self.frequency;
                 if disagreement.abs() > gate {
                     self.consecutive_rejections += 1;
+                    self.last_rejection_sample = Some(compensated_sample);
                     if self.consecutive_rejections < MAX_CONSECUTIVE_REJECTIONS {
                         last_sample_idx = peak_idx;
                         continue;
@@ -581,6 +601,7 @@ impl DpllNorthTracker {
                 }
             }
             self.consecutive_rejections = 0;
+            self.last_rejection_sample = None;
 
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
