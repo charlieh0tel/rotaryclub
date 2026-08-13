@@ -5,17 +5,6 @@
 - Add criterion benchmarks for DSP pipeline (FIR filters, AGC, I/Q correlation)
 - Improve zero-crossing coherence metric (sub-window phase variance like correlation method)
 
-## North Tick Tracking
-
-- [ ] Harden the simple tracker against baseline disturbance. Under combined
-      hum, clipping and drift it detects about half the pulses where the DPLL
-      detects nearly all of them, and an initial DC offset stepping into a
-      zero-state highpass drops it to 0.22. Its period estimate averages
-      measured intervals, so a disturbance that costs it detections also
-      degrades the spacing guard the remaining ones are judged against.
-      `test_north_tick_detection_under_hum_clipping_and_drift` records the
-      current behaviour.
-
 ## Bearing Calculator
 
 - [ ] Chase the residual bearing error that remains once

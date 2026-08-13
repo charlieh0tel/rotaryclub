@@ -103,6 +103,15 @@ Channel assignment is configurable via `ChannelRole` enum.
   - **Zero-crossing**: Sub-sample interpolation, lower CPU usage
 - **DPLL for north tracking**: Locks onto rotation frequency, tolerates missed pulses,
   provides smooth frequency estimates
+- **The simple tracker stays simple**: it times each pulse independently and
+  averages the intervals, with no oscillator to carry the rotation between
+  them. That costs it real robustness -- under combined hum, clipping and
+  baseline drift it gives up about half the pulses where the loop gives up
+  none, because a disturbance that costs it detections also degrades the
+  spacing guard the survivors are judged against. Closing that gap would mean
+  rebuilding what the DPLL already is. It is kept as a fallback and a
+  comparison point, and `test_north_tick_detection_under_hum_clipping_and_drift`
+  records where it stands.
 - **Pulse estimator separate from the loop**: they solve different problems.
   The estimator decides where one pulse arrived; the loop decides what the
   rotation is doing. Against a tight loop the estimator choice is worth
