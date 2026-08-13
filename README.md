@@ -50,6 +50,9 @@ rotaryclub -vv
 
 # Combine options
 rotaryclub --method correlation --north-mode dpll --north-offset 45 -v
+
+# Compare pulse estimators (the tracking loop hides most of the difference)
+rotaryclub --north-estimator hard-limiter
 ```
 
 ### Testing (from source)
@@ -103,6 +106,13 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 
 -n, --north-mode <NORTH_MODE>    North tick tracking mode
                                  [dpll (default) | simple]
+
+    --north-estimator <NAME>     Sub-sample estimator for the reference pulse
+                                 [energy-centroid (default) | amplitude-centroid
+                                  | hard-limiter]
+                                 The centroids resolve the pulse below one
+                                 sample; hard-limiter reports the peak index,
+                                 which is 12 degrees of bearing at 48 kHz.
 
 -s, --swap-channels              Swap left/right channels
 

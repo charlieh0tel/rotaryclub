@@ -12,7 +12,8 @@ use egui_plot::{Legend, Line, Plot, PlotPoints};
 
 use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource, list_input_devices};
 use rotaryclub::config::{
-    BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
+    BearingMethod, ChannelRole, NorthPulseEstimator, NorthTrackingMode, RdfConfig,
+    RotationFrequency,
 };
 use rotaryclub::processing::RdfProcessor;
 
@@ -25,6 +26,10 @@ struct Args {
 
     #[arg(short = 'n', long, value_enum, default_value = "dpll")]
     north_mode: NorthTrackingMode,
+
+    /// North pulse sub-sample estimator
+    #[arg(long, value_enum, default_value = "energy-centroid")]
+    north_estimator: NorthPulseEstimator,
 
     #[arg(long)]
     rotation: Option<RotationFrequency>,
@@ -1296,6 +1301,7 @@ fn main() -> anyhow::Result<()> {
     let mut config = RdfConfig::default();
     config.doppler.method = args.method;
     config.north_tick.mode = args.north_mode;
+    config.north_tick.estimator = args.north_estimator;
     config.bearing.north_offset_degrees = args.north_offset;
 
     if let Some(rotation) = args.rotation {
