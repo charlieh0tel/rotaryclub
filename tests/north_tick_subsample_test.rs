@@ -289,6 +289,47 @@ fn test_commensurate_rate_produces_constant_offset() {
     }
 }
 
+/// Timing at the shipped loop bandwidth, including acquisition.
+///
+/// Every other test here opens the loop up to `TEST_LOOP_HZ` so runs stay
+/// short, which means none of them exercise the configured default. That
+/// matters: while the loop is acquiring, its timing correction saturates, and
+/// whatever it saturates at goes straight into the reported tick time.
+#[test]
+fn test_shipped_loop_bandwidth_bounds_acquisition_error() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let period = sample_rate as f64 / 1602.564;
+    let num_samples = (sample_rate * 2.5) as usize;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+
+    let (signal, truth) = sinc_pulse_train(num_samples, 64.31, period, amplitude);
+    let ticks = track(&config, &signal, 512);
+    let errors = timing_errors(&ticks, &truth, period);
+    assert!(
+        errors.len() > 3000,
+        "expected a full run, got {}",
+        errors.len()
+    );
+
+    // Measured 0.74 samples with the correction bounded at half a sample,
+    // 1.24 with it bounded at a whole one: while the loop acquires, the
+    // correction saturates and the bound is what reaches the bearing.
+    let worst = errors.iter().fold(0.0f64, |acc, e| acc.max(e.abs()));
+    assert!(
+        worst <= 0.85,
+        "worst timing error {worst:.4} samples during acquisition at the default loop bandwidth"
+    );
+
+    // Once acquired, the loop should be far better than the bound above.
+    let settled = &errors[errors.len() * 3 / 4..];
+    let settled_worst = settled.iter().fold(0.0f64, |acc, e| acc.max(e.abs()));
+    assert!(
+        settled_worst <= 0.05,
+        "worst settled timing error {settled_worst:.4} samples"
+    );
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]
