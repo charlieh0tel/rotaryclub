@@ -229,11 +229,13 @@ pub struct DopplerConfig {
     /// Positive values shift the effective tick time later; negative values
     /// shift it earlier.
     ///
-    /// The default of 0.5 was suspected of compensating for the north tick
-    /// being quantized to whole samples, whose mean error is exactly half a
-    /// sample. It is not: with sub-sample tick timing in place, removing it
-    /// makes bearing error worse, so it is compensating a real half-sample
-    /// convention elsewhere in the bearing calculation.
+    /// The default was 0.5 for a long time, which is exactly half a sample.
+    /// It was not compensating anything in the bearing calculation: it was
+    /// cancelling an artifact of the test signal generator, which lit the
+    /// first sample at or after each rotation boundary and so ran half a
+    /// sample late. Every bearing-accuracy test used that generator, so the
+    /// trim looked necessary and its removal looked harmful. Against a pulse
+    /// placed at the true epoch it costs 6 degrees of bearing at 48 kHz.
     pub north_tick_timing_adjustment: f32,
 }
 
@@ -474,7 +476,7 @@ impl Default for DopplerConfig {
             bandpass_transition_hz: 100.0,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,
-            north_tick_timing_adjustment: 0.5,
+            north_tick_timing_adjustment: 0.0,
         }
     }
 }
