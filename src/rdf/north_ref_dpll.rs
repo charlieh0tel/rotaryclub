@@ -8,7 +8,7 @@ use std::f32::consts::PI;
 
 use super::north_ref_common::{
     centroid_half_width, derive_delay_compensation, derive_peak_timing, estimate_fraction,
-    preprocess_north_buffer, retain_tail, split_effective_time,
+    preprocess_north_buffer, retain_tail, split_effective_time, validate_north_tick_config,
 };
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
@@ -238,6 +238,8 @@ impl DpllNorthTracker {
                 FREQUENCY_EPSILON, sample_rate
             )));
         }
+
+        validate_north_tick_config(config, sample_rate)?;
 
         let initial_freq = config.dpll.initial_frequency_hz;
         if !initial_freq.is_finite() || initial_freq <= FREQUENCY_EPSILON {

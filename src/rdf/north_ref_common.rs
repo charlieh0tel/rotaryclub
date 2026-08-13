@@ -1,4 +1,5 @@
-use crate::config::NorthPulseEstimator;
+use crate::config::{NorthPulseEstimator, NorthTickConfig};
+use crate::error::{RdfError, Result};
 use crate::signal_processing::FirHighpass;
 
 /// Half-width of the centroid window, in microseconds. Wide enough to hold
@@ -6,6 +7,100 @@ use crate::signal_processing::FirHighpass;
 /// next pulse; expressed in time so it means the same thing at any sample
 /// rate.
 const CENTROID_HALF_WIDTH_US: f32 = 65.0;
+
+/// Validate the settings both trackers share.
+///
+/// Each message names the setting, what it was, and what would fix it: a
+/// tracker that silently detects nothing is far harder to diagnose from a
+/// bearing display than a refusal to start.
+pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: f32) -> Result<()> {
+    let finite = |name: &str, value: f32| -> Result<()> {
+        if value.is_finite() {
+            Ok(())
+        } else {
+            Err(RdfError::Config(format!(
+                "north_tick.{name} must be a finite number, got {value}"
+            )))
+        }
+    };
+
+    finite("gain_db", config.gain_db)?;
+    if !(-60.0..=60.0).contains(&config.gain_db) {
+        return Err(RdfError::Config(format!(
+            "north_tick.gain_db is {} dB, outside the supported -60 to 60; a gain this far              from unity usually means the wrong channel is being read",
+            config.gain_db
+        )));
+    }
+
+    finite("expected_pulse_amplitude", config.expected_pulse_amplitude)?;
+    if config.expected_pulse_amplitude <= 0.0 || config.expected_pulse_amplitude > 1.0 {
+        return Err(RdfError::Config(format!(
+            "north_tick.expected_pulse_amplitude is {}, must be within (0, 1]; it is the              pulse height in full-scale units after gain",
+            config.expected_pulse_amplitude
+        )));
+    }
+
+    finite("threshold", config.threshold)?;
+    if config.threshold <= 0.0 {
+        return Err(RdfError::Config(format!(
+            "north_tick.threshold is {}, must be greater than 0",
+            config.threshold
+        )));
+    }
+    if config.threshold >= config.expected_pulse_amplitude {
+        return Err(RdfError::Config(format!(
+            "north_tick.threshold ({}) is at or above expected_pulse_amplitude ({}), so no              pulse can ever cross it; lower the threshold or raise gain_db",
+            config.threshold, config.expected_pulse_amplitude
+        )));
+    }
+
+    if config.fir_highpass_taps < 3 {
+        return Err(RdfError::Config(format!(
+            "north_tick.fir_highpass_taps is {}, must be at least 3; an even count is              rounded up to keep the filter linear phase",
+            config.fir_highpass_taps
+        )));
+    }
+
+    finite("highpass_cutoff", config.highpass_cutoff)?;
+    finite("highpass_transition_hz", config.highpass_transition_hz)?;
+    if config.highpass_transition_hz <= 0.0 {
+        return Err(RdfError::Config(format!(
+            "north_tick.highpass_transition_hz is {}, must be greater than 0",
+            config.highpass_transition_hz
+        )));
+    }
+    let nyquist = sample_rate / 2.0;
+    if config.highpass_cutoff <= config.highpass_transition_hz {
+        return Err(RdfError::Config(format!(
+            "north_tick.highpass_cutoff ({} Hz) must be above highpass_transition_hz ({} Hz),              or the stopband has no width",
+            config.highpass_cutoff, config.highpass_transition_hz
+        )));
+    }
+    if config.highpass_cutoff >= nyquist {
+        return Err(RdfError::Config(format!(
+            "north_tick.highpass_cutoff is {} Hz, at or above the {} Hz Nyquist frequency for              a {} Hz sample rate; nothing would pass",
+            config.highpass_cutoff, nyquist, sample_rate
+        )));
+    }
+
+    finite("max_coast_ms", config.max_coast_ms)?;
+    if config.max_coast_ms < 0.0 {
+        return Err(RdfError::Config(format!(
+            "north_tick.max_coast_ms is {}, must be 0 or greater; 0 disables coasting",
+            config.max_coast_ms
+        )));
+    }
+
+    finite("gate_sigma", config.gate_sigma)?;
+    if config.gate_sigma < 0.0 {
+        return Err(RdfError::Config(format!(
+            "north_tick.gate_sigma is {}, must be 0 or greater",
+            config.gate_sigma
+        )));
+    }
+
+    Ok(())
+}
 
 pub(super) struct PeakTiming {
     /// Offset from group delay to the point the estimator reports for an

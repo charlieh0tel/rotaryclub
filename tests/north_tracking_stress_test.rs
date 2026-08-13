@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use rotaryclub::config::RdfConfig;
+use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTick, NorthTracker};
 
 #[derive(Debug, Clone)]
@@ -666,4 +666,83 @@ fn test_dead_time_rejects_noise_triggers() {
         "false positive rate {:.3} at noise 0.2; shortening the dead time raises this above 0.6",
         metrics.false_positive_rate
     );
+}
+
+/// Misconfiguration is refused at construction, with a message that names the
+/// setting and what would fix it.
+///
+/// A tracker that starts and then silently detects nothing is far harder to
+/// diagnose from a bearing display than one that refuses to start.
+#[test]
+fn test_north_tick_config_guardrails() {
+    let sample_rate = RdfConfig::default().audio.sample_rate as f32;
+
+    type BadConfig = (&'static str, fn(&mut RdfConfig), &'static str);
+    let cases: [BadConfig; 8] = [
+        (
+            "threshold above pulse amplitude",
+            |c| c.north_tick.threshold = 0.9,
+            "expected_pulse_amplitude",
+        ),
+        (
+            "threshold at zero",
+            |c| c.north_tick.threshold = 0.0,
+            "greater than 0",
+        ),
+        (
+            "pulse amplitude above full scale",
+            |c| c.north_tick.expected_pulse_amplitude = 1.5,
+            "expected_pulse_amplitude",
+        ),
+        (
+            "too few filter taps",
+            |c| c.north_tick.fir_highpass_taps = 2,
+            "fir_highpass_taps",
+        ),
+        (
+            "cutoff above Nyquist",
+            |c| c.north_tick.highpass_cutoff = 30_000.0,
+            "Nyquist",
+        ),
+        (
+            "cutoff below its own transition width",
+            |c| c.north_tick.highpass_cutoff = 100.0,
+            "highpass_transition_hz",
+        ),
+        ("absurd gain", |c| c.north_tick.gain_db = 200.0, "gain_db"),
+        (
+            "negative coast budget",
+            |c| c.north_tick.max_coast_ms = -1.0,
+            "max_coast_ms",
+        ),
+    ];
+
+    for (name, break_it, expected_fragment) in cases {
+        for mode in [NorthTrackingMode::Dpll, NorthTrackingMode::Simple] {
+            let mut config = RdfConfig::default();
+            config.north_tick.mode = mode;
+            break_it(&mut config);
+
+            match NorthReferenceTracker::new(&config.north_tick, sample_rate) {
+                Ok(_) => panic!("{mode:?} accepted a config with {name}"),
+                Err(error) => {
+                    let text = error.to_string();
+                    assert!(
+                        text.contains(expected_fragment),
+                        "{mode:?} rejected {name} but the message does not mention \
+                         '{expected_fragment}': {text}"
+                    );
+                }
+            }
+        }
+    }
+
+    // The defaults must survive their own guardrails at both supported rates.
+    for rate in [48_000.0f32, 96_000.0] {
+        let config = RdfConfig::default();
+        assert!(
+            NorthReferenceTracker::new(&config.north_tick, rate).is_ok(),
+            "default config rejected at {rate} Hz"
+        );
+    }
 }
