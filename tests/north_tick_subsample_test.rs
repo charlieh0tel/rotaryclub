@@ -520,23 +520,28 @@ fn test_long_capture_gap_keeps_phase() {
 /// masking: the detector's dead time then hides the real pulse behind it. The
 /// gate exists so that the loop is not dragged onto the interferer's timing,
 /// and so that the rotations it costs are coasted rather than reported wrong.
+///
+/// This runs at the shipped loop bandwidth, which needs a displacement the
+/// loop cannot absorb to show anything -- six rotations displaced by a
+/// fraction of a sample vanish into an average over a thousand. Displaced
+/// far enough, the difference is not subtle: without the gate, 67 ticks
+/// follow the interference, the worst by 5.6 samples, which is 68 degrees of
+/// bearing.
 #[test]
 fn test_displaced_detections_are_rejected() {
-    let mut config = RdfConfig::default();
-    // A wide loop follows individual detections rather than averaging over a
-    // thousand of them, which is the regime where the gate is what stands
-    // between a displaced detection and the reported tick time.
-    config.north_tick.dpll.natural_frequency_hz = 60.0;
+    let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
     let amplitude = config.north_tick.expected_pulse_amplitude;
     let period = sample_rate as f64 / 1602.564;
-    let num_samples = (sample_rate * 1.5) as usize;
+    let num_samples = (sample_rate * 3.0) as usize;
 
-    // Displaced by more than the gate should allow, but well inside what a
-    // whole-sample peak index would produce on its own -- so the gate has to
-    // be sized to the estimator in use, not to quantization.
-    let displacement = 0.6f64;
-    let disturbed = 1200..1206;
+    // Far enough off that the loop cannot absorb it: the correction that
+    // pulls a reported tick back towards the tracked rotation is bounded at
+    // half a sample, so an accepted detection this far out is reported very
+    // nearly where it was found.
+    let displacement = 6.0f64;
+    // After the loop has settled, so coasting can cover what the gate rejects.
+    let disturbed = 4000..4006;
 
     let mut signal = vec![0.0f32; num_samples];
     let mut truth = Vec::new();
@@ -560,7 +565,7 @@ fn test_displaced_detections_are_rejected() {
     let ticks = track(&config, &signal, 512);
     let errors = timing_errors(&ticks, &truth, period);
     // Well past acquisition, so the only disturbance is the displaced one.
-    let settled = &errors[900.min(errors.len())..];
+    let settled = &errors[3500.min(errors.len())..];
     let pulled = settled.iter().filter(|e| e.abs() > 0.3).count();
     let worst = settled.iter().fold(0.0f64, |acc, e| acc.max(e.abs()));
     assert!(
