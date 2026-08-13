@@ -386,6 +386,72 @@ fn test_rate_step_does_not_run_away() {
     );
 }
 
+/// A disputed pulse must not switch coasting off for the rest of a dropout.
+///
+/// Coasting stands aside while detections are being rejected, so that a
+/// prediction never stands in for a measurement the tracker distrusted. That
+/// hold has to expire: an impulse from interference as a signal fades is one
+/// rejected detection at the start of a dropout, and the rotations after it
+/// are exactly what coasting exists to cover.
+#[test]
+fn test_glitch_during_dropout_does_not_disable_coasting() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+    let period = sample_rate as f64 / 1602.564;
+    let num_samples = (sample_rate * 2.0) as usize;
+    let dropout = (1.0 * sample_rate as f64, 1.5 * sample_rate as f64);
+
+    let mut coasted = Vec::new();
+    for glitch_at in [None, Some(1.05f64), Some(1.25)] {
+        let mut signal = vec![0.0f32; num_samples];
+        let mut epoch = 100.3f64;
+        let mut expected_in_dropout = 0usize;
+        while epoch < num_samples as f64 - 16.0 {
+            let in_dropout = epoch >= dropout.0 && epoch < dropout.1;
+            if in_dropout {
+                expected_in_dropout += 1;
+            } else {
+                let (one, _) =
+                    sinc_pulse_train(num_samples, epoch, num_samples as f64 * 2.0, amplitude);
+                for (dst, src) in signal.iter_mut().zip(one) {
+                    *dst += src;
+                }
+            }
+            epoch += period;
+        }
+
+        // An impulse half a rotation off the tracked grid: detected, and
+        // rejected by the timing gate.
+        if let Some(seconds) = glitch_at {
+            let at = seconds * sample_rate as f64 + period * 0.5;
+            let (one, _) = sinc_pulse_train(num_samples, at, num_samples as f64 * 2.0, amplitude);
+            for (dst, src) in signal.iter_mut().zip(one) {
+                *dst += src;
+            }
+        }
+
+        let ticks = track(&config, &signal, 512);
+        let inside = ticks
+            .iter()
+            .filter(|t| **t >= dropout.0 && **t < dropout.1)
+            .count();
+        coasted.push((glitch_at, inside, expected_in_dropout));
+    }
+
+    let clean = coasted[0].1;
+    assert!(
+        clean > 700,
+        "expected coasting to cover a clean dropout, got {clean} ticks"
+    );
+    for &(glitch_at, inside, expected) in &coasted[1..] {
+        assert!(
+            inside as f64 >= clean as f64 * 0.9,
+            "glitch at {glitch_at:?}s left {inside} coasted ticks of {expected} expected,              against {clean} with no glitch"
+        );
+    }
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]
