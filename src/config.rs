@@ -222,21 +222,27 @@ pub struct DopplerConfig {
     pub zero_cross_hysteresis: f32,
     /// Bearing calculation method to use
     pub method: BearingMethod,
-    /// North tick timing adjustment in samples.
+    /// North tick timing adjustment in microseconds.
     /// Fine adjustment applied to north tick timing in bearing calculation
     /// after tracker delay compensation.
+    ///
+    /// Expressed in time rather than samples so a calibration made against
+    /// live audio at one sample rate still means the same thing for a
+    /// recording at another. Half a sample is 6 degrees of bearing at 48 kHz
+    /// and 3 at 96 kHz, so the units are not a formality.
     ///
     /// Positive values shift the effective tick time later; negative values
     /// shift it earlier.
     ///
-    /// The default was 0.5 for a long time, which is exactly half a sample.
+    /// The default was 0.5 samples for a long time, which is exactly half a
+    /// sample.
     /// It was not compensating anything in the bearing calculation: it was
     /// cancelling an artifact of the test signal generator, which lit the
     /// first sample at or after each rotation boundary and so ran half a
     /// sample late. Every bearing-accuracy test used that generator, so the
     /// trim looked necessary and its removal looked harmful. Against a pulse
     /// placed at the true epoch it costs 6 degrees of bearing at 48 kHz.
-    pub north_tick_timing_adjustment: f32,
+    pub north_tick_timing_adjustment_us: f32,
 }
 
 /// North reference tracking mode
@@ -509,7 +515,7 @@ impl Default for DopplerConfig {
             bandpass_transition_hz: 100.0,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,
-            north_tick_timing_adjustment: 0.0,
+            north_tick_timing_adjustment_us: 0.0,
         }
     }
 }

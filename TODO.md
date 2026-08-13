@@ -13,5 +13,3 @@
       correlation and zero-crossing methods, so it is in the shared path
       rather than either estimator. Under 1.5 degrees. The north tracker is
       not the source; its own bias measures 0.001 samples.
-- [ ] Express `north_tick_timing_adjustment` in microseconds rather than
-      samples, so a calibration made at one sample rate holds at another.

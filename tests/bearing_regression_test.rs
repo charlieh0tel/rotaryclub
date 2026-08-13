@@ -1130,6 +1130,68 @@ fn test_bearing_low_snr_plus_dc_offset_interaction() {
     }
 }
 
+/// The timing trim means the same amount of time at any sample rate.
+///
+/// Expressed in samples it would not: half a sample is 6 degrees of bearing
+/// at 48 kHz and 3 at 96, so a calibration made against live audio would be
+/// wrong for a recording at another rate.
+#[test]
+fn test_timing_trim_is_sample_rate_independent() {
+    use rotaryclub::config::{BearingMethod, RdfConfig, RotationFrequency};
+    use rotaryclub::processing::RdfProcessor;
+    use rotaryclub::simulation::generate_test_signal;
+
+    let truth = 120.0f32;
+    let rotation_hz = 1602.564f32;
+    // Two thirds of a sample at 48 kHz, and a third of one at 96.
+    let trim_us = 13.9f32;
+
+    let mut shifts = Vec::new();
+    for sample_rate in [48_000u32, 96_000] {
+        let mut measured = Vec::new();
+        for trim in [0.0f32, trim_us] {
+            let mut config = RdfConfig::default();
+            config.audio.sample_rate = sample_rate;
+            config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
+            config.doppler.method = BearingMethod::Correlation;
+            config.doppler.north_tick_timing_adjustment_us = trim;
+
+            let signal = generate_test_signal(0.5, sample_rate, rotation_hz, truth);
+            let mut processor = RdfProcessor::new(&config, false, true).unwrap();
+            let bearings: Vec<f32> = processor
+                .process_signal(&signal)
+                .iter()
+                .filter_map(|r| r.bearing.map(|b| b.bearing_degrees))
+                .collect();
+            assert!(bearings.len() > 5);
+
+            let (mut x, mut y) = (0.0f32, 0.0f32);
+            for bearing in &bearings[3..] {
+                let radians = bearing.to_radians();
+                x += radians.cos();
+                y += radians.sin();
+            }
+            measured.push(y.atan2(x).to_degrees().rem_euclid(360.0));
+        }
+        shifts.push(((measured[1] - measured[0] + 540.0).rem_euclid(360.0)) - 180.0);
+    }
+
+    // 13.9 us is 2.2% of a 624 us rotation, so about 8 degrees at either rate.
+    let expected = trim_us * 1e-6 * rotation_hz * 360.0;
+    for (rate, shift) in [48_000, 96_000].iter().zip(&shifts) {
+        assert!(
+            (shift.abs() - expected).abs() <= 1.0,
+            "at {rate} Hz the trim moved the bearing by {shift:.2} degrees, expected {expected:.2}"
+        );
+    }
+    assert!(
+        (shifts[0].abs() - shifts[1].abs()).abs() <= 0.5,
+        "the same trim moved the bearing by {:.2} degrees at 48 kHz and {:.2} at 96 kHz",
+        shifts[0],
+        shifts[1]
+    );
+}
+
 /// Bearing accuracy across rotation rates and sample rates.
 ///
 /// Every other bearing test runs at one rotation rate and one sample rate, so

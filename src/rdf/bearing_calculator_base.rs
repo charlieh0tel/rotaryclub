@@ -12,6 +12,7 @@ pub struct BearingCalculatorBase {
     agc: AutomaticGainControl,
     bandpass: FirBandpass,
     filter_group_delay: usize,
+    /// The configured trim, converted from microseconds to samples once.
     north_tick_timing_adjustment: f32,
     confidence_weights: ConfidenceWeights,
     pub sample_counter: usize,
@@ -49,7 +50,9 @@ impl BearingCalculatorBase {
             agc: AutomaticGainControl::new(agc_config, sample_rate),
             bandpass,
             filter_group_delay,
-            north_tick_timing_adjustment: doppler_config.north_tick_timing_adjustment,
+            north_tick_timing_adjustment: doppler_config.north_tick_timing_adjustment_us
+                * 1e-6
+                * sample_rate,
             confidence_weights,
             sample_counter: 0,
             buffer_start_sample: 0,
