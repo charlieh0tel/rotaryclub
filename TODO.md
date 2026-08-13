@@ -7,43 +7,16 @@
 
 ## North Tick Tracking
 
-- [ ] Re-measure the low `highpass_cutoff` case, then lower the default.
-      `north_hpf_sweep` measures ~3x better centroid timing at 1 kHz than at
-      the current 5 kHz on the captures in `data/`, with no detection loss at
-      any cutoff tried including none, so the win is real and unclaimed. At
-      1 kHz `test_whole_sample_shift_invariance` failed at 0.048 samples
-      against a 0.01 bound.
-      Ruled out: the centroid window being too narrow for a longer-ringing
-      filter. Deriving the half-width from the impulse response does not work
-      either -- 95% of the positive energy sits in the peak tap alone, giving
-      a half-width of 1, while 99.9% jumps to 30 samples (a full rotation,
-      88 degrees of error). The energy distribution is bimodal, so coverage
-      is the wrong criterion.
-      The suspect recorded here previously -- the estimator falling back to
-      the peak index near a buffer edge -- has since been fixed, so the
-      failure may already be gone. Re-measure before investigating further.
-- [ ] Give the centroid estimator and the detection gate tests that fail when
-      they are disabled. Today the whole suite passes with the estimator
-      swapped for `HardLimiter`, and passes with gating switched off, so
-      neither feature is actually covered.
-      `test_commensurate_rate_produces_constant_offset` bounds bias at 0.75
-      samples where the centroid measures 0.0025, and it exercises a single
-      sub-sample phase which happens to be that estimator's zero-bias point.
-      Sweeping phase at a commensurate rate shows the centroid halves the
-      quantization bias rather than removing it, leaving about +/-0.24
-      samples.
-- [ ] Scale the coasting budget to lock quality rather than the fixed
-      `max_coast_ms`: coast further when the rate estimate is well
-      established, less when it is not. A still-settling estimate drifts
-      about 8 samples over a 300 ms coast, while a settled one should hold
-      far better. Sweep dropout length against timing error at several lock
-      ages first and set the scaling from that curve.
-- [ ] Reconcile the detection gate with the detector dead time. The gate is
-      documented as rejecting interference that "can land anywhere in the
-      rotation", but `min_interval_ms` is 96% of the rotation period, so an
-      early impulse is never detected at all and the gate's one-sample floor
-      covers what little window remains. It can only reject late detections.
-      Either narrow the dead time or describe what the gate actually does.
+- [ ] Narrow the detector dead time so the gate can act on more than late
+      detections. `min_interval_ms` covers 96% of the rotation, so an impulse
+      arriving early is never detected at all. The gate's floor and its
+      description were corrected to match what it can reach; widening that
+      reach means shortening the dead time, which trades against low-SNR
+      detection and needs its own measurement.
+- [ ] Give the detection gate a test that discriminates at the shipped loop
+      bandwidth. The current one runs at 60 Hz because a narrow loop absorbs
+      a handful of displaced detections whether they are gated or not, so
+      what the gate is worth in the shipped configuration is unmeasured.
 - [ ] Size the end-of-buffer coasting guard against the detector's deferral
       window rather than the rotation period. A crossing near a buffer end
       resolves in the next buffer at a negative index, so a predicted tick
