@@ -14,14 +14,13 @@
       and a wider loop makes that scatter worse, so holdover may shorten. The
       two now pull in opposite directions and the tradeoff has never been
       measured.
-- [ ] Sweep `threshold` against `expected_pulse_amplitude`. Both are
-      inherited and neither was ever measured. They are absolute, so they
-      assume a signal level: a receiver delivering half this amplitude sits
-      near the threshold with nothing warning you. The sweep says whether the
-      current pair has margin, and whether adaptive thresholding would buy
-      anything -- DESIGN.md currently argues it would not, on the grounds
-      that the reference amplitude is predictable, which is an assumption
-      rather than a measurement.
+- [ ] Report a north channel that is too quiet to detect. The threshold
+      sweep in `examples/north_threshold_sweep` shows the shipped threshold
+      has wide margin -- detection holds from a pulse amplitude of 1.0 down
+      to 0.3 against the 0.8 expected -- but below that cliff detection goes
+      to zero rather than degrading, and nothing says so. A warning when
+      detected pulse amplitude runs far below `expected_pulse_amplitude`
+      would turn a silent failure into an obvious one.
 
 - [ ] Measure the estimator against a gentler highpass, or none. The cutoff
       sweep that chose 1 kHz predates both the unclipped energy centroid and

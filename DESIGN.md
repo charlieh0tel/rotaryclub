@@ -168,9 +168,20 @@ Test file (11.6s, moving radio source):
 previously listed here, are implemented — correlation is the default
 bearing method.)
 
-Note: Adaptive thresholding for north tick detection is not a priority since
-the north reference is a controlled signal with predictable amplitude, and
-the DPLL provides robust tracking even with occasional missed pulses.
+Note: Adaptive thresholding for north tick detection is not a priority, and
+this is now measured rather than assumed. `examples/north_threshold_sweep`
+sweeps actual pulse amplitude against the detection threshold. At the shipped
+threshold of 0.15, detection stays at 1.00 with no false positives from a
+pulse amplitude of 1.0 all the way down to 0.3 -- a factor of 2.7 below the
+0.8 the configuration expects -- and collapses between 0.3 and 0.2, which is
+where the filtered pulse peak falls to the threshold. Noise up to 0.10 RMS
+widens that cliff rather than moving it. Sweeping the threshold instead, at
+the expected amplitude, detection holds from 0.10 to 0.40 and fails outside.
+The shipped pair therefore sits in the middle of a wide plateau, and an
+adaptive threshold would be tracking a level that has ample margin.
+
+What the sweep does not excuse is silence: below the cliff detection goes to
+zero rather than degrading, and nothing reports it.
 
 ## References
 
