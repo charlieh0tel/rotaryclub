@@ -65,19 +65,27 @@ impl SimpleNorthTracker {
         Ok(Self {
             gain,
             highpass,
-            peak_detector: PeakDetector::with_peak_search_window(
-                config.threshold,
-                min_samples,
-                peak_timing.peak_search_window_samples,
-            ),
+            peak_detector: {
+                let mut detector = PeakDetector::with_peak_search_window(
+                    config.threshold,
+                    min_samples,
+                    peak_timing.peak_search_window_samples,
+                );
+                // The estimator reads samples on both sides of the peak, and
+                // the peak can land at the end of the search window, so the
+                // detector must hold a crossing until that context exists.
+                detector.set_trailing_context(centroid_half_width);
+                detector
+            },
             pulse_reference_offset: peak_timing.pulse_reference_offset,
             estimator: config.estimator,
             centroid_half_width,
             // A peak whose search window straddled a buffer boundary is
-            // reported at a negative index in the next buffer, so the tail
-            // must reach back past the search window as well as the
-            // estimator's own half-width.
-            filter_tail_len: centroid_half_width + peak_timing.peak_search_window_samples,
+            // reported at a negative index in the next buffer. That index
+            // reaches back by the search window plus the trailing context the
+            // detector now waits for, and the estimator then reads a further
+            // half-width before it.
+            filter_tail_len: 2 * centroid_half_width + peak_timing.peak_search_window_samples,
             nominal_period_samples,
             last_tick_sample: None,
             last_tick_fraction: 0.0,

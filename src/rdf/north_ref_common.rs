@@ -25,9 +25,12 @@ pub(super) fn centroid_half_width(sample_rate: f32) -> usize {
 /// negative index -- still has a symmetric window. Indices are relative to
 /// the start of `buffer`.
 ///
-/// Returns zero when the window cannot be filled even with the tail, which
-/// leaves that tick on the peak index. A tracking loop absorbs the occasional
-/// coarser measurement.
+/// The window is expected to be fillable: the detector holds a crossing until
+/// the samples after its peak exist, and the retained tail covers the samples
+/// before. Returning zero here would not be a coarser measurement but a
+/// biased one, since the delay compensation still references the estimator,
+/// so it is a fallback against buffers too short to hold the context at all
+/// rather than something that happens in normal operation.
 pub(super) fn estimate_fraction(
     tail: &[f32],
     buffer: &[f32],
@@ -102,8 +105,10 @@ pub(super) fn derive_peak_timing(
     let threshold_crossing_offset =
         highpass.threshold_crossing_offset(threshold, effective_pulse_amplitude);
     let peak_offset = highpass.peak_offset();
-    let peak_search_window_samples =
+    let search_from_response =
         ((peak_offset - threshold_crossing_offset).max(0.0)).ceil() as usize + 3;
+
+    let peak_search_window_samples = search_from_response;
 
     // Each estimator reports a different point on the same filtered pulse.
     // Referencing the delay compensation to that point keeps the emitted tick

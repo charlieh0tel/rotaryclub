@@ -10,6 +10,7 @@ pub struct PeakDetector {
     threshold: f32,
     min_samples_between_peaks: usize,
     peak_search_window_samples: usize,
+    trailing_context_samples: usize,
     samples_since_peak: usize,
     last_sample: f32,
     above_threshold: bool,
@@ -24,8 +25,12 @@ pub struct PeakDetector {
 /// the local-max search completes in the next buffer instead of being
 /// truncated (which emitted early, never-revised peak positions).
 struct PendingPeak {
-    /// Window samples still to scan in the next buffer.
+    /// Search-window samples still to scan in the next buffer.
     remaining: usize,
+    /// Samples that must still elapse before the peak may be reported. Never
+    /// less than `remaining`; larger when the caller asked for trailing
+    /// context around the peak it will receive.
+    defer_remaining: usize,
     /// Best amplitude seen so far.
     amp: f32,
     /// Best position, relative to the NEXT buffer's start (negative while
@@ -56,6 +61,7 @@ impl PeakDetector {
             threshold,
             min_samples_between_peaks: min_interval_samples,
             peak_search_window_samples: peak_search_window_samples.max(1),
+            trailing_context_samples: 0,
             samples_since_peak: min_interval_samples, // Allow immediate first peak
             last_sample: 0.0,
             above_threshold: false,
@@ -65,6 +71,19 @@ impl PeakDetector {
             deque_indices: Vec::new(),
             pending_peak: None,
         }
+    }
+
+    /// Require this many samples to remain after a crossing's search window
+    /// before reporting its peak.
+    ///
+    /// The search window bounds where the peak may be; it does not bound what
+    /// a caller needs around the peak once found. A caller estimating a
+    /// sub-sample arrival time needs samples on both sides of the peak, and
+    /// the peak can sit at the very end of the search window, so deferral has
+    /// to reach further than the search does. Widening the search window
+    /// instead would change which sample is chosen as the peak.
+    pub fn set_trailing_context(&mut self, samples: usize) {
+        self.trailing_context_samples = samples;
     }
 
     fn precompute_window_max_indices(&mut self, buffer: &[f32]) {
@@ -194,8 +213,9 @@ impl PeakDetector {
                     pending.rel = i as isize;
                 }
             }
-            if pending.remaining > n {
-                pending.remaining -= n;
+            if pending.defer_remaining > n {
+                pending.remaining = pending.remaining.saturating_sub(n);
+                pending.defer_remaining -= n;
                 pending.rel -= n as isize;
                 self.pending_peak = Some(pending);
             } else {
@@ -213,7 +233,7 @@ impl PeakDetector {
         // A crossing whose window extends past the buffer is deferred; the
         // detector's dead time guarantees at most one such crossing.
         if let Some(&start) = self.crossing_indices.last()
-            && start + w > n
+            && start + w + self.trailing_context_samples > n
         {
             self.crossing_indices.pop();
             let mut amp = buffer[start];
@@ -225,7 +245,8 @@ impl PeakDetector {
                 }
             }
             self.pending_peak = Some(PendingPeak {
-                remaining: start + w - n,
+                remaining: (start + w).saturating_sub(n),
+                defer_remaining: start + w + self.trailing_context_samples - n,
                 amp,
                 rel: rel - n as isize,
             });
