@@ -127,7 +127,7 @@ impl FirHighpass {
     /// centroid estimator's reading must be referenced to it. Using the peak
     /// offset instead would show up as a constant bearing bias whenever the
     /// estimator changes.
-    pub fn centroid_offset(&self, half_width: usize, exponent: i32) -> f32 {
+    pub fn centroid_offset(&self, half_width: usize, exponent: i32, clip: bool) -> f32 {
         let taps = self.core.taps();
         let group_delay = self.core.group_delay_samples();
         let Some(peak_idx) = taps
@@ -144,7 +144,7 @@ impl FirHighpass {
         let mut weighted = 0.0f64;
         let mut total = 0.0f64;
         for (offset, &tap) in taps[low..=high].iter().enumerate() {
-            let value = tap.max(0.0);
+            let value = if clip { tap.max(0.0) } else { tap.abs() };
             let weight = value.powi(exponent);
             weighted += weight * (low + offset) as f64;
             total += weight;

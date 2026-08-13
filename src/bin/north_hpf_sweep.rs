@@ -118,13 +118,23 @@ fn detect_peaks(signal: &[f32], threshold: f32, min_interval: usize, search: usi
 
 /// Centroid of the positive part of the signal around `peak`, weighted by
 /// the sample value raised to `exponent`.
-fn centroid_offset_p(signal: &[f32], peak: usize, half_width: usize, exponent: i32) -> f64 {
+fn centroid_offset_p(
+    signal: &[f32],
+    peak: usize,
+    half_width: usize,
+    exponent: i32,
+    clip: bool,
+) -> f64 {
     let low = peak.saturating_sub(half_width);
     let high = (peak + half_width).min(signal.len() - 1);
     let mut weighted = 0.0f64;
     let mut total = 0.0f64;
     for (offset, sample) in signal[low..=high].iter().enumerate() {
-        let value = sample.max(0.0) as f64;
+        let value = if clip {
+            sample.max(0.0) as f64
+        } else {
+            sample.abs() as f64
+        };
         let weight = value.powi(exponent);
         weighted += weight * (low + offset) as f64;
         total += weight;
@@ -227,6 +237,7 @@ struct Row {
     hard_limiter: Option<Residuals>,
     amplitude: Option<Residuals>,
     centroid: Option<Residuals>,
+    unclipped: Option<Residuals>,
 }
 
 fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
@@ -269,16 +280,21 @@ fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
             let limiter_epochs: Vec<f64> = peaks.iter().map(|&p| p as f64).collect();
             let amplitude_epochs: Vec<f64> = peaks
                 .iter()
-                .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 3, 1))
+                .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 2, 1, true))
                 .collect();
             let energy_epochs: Vec<f64> = peaks
                 .iter()
-                .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 3, 2))
+                .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 3, 2, true))
+                .collect();
+            let unclipped_epochs: Vec<f64> = peaks
+                .iter()
+                .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 4, 2, false))
                 .collect();
 
             let hard_limiter = summarize(&limiter_epochs, nominal_period);
             let amplitude = summarize(&amplitude_epochs, nominal_period);
             let centroid = summarize(&energy_epochs, nominal_period);
+            let unclipped = summarize(&unclipped_epochs, nominal_period);
             let rate_hz = centroid
                 .as_ref()
                 .or(hard_limiter.as_ref())
@@ -294,6 +310,7 @@ fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
                 hard_limiter,
                 amplitude,
                 centroid,
+                unclipped,
             });
         }
     }
@@ -329,8 +346,15 @@ fn main() -> Result<()> {
         if !args.csv {
             println!("\n=== {name} ===");
             println!(
-                "{:>9} {:>5} {:>9} {:>10} {:>10} {:>10} {:>12}",
-                "cutoff", "taps", "detected", "rate (Hz)", "HL rms °", "amp rms °", "energy rms °"
+                "{:>9} {:>5} {:>9} {:>10} {:>9} {:>9} {:>11} {:>13}",
+                "cutoff",
+                "taps",
+                "detected",
+                "rate (Hz)",
+                "HL rms °",
+                "amp rms °",
+                "energy rms °",
+                "unclipped rms °"
             );
         }
 
@@ -338,6 +362,7 @@ fn main() -> Result<()> {
             let (hl_rms, _hl_p95) = format_residual(&row.hard_limiter);
             let (amp_rms, _amp_p95) = format_residual(&row.amplitude);
             let (ce_rms, _ce_p95) = format_residual(&row.centroid);
+            let (un_rms, _un_p95) = format_residual(&row.unclipped);
             let cutoff = if row.cutoff <= 0.0 {
                 "none".to_string()
             } else {
@@ -351,13 +376,21 @@ fn main() -> Result<()> {
 
             if args.csv {
                 println!(
-                    "{name},{cutoff},{taps},{},{},{:.4},{hl_rms},{amp_rms},{ce_rms}",
+                    "{name},{cutoff},{taps},{},{},{:.4},{hl_rms},{amp_rms},{ce_rms},{un_rms}",
                     row.detected, row.expected, row.rate_hz
                 );
             } else {
                 println!(
-                    "{:>9} {:>5} {:>4}/{:<4} {:>10.4} {:>10} {:>10} {:>10}",
-                    cutoff, taps, row.detected, row.expected, row.rate_hz, hl_rms, amp_rms, ce_rms
+                    "{:>9} {:>5} {:>4}/{:<4} {:>10.4} {:>9} {:>9} {:>11} {:>13}",
+                    cutoff,
+                    taps,
+                    row.detected,
+                    row.expected,
+                    row.rate_hz,
+                    hl_rms,
+                    amp_rms,
+                    ce_rms,
+                    un_rms
                 );
             }
         }

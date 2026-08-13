@@ -330,7 +330,9 @@ impl DpllNorthTracker {
         )?;
 
         let effective_pulse_amplitude = (config.expected_pulse_amplitude * gain).max(f32::EPSILON);
-        let centroid_half_width = centroid_half_width(sample_rate);
+        let nominal_period_samples = sample_rate / config.dpll.initial_frequency_hz.max(1.0);
+        let centroid_half_width =
+            centroid_half_width(config.estimator, sample_rate, nominal_period_samples);
         let peak_timing = derive_peak_timing(
             &highpass,
             config.threshold,

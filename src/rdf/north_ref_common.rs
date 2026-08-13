@@ -1,12 +1,10 @@
 use crate::config::{NorthPulseEstimator, NorthTickConfig};
+
+/// Ceiling on the estimator window as a fraction of one rotation, so it can
+/// never reach far enough to take in a neighbouring pulse.
+const MAX_CENTROID_HALF_WIDTH_FRACTION: f32 = 0.2;
 use crate::error::{RdfError, Result};
 use crate::signal_processing::FirHighpass;
-
-/// Half-width of the centroid window, in microseconds. Wide enough to hold
-/// the main lobe of a highpassed impulse and narrow enough to exclude the
-/// next pulse; expressed in time so it means the same thing at any sample
-/// rate.
-const CENTROID_HALF_WIDTH_US: f32 = 65.0;
 
 /// Validate the settings both trackers share.
 ///
@@ -109,8 +107,22 @@ pub(super) struct PeakTiming {
     pub peak_search_window_samples: usize,
 }
 
-pub(super) fn centroid_half_width(sample_rate: f32) -> usize {
-    ((CENTROID_HALF_WIDTH_US * 1e-6 * sample_rate).round() as usize).max(2)
+/// Half-width of the window the estimator takes its moment over, in samples.
+///
+/// Expressed in time by the estimator and converted here, so it means the
+/// same thing at any sample rate, and bounded well inside one rotation so the
+/// window can never reach a neighbouring pulse.
+pub(super) fn centroid_half_width(
+    estimator: NorthPulseEstimator,
+    sample_rate: f32,
+    nominal_period_samples: f32,
+) -> usize {
+    if estimator.weight_exponent() == 0 {
+        return 0;
+    }
+    let ceiling = (nominal_period_samples * MAX_CENTROID_HALF_WIDTH_FRACTION).max(2.0) as usize;
+    let samples = (estimator.window_half_width_us() * 1e-6 * sample_rate).round() as usize;
+    samples.clamp(1, ceiling)
 }
 
 /// Sub-sample arrival time of a pulse, relative to `peak_index`.
@@ -137,6 +149,7 @@ pub(super) fn estimate_fraction(
     if exponent == 0 {
         return 0.0;
     }
+    let clip = estimator.clips_negative();
 
     let sample_at = |index: isize| -> Option<f32> {
         if index >= 0 {
@@ -156,7 +169,7 @@ pub(super) fn estimate_fraction(
         let Some(sample) = sample_at(index) else {
             return 0.0;
         };
-        let value = sample.max(0.0) as f64;
+        let value = if clip { sample.max(0.0) } else { sample.abs() } as f64;
         let weight = value.powi(exponent);
         weighted += weight * index as f64;
         total += weight;
@@ -212,7 +225,9 @@ pub(super) fn derive_peak_timing(
     // the estimator changes.
     let pulse_reference_offset = match estimator.weight_exponent() {
         0 => peak_offset,
-        exponent => highpass.centroid_offset(centroid_half_width, exponent),
+        exponent => {
+            highpass.centroid_offset(centroid_half_width, exponent, estimator.clips_negative())
+        }
     };
 
     PeakTiming {
