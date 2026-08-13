@@ -7,14 +7,25 @@ use std::collections::VecDeque;
 use std::f32::consts::PI;
 
 use super::north_ref_common::{
-    derive_delay_compensation, derive_peak_timing, preprocess_north_buffer,
+    derive_delay_compensation, derive_peak_timing, preprocess_north_buffer, split_effective_time,
 };
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
-const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.1;
+/// Ceiling on the loop's timing correction, in samples.
+///
+/// The correction exists to recover the sub-sample part of the tick time that
+/// a whole-sample peak index cannot express, so it is sized to the error that
+/// quantization can produce: half a sample either side, plus margin for pulse
+/// shape and detector noise. Beyond that the oscillator and the detector
+/// disagree about more than quantization -- the loop is lagging a rate change,
+/// or the detection was spurious -- and the detected position is the better
+/// answer.
+const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 1.0;
+/// The reported fraction is re-anchored onto the nearest sample, so it can
+/// never point past a neighbouring sample.
+#[cfg(test)]
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
-const MAX_PHASE_STD_FOR_CORRECTION_RAD: f32 = 0.25;
 const LOCK_STATS_WINDOW_TICKS: usize = 128;
 
 struct RollingWindowStats {
@@ -120,15 +131,16 @@ impl DpllNorthTracker {
         (phase_error + PI).rem_euclid(2.0 * PI) - PI
     }
 
+    /// Whether the oscillator has seen enough ticks for its phase to be a
+    /// better estimate of the tick time than the detected peak index.
+    ///
+    /// This is deliberately a count and not a phase-error dispersion test.
+    /// A dispersion threshold chatters on and off near its limit, and since
+    /// the correction is the whole sub-sample part of the answer, chatter
+    /// puts a step of that size straight into the reported tick time.
     #[inline]
     fn stable_enough_for_phase_correction(&self) -> bool {
-        if self.phase_error_stats.count() < MIN_PHASE_CORRECTION_SAMPLES {
-            return false;
-        }
-        self.phase_error_stats
-            .std_dev()
-            .map(|s| s.is_finite() && s <= MAX_PHASE_STD_FOR_CORRECTION_RAD)
-            .unwrap_or(false)
+        self.phase_error_stats.count() >= MIN_PHASE_CORRECTION_SAMPLES
     }
 
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
@@ -284,13 +296,11 @@ impl DpllNorthTracker {
                 return Vec::new();
             }
         }
-        let fractional_sample_offset = delay.fractional_sample_offset.clamp(
-            -MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
-            MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
-        );
+        let (reported_sample, fractional_sample_offset) =
+            split_effective_time(compensated_sample, delay.fractional_sample_offset);
         self.last_tick_sample = Some(compensated_sample);
         vec![NorthTick {
-            sample_index: compensated_sample,
+            sample_index: reported_sample,
             period: Some(2.0 * PI / self.frequency),
             lock_quality: self.lock_quality(),
             fractional_sample_offset,
@@ -342,16 +352,25 @@ impl DpllNorthTracker {
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
 
-            // Convert phase error to a bounded fractional timing correction,
-            // but only once lock statistics indicate stable tracking.
+            // Convert phase error to a bounded fractional timing correction.
             // phase_error = -phase, so positive NCO phase at the peak means the
             // oscillator's zero crossing occurred phase/frequency samples earlier;
             // the correction must shift the tick earlier (negative), i.e.
             // phase_error/frequency = -phase/frequency.
+            //
+            // Only the part of the phase error that varies tick to tick comes
+            // from quantizing the peak to a whole sample, and only that part
+            // should move the reported time. A persistent component means the
+            // oscillator is sitting at an offset from the pulses -- it is
+            // lagging a rate change, or the rate is commensurate with the
+            // sample clock so the quantization error never dithers. Applying
+            // it would put the loop's own lag into the bearing, so the
+            // running mean is removed first.
             let phase_timing_correction = if self.stable_enough_for_phase_correction()
                 && self.frequency > FREQUENCY_EPSILON
             {
-                (phase_error / self.frequency).clamp(
+                let systematic = self.phase_error_stats.mean().unwrap_or(0.0);
+                ((phase_error - systematic) / self.frequency).clamp(
                     -MAX_PHASE_TIMING_CORRECTION_SAMPLES,
                     MAX_PHASE_TIMING_CORRECTION_SAMPLES,
                 )
@@ -359,11 +378,15 @@ impl DpllNorthTracker {
                 0.0
             };
 
-            let fractional_sample_offset =
-                (delay.fractional_sample_offset + phase_timing_correction).clamp(
-                    -MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
-                    MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES,
-                );
+            // The detected peak index is quantized to whole samples; the
+            // oscillator's estimate of the same event is not. Re-anchor the
+            // reported index on the corrected time so the fraction stays
+            // within half a sample and no sub-sample information is lost to
+            // the split.
+            let (reported_sample, fractional_sample_offset) = split_effective_time(
+                compensated_sample,
+                delay.fractional_sample_offset + phase_timing_correction,
+            );
 
             // Update frequency and phase with PI controller
             self.frequency += self.ki * phase_error;
@@ -381,15 +404,17 @@ impl DpllNorthTracker {
             // Calculate period in samples from current frequency estimate
             let period = 2.0 * PI / self.frequency;
 
-            // Compensate for filter delay: the filtered output at this sample
-            // corresponds to an input pulse that occurred earlier by the
-            // configured delay compensation.
+            // Dead time is a property of the detector, so it is measured
+            // against the detected position rather than the corrected one.
+            // Feeding the correction back here lets a large correction during
+            // acquisition push the next valid tick inside the guard.
+            //
             // For bearing calculation, the tick itself defines north reference (phase = 0).
             // Jitter is represented by sample_index timing; using absolute DPLL oscillator
             // phase here would introduce reference drift across rotations.
             self.last_tick_sample = Some(compensated_sample);
             ticks.push(NorthTick {
-                sample_index: compensated_sample,
+                sample_index: reported_sample,
                 period: Some(period),
                 lock_quality: self.lock_quality(),
                 fractional_sample_offset,
