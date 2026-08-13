@@ -103,6 +103,9 @@ impl SimpleNorthTracker {
         self.sample_counter += samples;
         self.peak_detector.reset_continuity();
         self.filter_tail.clear();
+        // The delay line holds pre-gap audio that no longer adjoins what
+        // follows it.
+        self.highpass.reset();
         // Don't measure the first post-gap interval across the gap: it would
         // fold the whole gap into the period EMA and yank the estimate.
         self.last_tick_sample = None;

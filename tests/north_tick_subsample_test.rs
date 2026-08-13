@@ -452,6 +452,61 @@ fn test_glitch_during_dropout_does_not_disable_coasting() {
     }
 }
 
+/// Recovery after a capture gap must not depend on how long the gap was.
+///
+/// `advance_samples` carries the oscillator across samples that were never
+/// delivered, so the phase advance is the rotation rate times the gap length.
+/// Anything that degrades with gap length -- precision in that product, or
+/// state carried across the gap that should not be -- shows up as valid
+/// pulses being rejected on the far side.
+#[test]
+fn test_long_capture_gap_keeps_phase() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+    let period = sample_rate as f64 / 1602.564;
+
+    for gap_rotations in [16u64, 160_000, 8_000_000] {
+        // Whole rotations, so the pulses after the gap fall exactly where the
+        // oscillator predicts and any error is the tracker's own.
+        let gap = (gap_rotations as f64 * period).round() as usize;
+        let num_samples = (sample_rate * 0.5) as usize;
+
+        let (before, _) = sinc_pulse_train(num_samples, 64.37, period, amplitude);
+        let (after, truth_after) = sinc_pulse_train(num_samples, 64.37, period, amplitude);
+
+        let mut tracker =
+            rotaryclub::rdf::NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+        for chunk in before.chunks(512) {
+            let _ = tracker.process_buffer(chunk);
+        }
+        tracker.advance_samples(gap);
+
+        let base = num_samples + gap;
+        let mut ticks = Vec::new();
+        for chunk in after.chunks(512) {
+            for tick in tracker.process_buffer(chunk) {
+                ticks.push(
+                    tick.sample_index as f64 + tick.fractional_sample_offset as f64 - base as f64,
+                );
+            }
+        }
+
+        // Skip the first few rotations: resetting the highpass across the gap
+        // costs a settling transient the length of the filter.
+        let early: Vec<f64> = truth_after.iter().skip(6).take(40).copied().collect();
+        let matched = early
+            .iter()
+            .filter(|t| ticks.iter().any(|k| (k - **t).abs() < 3.0))
+            .count();
+        assert!(
+            matched >= early.len() * 9 / 10,
+            "gap of {gap_rotations} rotations: only {matched} of {} pulses after it were reported",
+            early.len()
+        );
+    }
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]
