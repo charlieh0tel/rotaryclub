@@ -574,6 +574,55 @@ fn test_displaced_detections_are_rejected() {
     );
 }
 
+/// No emitted tick may land inside another's dead time.
+///
+/// Predicted ticks and detected ones are produced by different paths, and a
+/// detection can surface at a position already passed, because the detector
+/// holds a crossing until its search window and trailing context have been
+/// seen. A prediction placed without allowing for that would take the
+/// detection's slot and push the real pulse inside the guard.
+#[test]
+fn test_emitted_ticks_never_crowd_each_other() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+    let period = sample_rate as f64 / 1602.564;
+    let num_samples = (sample_rate * 3.0) as usize;
+    let dropout = (2.5 * sample_rate as f64, 2.62 * sample_rate as f64);
+
+    let mut signal = vec![0.0f32; num_samples];
+    let mut epoch = 100.3f64;
+    while epoch < num_samples as f64 - 16.0 {
+        if !(epoch >= dropout.0 && epoch < dropout.1) {
+            let (one, _) =
+                sinc_pulse_train(num_samples, epoch, num_samples as f64 * 2.0, amplitude);
+            for (dst, src) in signal.iter_mut().zip(one) {
+                *dst += src;
+            }
+        }
+        epoch += period;
+    }
+
+    for chunk in [32usize, 64, 100, 512, 4096] {
+        let ticks = track(&config, &signal, chunk);
+        assert!(
+            ticks.len() > 1000,
+            "chunk={chunk}: only {} ticks",
+            ticks.len()
+        );
+        for pair in ticks.windows(2) {
+            let spacing = pair[1] - pair[0];
+            assert!(
+                spacing >= period * 0.75,
+                "chunk={chunk}: ticks at {:.3} and {:.3} are {spacing:.3} samples apart,                  inside the {:.3} sample guard",
+                pair[0],
+                pair[1],
+                period * 0.75
+            );
+        }
+    }
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]
