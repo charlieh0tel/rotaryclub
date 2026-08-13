@@ -303,6 +303,15 @@ pub struct NorthTickConfig {
     /// than the period at dpll.frequency_max_hz (0.6 ms supports up to
     /// ~1666 Hz).
     pub min_interval_ms: f32,
+    /// How long to keep emitting ticks from the tracked rotation after
+    /// pulses stop arriving, in milliseconds. Past this the tracker declares
+    /// loss of lock and reacquires.
+    pub max_coast_ms: f32,
+    /// Width of the detection-timing gate, in standard deviations of the
+    /// tracked phase error. Detections further than this from where the
+    /// rotation says the pulse should be are rejected. Only applied once the
+    /// tracker is locked.
+    pub gate_sigma: f32,
     /// DPLL configuration (only used when mode is Dpll)
     pub dpll: DpllConfig,
     /// Weights for lock quality calculation
@@ -469,6 +478,8 @@ impl Default for NorthTickConfig {
             threshold: 0.15,
             expected_pulse_amplitude: 0.8,
             min_interval_ms: 0.6,
+            max_coast_ms: 1000.0,
+            gate_sigma: 3.0,
             dpll: DpllConfig::default(),
             lock_quality_weights: LockQualityWeights::default(),
         }
