@@ -7,15 +7,35 @@
 
 ## North Tick Tracking
 
-- [ ] Scale the centroid window to the highpass impulse response, then lower
-      `highpass_cutoff`. `north_hpf_sweep` measures ~3x better centroid timing
-      at 1 kHz than at the current 5 kHz on the captures in `data/`, with no
-      detection loss, but a longer-ringing filter outgrows the fixed window
-      and boundary fallbacks start to show up as a whole-sample shift
-      dependence.
-- [ ] Quantify holdover accuracy against coast length and pick
-      `max_coast_ms` from it; a rate estimate that is still settling drifts
-      several samples over a 300 ms coast.
+- [ ] Find why a low `highpass_cutoff` breaks whole-sample shift invariance,
+      then lower the default. `north_hpf_sweep` measures ~3x better centroid
+      timing at 1 kHz than at the current 5 kHz on the captures in `data/`,
+      with no detection loss at any cutoff tried including none, so the win
+      is real and unclaimed. At 1 kHz `test_whole_sample_shift_invariance`
+      fails at 0.048 samples against a 0.01 bound.
+      Ruled out: the centroid window being too narrow for a longer-ringing
+      filter. Deriving the half-width from the impulse response does not work
+      either -- 95% of the positive energy sits in the peak tap alone, giving
+      a half-width of 1, while 99.9% jumps to 30 samples (a full rotation,
+      88 degrees of error). The energy distribution is bimodal, so coverage
+      is the wrong criterion.
+      Most likely suspect: the peak search window grows at low cutoff (the
+      threshold crossing moves much earlier relative to the peak), so more
+      peaks are deferred across buffer boundaries and resolved at negative
+      indices, where the estimator falls back to the peak index.
+- [ ] Scale the coasting budget to lock quality rather than the fixed
+      `max_coast_ms`: coast further when the rate estimate is well
+      established, less when it is not. A still-settling estimate drifts
+      about 8 samples over a 300 ms coast, while a settled one should hold
+      far better -- quantify holdover accuracy against coast length first.
+- [ ] Update DESIGN.md for the estimator stage, fractional tick output,
+      coasting and prediction gating; open a PR for the north-timing branch.
+- [ ] Track down the half-sample convention that
+      `doppler.north_tick_timing_adjustment` compensates. Its 0.5 default is
+      not quantization compensation as suspected -- with sub-sample tick
+      timing in place, setting it to zero makes bearing error worse and fails
+      three noise-robustness tests. Likely window centering or a group-delay
+      convention on the bearing side; remove the trim once found.
 
 - [x] Measure end-to-end north tick timing latency/jitter vs synthetic ground truth across chunk sizes and chunk-boundary phase offsets
 - [x] Add CSV + markdown timing artifacts and CI reporting for threshold failures (including failed-row artifact)
