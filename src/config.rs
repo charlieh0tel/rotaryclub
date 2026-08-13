@@ -550,7 +550,7 @@ impl Default for DopplerConfig {
             bandpass_transition_hz: 100.0,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,
-            north_tick_timing_adjustment_us: 10.4166667,
+            north_tick_timing_adjustment_us: 10.416667,
         }
     }
 }
