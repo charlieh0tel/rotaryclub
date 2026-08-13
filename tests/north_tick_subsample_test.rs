@@ -623,6 +623,88 @@ fn test_emitted_ticks_never_crowd_each_other() {
     }
 }
 
+/// Lock, holdover and reacquisition, at the shipped loop bandwidth.
+///
+/// These are the numbers to check a retune against: how long until the
+/// reported tick times are trustworthy, how long they stay trustworthy once
+/// the pulses stop, and how long it takes to recover afterwards.
+#[test]
+fn test_lock_and_reacquisition_performance() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let amplitude = config.north_tick.expected_pulse_amplitude;
+    let period = sample_rate as f64 / 1602.564;
+    let num_samples = (sample_rate * 6.0) as usize;
+    let dropout = (4.0 * sample_rate as f64, 4.3 * sample_rate as f64);
+
+    let (mut signal, truth) = sinc_pulse_train(num_samples, 100.3, period, amplitude);
+    for sample in signal[dropout.0 as usize..dropout.1 as usize].iter_mut() {
+        *sample = 0.0;
+    }
+
+    let ticks = track(&config, &signal, 512);
+    let mut paired: Vec<(f64, f64)> = Vec::new();
+    let mut index = 0usize;
+    for &tick in &ticks {
+        while index + 1 < truth.len()
+            && (truth[index + 1] - tick).abs() < (truth[index] - tick).abs()
+        {
+            index += 1;
+        }
+        let error = tick - truth[index];
+        if error.abs() <= period * 0.5 {
+            paired.push((tick / sample_rate as f64, error));
+        }
+    }
+
+    // Trustworthy means the reported time is within a tenth of a sample,
+    // which is 1.2 degrees of bearing.
+    let trusted = 0.1f64;
+
+    // Lock: the last moment before the dropout at which the error was still
+    // outside the bound.
+    let lock_secs = paired
+        .iter()
+        .filter(|(t, e)| *t < dropout.0 / sample_rate as f64 && e.abs() > trusted)
+        .map(|(t, _)| *t)
+        .fold(0.0f64, f64::max);
+    assert!(
+        lock_secs < 3.0,
+        "took {lock_secs:.2} s to settle within {trusted} samples at the default loop bandwidth"
+    );
+
+    // Holdover: ticks emitted during the dropout, and how wrong they were.
+    let coasted: Vec<&(f64, f64)> = paired
+        .iter()
+        .filter(|(t, _)| {
+            *t >= dropout.0 / sample_rate as f64 && *t < dropout.1 / sample_rate as f64
+        })
+        .collect();
+    let coast_worst = coasted.iter().fold(0.0f64, |acc, (_, e)| acc.max(e.abs()));
+    assert!(
+        coasted.len() > 400,
+        "only {} ticks coasted across a 300 ms dropout",
+        coasted.len()
+    );
+    assert!(
+        coast_worst <= 0.5,
+        "coasted ticks were {coast_worst:.3} samples out"
+    );
+
+    // Reacquisition: the last moment after the dropout at which the error was
+    // still outside the bound.
+    let dropout_end = dropout.1 / sample_rate as f64;
+    let reacquire_secs = paired
+        .iter()
+        .filter(|(t, e)| *t >= dropout_end && e.abs() > trusted)
+        .map(|(t, _)| *t - dropout_end)
+        .fold(0.0f64, f64::max);
+    assert!(
+        reacquire_secs < 0.5,
+        "took {reacquire_secs:.3} s to recover to within {trusted} samples after a dropout"
+    );
+}
+
 /// Sub-sample behavior must not depend on how the stream is chopped into
 /// buffers.
 #[test]

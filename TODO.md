@@ -30,7 +30,6 @@
       degrades the spacing guard the remaining ones are judged against.
       `test_north_tick_detection_under_hum_clipping_and_drift` records the
       current behaviour.
-- [ ] Quantify DPLL lock and reacquisition performance (lock time, dropout recovery, step response limits)
 
 ## Bearing Calculator
 
