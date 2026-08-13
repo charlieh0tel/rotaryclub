@@ -8,7 +8,8 @@ mod output;
 use output::{BearingOutput, Formatter, OutputFormat, create_formatter};
 use rotaryclub::audio::{AudioSource, DeviceSource, WavFileSource, list_input_devices};
 use rotaryclub::config::{
-    BearingMethod, ChannelRole, NorthTrackingMode, RdfConfig, RotationFrequency,
+    BearingMethod, ChannelRole, NorthPulseEstimator, NorthTrackingMode, RdfConfig,
+    RotationFrequency,
 };
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::stats::CircularStats;
@@ -24,6 +25,10 @@ struct Args {
     /// North tick tracking mode
     #[arg(short = 'n', long, value_enum, default_value = "dpll")]
     north_mode: NorthTrackingMode,
+
+    /// North pulse sub-sample estimator: centroid, hard-limiter
+    #[arg(long, value_enum, default_value = "centroid")]
+    north_estimator: NorthPulseEstimator,
 
     /// Rotation frequency (e.g., "1602", "1602hz", "624us")
     #[arg(long)]
@@ -111,6 +116,7 @@ fn main() -> anyhow::Result<()> {
     let mut config = RdfConfig::default();
     config.doppler.method = args.method;
     config.north_tick.mode = args.north_mode;
+    config.north_tick.estimator = args.north_estimator;
     config.bearing.output_rate_hz = args.output_rate;
     config.bearing.north_offset_degrees = args.north_offset;
 

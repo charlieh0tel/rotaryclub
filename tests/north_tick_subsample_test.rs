@@ -61,6 +61,22 @@ fn sinc_pulse_train(
     (signal, epochs)
 }
 
+/// Loop natural frequency for these tests. The shipped default of 1 Hz needs
+/// seconds of signal to settle; sub-sample behavior is what is under test
+/// here, not acquisition time, so the loop is opened up to keep runs short.
+const TEST_LOOP_HZ: f32 = 10.0;
+
+/// Bound on reported timing jitter, in samples. The DPLL reports its
+/// oscillator's estimate, which is not quantized; the simple tracker reports
+/// the detected peak index, whose error is uniform over one sample
+/// (1/sqrt(12) = 0.289).
+fn jitter_bound(mode: NorthTrackingMode) -> f64 {
+    match mode {
+        NorthTrackingMode::Dpll => 0.05,
+        NorthTrackingMode::Simple => 0.35,
+    }
+}
+
 /// Effective tick times reported by the tracker, in fractional samples.
 fn track(config: &RdfConfig, signal: &[f32], chunk_size: usize) -> Vec<f64> {
     let sample_rate = config.audio.sample_rate as f32;
@@ -130,6 +146,7 @@ fn measure(
 ) -> Measurement {
     let mut config = RdfConfig::default();
     config.north_tick.mode = mode;
+    config.north_tick.dpll.natural_frequency_hz = TEST_LOOP_HZ;
     let sample_rate = config.audio.sample_rate as f32;
     let period = sample_rate as f64 / rotation_hz as f64;
     let num_samples = (sample_rate * 0.75) as usize;
@@ -169,7 +186,7 @@ fn test_subsample_phase_sweep() {
                 m.expected
             );
             assert!(
-                m.jitter <= 0.35,
+                m.jitter <= jitter_bound(mode),
                 "mode={mode:?} phase={phase:.2} jitter={:.4} samples",
                 m.jitter
             );
@@ -180,8 +197,12 @@ fn test_subsample_phase_sweep() {
         // as the pulse walks across a sample interval.
         let spread = biases.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
             - biases.iter().cloned().fold(f64::INFINITY, f64::min);
+        let spread_bound = match mode {
+            NorthTrackingMode::Dpll => 0.1,
+            NorthTrackingMode::Simple => 0.6,
+        };
         assert!(
-            spread <= 0.6,
+            spread <= spread_bound,
             "mode={mode:?} bias varies by {spread:.4} samples across sub-sample phase"
         );
     }
@@ -198,18 +219,17 @@ fn test_whole_sample_shift_invariance() {
     for &mode in &[NorthTrackingMode::Dpll, NorthTrackingMode::Simple] {
         let mut config = RdfConfig::default();
         config.north_tick.mode = mode;
+        config.north_tick.dpll.natural_frequency_hz = TEST_LOOP_HZ;
         let amplitude = config.north_tick.expected_pulse_amplitude;
         let (base, _) = sinc_pulse_train(num_samples, 64.37, period, amplitude);
 
-        // The simple tracker's fractional offset is a fixed filter-delay
-        // constant, so its output shifts exactly. The DPLL's offset also
-        // carries a phase correction whose residual depends on the
-        // acquisition trajectory, which a whole-sample shift perturbs; the
-        // bound below is the size of that residual, not a design target.
-        let tolerance = match mode {
-            NorthTrackingMode::Simple => 1e-3,
-            NorthTrackingMode::Dpll => 0.15,
-        };
+        // The simple tracker times each pulse independently, so its output
+        // shifts exactly. The DPLL's also carries a phase correction whose
+        // residual depends on where in its acquisition the shift lands.
+        // Residual is numerical: a shifted input puts different values through
+        // the filter's tail, so the centroid lands a thousandth of a sample
+        // away.
+        let tolerance = 1e-2;
 
         for shift in [1usize, 2, 7] {
             let mut shifted = vec![0.0f32; shift];
@@ -221,7 +241,9 @@ fn test_whole_sample_shift_invariance() {
             let count = reference.len().min(moved.len());
             assert!(count > 100, "too few ticks to compare (shift={shift})");
 
-            for i in (count / 2)..count {
+            // The trailing tick is flushed at end-of-stream, where no later
+            // samples exist to complete an estimator window.
+            for i in (count / 2)..(count - 1) {
                 let delta = moved[i] - reference[i] - shift as f64;
                 assert!(
                     delta.abs() < tolerance,
@@ -255,7 +277,7 @@ fn test_commensurate_rate_produces_constant_offset() {
         // Commensurate: the error is a fixed offset, so jitter is tiny even
         // though the offset itself may be large.
         assert!(
-            m.jitter <= 0.1,
+            m.jitter <= jitter_bound(mode).min(0.1),
             "mode={mode:?} jitter={:.4} samples at a commensurate rate",
             m.jitter
         );
@@ -276,7 +298,7 @@ fn test_subsample_timing_across_chunk_sizes() {
     for &chunk in &[64usize, 256, 1024] {
         let m = measure(NorthTrackingMode::Dpll, rotation_hz, 0.31, chunk);
         assert!(
-            m.jitter <= 0.35,
+            m.jitter <= jitter_bound(NorthTrackingMode::Dpll),
             "chunk={chunk} jitter={:.4} samples",
             m.jitter
         );
