@@ -6,45 +6,25 @@
 
 ## Bearing Confidence
 
-- [ ] Decide what confidence means, and make it that. Agreed direction: a
-      calibrated bearing uncertainty in degrees, testable against the harness
-      ground truth -- does a stated +/- 1.2 degrees contain the truth as often
-      as it claims -- with any 0..1 score derived from it. `signal_strength`
-      to become a validity gate rather than a weighted term: it answers "did
-      we get data", not "is this good", and sits at 0.995 in heavy noise
-      because the detector keeps finding crossings in garbage.
-      Nothing outside this repo reads `confidence`, so the scale is free to
-      change. Inside it: text, JSON and CSV output carry it, the GUI uses it
-      for needle brightness, and `TRAIL_CONFIDENCE_THRESHOLD` drops trail
-      points below 0.5 -- a threshold that never trips today, because the two
-      near-constant terms floor the score at about 0.59. Give the score real
-      range and that cutoff starts acting, so it needs retuning with it.
-
-      Three things measured while fixing correlation's granularity, which the
-      rework has to account for:
-
-      Coherence is still saturated. It moves the right way now and it is
-      monotone, but the normalization is against the circular variance of a
-      full turn, so the useful range is squeezed into the top fraction of a
-      percent:
-
-        noise     0.0    0.3    0.6    1.0    1.5    2.0
-        bearing  0.16   0.25   0.43   0.72   6.54  39.82   degrees
-        coher. 1.0000 1.0000 0.9999 0.9996 0.9991 0.9984
-
-      Coherence measures precision, not accuracy, and cannot do otherwise.
-      It scores how well the Doppler phase agrees with itself *relative to the
-      north tick*. A mistimed tick shifts every rotation equally and leaves
-      coherence untouched. At noise 2.0 the tick is 0.74 samples out, which is
-      8.9 degrees, and the bearing error is largely bias: the circular mean of
-      the error is 23 degrees against a mean absolute of 39.8. An uncertainty
-      built only on Doppler phase scatter will be confidently wrong exactly
-      when the reference is wrong.
-
-      So the reference has to enter the score. `NorthTick::lock_quality`
-      already exists, is already computed, and is not used by the confidence
-      at all. It is the obvious candidate for the term that covers what
-      coherence structurally cannot see.
+- [x] Decide what confidence means, and make it that. Done.
+      `ConfidenceMetrics::bearing_uncertainty_deg` estimates a one-sigma
+      bearing uncertainty in degrees from the spread of the phase estimates
+      and the timing scatter of the reference, and confidence is now
+      1 / (1 + (sigma / half) ^ 2) against a configured half-confidence
+      point, six degrees by default. Signal strength became a validity gate
+      for zero crossing and left the score.
+      What it does not do, and cannot: see a displacement every estimate
+      shares. It is precision, not accuracy. `bearing_uncertainty_test`
+      asserts what it does claim -- growth as the signal degrades, and never
+      reading below the scatter it describes.
+      Two reductions that are correct in theory were measured and rejected,
+      both of which make the figure understate: dividing the reference term
+      by the loop averaging (755 ticks at the shipped bandwidth, and the
+      reported tick really is 27 times better than one detection, but as the
+      signal degrades the tick's error becomes a displacement the loop
+      follows rather than scatter it averages away), and dividing the phase
+      spread by the root of the estimate count (they share a tick, a filter
+      state and an AGC gain, so they are not independent).
 
 - [ ] The zero-crossing bearing method has a systematic bias that grows with
       noise, and it is the whole of that method's error. Measured with
