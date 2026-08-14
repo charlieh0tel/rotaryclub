@@ -6,24 +6,45 @@
 
 ## Bearing Confidence
 
-- [ ] Coherence saturates, in both bearing methods, and so contributes almost
-      nothing to the confidence score. It is normalized against the circular
-      variance of a phase spread over the whole turn, `PI * PI / 3`, so it only
-      leaves 1.0 when the phases carry no common bearing at all. Measured with
-      `config_compare` on a synthetic signal, driving noise until the bearing
-      is worthless:
+- [ ] Decide what confidence means, and make it that. Agreed direction: a
+      calibrated bearing uncertainty in degrees, testable against the harness
+      ground truth -- does a stated +/- 1.2 degrees contain the truth as often
+      as it claims -- with any 0..1 score derived from it. `signal_strength`
+      to become a validity gate rather than a weighted term: it answers "did
+      we get data", not "is this good", and sits at 0.995 in heavy noise
+      because the detector keeps finding crossings in garbage.
+      Nothing outside this repo reads `confidence`, so the scale is free to
+      change. Inside it: text, JSON and CSV output carry it, the GUI uses it
+      for needle brightness, and `TRAIL_CONFIDENCE_THRESHOLD` drops trail
+      points below 0.5 -- a threshold that never trips today, because the two
+      near-constant terms floor the score at about 0.59. Give the score real
+      range and that cutoff starts acting, so it needs retuning with it.
 
-        noise    0.15   0.30   0.60   1.00   2.00
-        bearing  0.18    .25    .43    .72  39.82   correlation, degrees
-        coher.  1.0000 1.0000 1.0000 0.9999 0.9994
-        bearing  0.92   1.89   3.82   6.26  35.56   zero crossing, degrees
-        coher.  1.0000 0.9999 0.9997 0.9992 0.9895
+      Three things measured while fixing correlation's granularity, which the
+      rework has to account for:
 
-      A metric that reads 0.999 when the bearing is 40 degrees wrong is not
-      carrying information into the confidence. Rescaling it changes what
-      every confidence score means, so it needs deciding rather than quietly
-      adjusting: either normalize against a spread that represents a bearing
-      worth distrusting, or drop coherence from the weighting and say so.
+      Coherence is still saturated. It moves the right way now and it is
+      monotone, but the normalization is against the circular variance of a
+      full turn, so the useful range is squeezed into the top fraction of a
+      percent:
+
+        noise     0.0    0.3    0.6    1.0    1.5    2.0
+        bearing  0.16   0.25   0.43   0.72   6.54  39.82   degrees
+        coher. 1.0000 1.0000 0.9999 0.9996 0.9991 0.9984
+
+      Coherence measures precision, not accuracy, and cannot do otherwise.
+      It scores how well the Doppler phase agrees with itself *relative to the
+      north tick*. A mistimed tick shifts every rotation equally and leaves
+      coherence untouched. At noise 2.0 the tick is 0.74 samples out, which is
+      8.9 degrees, and the bearing error is largely bias: the circular mean of
+      the error is 23 degrees against a mean absolute of 39.8. An uncertainty
+      built only on Doppler phase scatter will be confidently wrong exactly
+      when the reference is wrong.
+
+      So the reference has to enter the score. `NorthTick::lock_quality`
+      already exists, is already computed, and is not used by the confidence
+      at all. It is the obvious candidate for the term that covers what
+      coherence structurally cannot see.
 
 ## North Tick Tracking
 
