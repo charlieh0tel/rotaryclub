@@ -147,14 +147,30 @@ for on every sweep.
       seeds 1 and 2. Sweeping `bearing` does not substitute for a seed: it
       redraws the doppler noise and leaves the north channel identical.
 
-- [ ] `gate_sigma` has never had a default chosen by measurement, and the
-      shipped 3.0 is not obviously the best. At 0.20 RMS of north noise a
-      tighter gate gives better timing and fewer ticks: sigma 2 gives 0.235
-      samples of tick error against 0.321 at the shipped 3, but produces 8237
-      bearings against 8930. At 0.05 RMS the shipped value wins outright,
-      0.0130 against 0.0163. So it is a trade between timing and coverage
-      whose right answer depends on how noisy the channel is, and 3.0 is a
-      reasonable middle rather than a measured optimum.
+- [x] `gate_sigma` had never had a default chosen by measurement. Now it has,
+      and the answer is that it does not matter: the shipped 3.0 stays.
+
+      Where the hardware lives the gate is inert. At the 0.0006 RMS north
+      channel the recordings measure, and at 0.01, sweeping 1.5 to 6.0 over
+      twelve realisations moves tick error not at all -- 0.0037 samples at
+      every setting, to four decimal places -- leaves bearing scatter at
+      10.864 throughout, and delivers the same 9615 bearings from 2.0 upward.
+      A gate that never fires has no default worth arguing about.
+
+      Above that it does something, but not to the bearing. At 0.05 RMS a
+      tighter gate loses on both counts at once, 0.0129 samples against 0.0108
+      and 640 fewer bearings, so the trade this item described does not exist
+      there. At 0.2 the direction reverses and tighter trends better on
+      timing, but over twelve realisations that is t = -1.6 and not a result;
+      6.0 is significantly worse at t = 3.1. Bearing scatter shows no
+      significant dependence on the gate at any noise level tried.
+
+      The figures this item was built on -- 0.235 samples against 0.321 at
+      0.2 RMS, a twenty-seven percent win for sigma 2 -- were one realisation
+      from the era when the generator's seeds were correlated. Paired over
+      twelve independent ones the same comparison reads 0.528 against 0.560.
+      This was the item flagged as most likely to dissolve when the seed
+      defect was found, and it dissolved.
 
 ## Bearing Confidence
 

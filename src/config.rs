@@ -515,6 +515,27 @@ pub struct NorthTickConfig {
     /// tracked phase error. Detections further than this from where the
     /// rotation says the pulse should be are rejected. Only applied once the
     /// tracker is locked.
+    ///
+    /// The shipped 3.0 was a guess for a long time. Measured over twelve noise
+    /// realisations across 1.5 to 6.0, it is inert where the hardware lives:
+    /// at the 0.0006 RMS the recordings measure, and at 0.01, tick error is
+    /// identical to four decimal places across the whole range, bearing
+    /// scatter is identical, and every setting from 2.0 up delivers the same
+    /// 9615 bearings. The gate simply never fires on a channel that clean.
+    ///
+    /// It only does anything far above that, and even there it does not reach
+    /// the bearing. At 0.05 RMS a tighter gate is worse on both counts at
+    /// once, 0.0129 samples against 0.0108 at the shipped value and 640 fewer
+    /// bearings, so there is no trade to make. At 0.2 the direction reverses
+    /// -- tighter trends better on timing -- but not significantly over twelve
+    /// realisations, and a gate of 6.0 is significantly worse. Bearing scatter
+    /// shows no significant dependence on this at any noise level tried.
+    ///
+    /// An earlier note claimed 0.235 samples against 0.321 at 0.2 RMS, a
+    /// twenty-seven percent win for a tighter gate. That was one realisation
+    /// drawn from a generator whose seeds were correlated; paired over twelve
+    /// independent ones the same comparison gives 0.528 against 0.560, which
+    /// is noise.
     pub gate_sigma: f32,
     /// DPLL configuration (only used when mode is Dpll)
     pub dpll: DpllConfig,
