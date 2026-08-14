@@ -228,6 +228,17 @@ in simple mode the cliff sits exactly where it did, and a default of 0.25 would
 buy the loop some noise margin by quietly taking level margin from the tracker
 that has no gain control. For a DPLL-only deployment 0.25 is the better value.
 
+Re-measured as a fraction, over sixteen independent noise draws, the shipped
+value holds. The question was whether the derived 0.19361 could become a round
+0.20 now that the knob is dimensionless. It cannot, for the same reason the
+absolute could not be raised: in DPLL mode the change is invisible, because the
+AGC normalises the level and the amplitude cliff hardly moves, but the simple
+tracker has no gain control and its cliff is steep enough that three percent
+crosses it -- at a pulse of 0.23 its detection falls from 0.92 to 0.47. Those
+cells carry no noise, so they are exact rather than a draw. Rounding the other
+way, to 0.1875, buys a little level margin and costs a little noise margin
+(0.86 detection at 0.2 RMS against 0.87), which is not an improvement either.
+
 An earlier version of this section reported a wide plateau from 0.10 to 0.40
 and a shared amplitude cliff at 0.3 regardless of threshold. Both were wrong.
 The sweep behind them ran in Simple mode, which is not what ships, and scaled

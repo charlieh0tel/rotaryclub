@@ -146,6 +146,13 @@ fn mix(mut x: u64) -> u64 {
 
 /// Deterministic uniform noise on [-1, 1).
 ///
+/// Public because every harness that wants reproducible noise was writing its
+/// own copy of it -- sixteen files carried one at the last count, and they
+/// have already diverged twice. The first time cost a shifted output range
+/// that put a DC offset through twelve of them; the second was the seed
+/// mixing described below, fixed here and nowhere else. Reach for this rather
+/// than pasting another.
+///
 /// The seed is mixed before it is combined, not after, and that is the whole
 /// of the difference between independent realisations and correlated ones.
 /// Folding a raw seed in and relying on the finalizer to scatter it
@@ -159,7 +166,7 @@ fn mix(mut x: u64) -> u64 {
 /// That makes every error bar taken over seeds far too small, and it is
 /// invisible unless it is looked for: the runs differ, they simply differ far
 /// less than they should. Mixing the seed first puts all of these below 0.02.
-fn noise_at(index: usize, seed: u64) -> f32 {
+pub fn noise_at(index: usize, seed: u64) -> f32 {
     let x = mix((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ mix(seed));
     (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
 }

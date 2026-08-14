@@ -19,16 +19,12 @@ use std::collections::BTreeSet;
 
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTracker};
+use rotaryclub::simulation::noise_at;
 
 const ROTATION_HZ: f32 = 1602.564;
 
-fn noise_at(index: usize, seed: u64) -> f32 {
-    let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed;
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    x ^= x >> 29;
-    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
-}
+/// Independent noise draws per cell.
+const DRAWS: u32 = 8;
 
 /// Band-limited impulses at the true rotation epochs, plus noise.
 fn build(
@@ -36,6 +32,7 @@ fn build(
     sample_rate: f32,
     amplitude: f32,
     noise_rms: f32,
+    seed: u64,
 ) -> (Vec<f32>, Vec<f64>) {
     let period = sample_rate as f64 / ROTATION_HZ as f64;
     let mut signal = vec![0.0f32; num_samples];
@@ -76,7 +73,7 @@ fn build(
             // every "noise 0.2" row was measured at 0.067.
             let mut acc = 0.0f32;
             for j in 0..12 {
-                acc += noise_at(i * 12 + j, 0xBEEF_1234_5678_9ABC);
+                acc += noise_at(i * 12 + j, seed);
             }
             *sample += acc / 2.0 * noise_rms;
         }
@@ -96,6 +93,7 @@ fn run(
     noise_rms: f32,
     sample_rate: f32,
     mode: NorthTrackingMode,
+    seed: u64,
 ) -> Rates {
     let mut config = RdfConfig::default();
     // The mode matters to what a threshold buys. The DPLL gates detections
@@ -105,7 +103,7 @@ fn run(
     config.north_tick.mode = mode;
     config.north_tick.threshold_fraction = threshold;
     let num_samples = (sample_rate * 1.5) as usize;
-    let (signal, truth) = build(num_samples, sample_rate, amplitude, noise_rms);
+    let (signal, truth) = build(num_samples, sample_rate, amplitude, noise_rms, seed);
 
     let Ok(mut tracker) = NorthReferenceTracker::new(&config.north_tick, sample_rate) else {
         return Rates {
@@ -143,12 +141,65 @@ fn run(
     }
 }
 
+/// Detection and false-positive rate averaged over independent noise draws.
+///
+/// One draw is enough to see a cliff and not enough to compare two settings
+/// either side of one. Reported with the standard error of the mean so a
+/// difference smaller than the bar can be recognised as a draw; the seeds are
+/// shared across every cell, so a comparison along a row is paired.
+fn average(
+    amplitude: f32,
+    threshold: f32,
+    noise_rms: f32,
+    sample_rate: f32,
+    mode: NorthTrackingMode,
+    draws: u32,
+) -> (Rates, Rates) {
+    let runs: Vec<Rates> = (0..draws)
+        .map(|d| {
+            run(
+                amplitude,
+                threshold,
+                noise_rms,
+                sample_rate,
+                mode,
+                0xBEEF_1234_5678_9ABC_u64.wrapping_add(d as u64),
+            )
+        })
+        .collect();
+    let mean = |f: fn(&Rates) -> f64| runs.iter().map(f).sum::<f64>() / runs.len() as f64;
+    let stderr = |f: fn(&Rates) -> f64, m: f64| {
+        if runs.len() < 2 {
+            return 0.0;
+        }
+        let var =
+            runs.iter().map(|r| (f(r) - m) * (f(r) - m)).sum::<f64>() / (runs.len() - 1) as f64;
+        (var / runs.len() as f64).sqrt()
+    };
+    let d = mean(|r| r.detection);
+    let f = mean(|r| r.false_positive);
+    (
+        Rates {
+            detection: d,
+            false_positive: f,
+        },
+        Rates {
+            detection: stderr(|r| r.detection, d),
+            false_positive: stderr(|r| r.false_positive, f),
+        },
+    )
+}
+
 fn main() {
     let sample_rate = RdfConfig::default().audio.sample_rate as f32;
     let shipped_amplitude = RdfConfig::default().north_tick.expected_pulse_amplitude;
 
     let amplitudes = [1.0f32, 0.8, 0.6, 0.5, 0.42, 0.35, 0.3, 0.25, 0.2, 0.15];
-    let thresholds = [0.10f32, 0.15, 0.20, 0.25, 0.30, 0.40];
+    // Fractions of the expected pulse height. The shipped 0.19361 is the
+    // absolute 0.15 this used to sweep; the rest span what 0.10 to 0.40
+    // absolute used to mean, so the table stays comparable to the one in
+    // DESIGN.md.
+    let thresholds = [0.129f32, 0.1875, 0.19361, 0.20, 0.258, 0.323, 0.387];
     let noises = [0.0f32, 0.05, 0.10, 0.20, 0.30, 0.40];
 
     println!("expected_pulse_amplitude {shipped_amplitude}");
@@ -170,7 +221,10 @@ fn main() {
         for t in thresholds {
             print!("{:<12}", format!("{t:.2}"));
             for a in amplitudes {
-                print!("{:>7.2}", run(a, t, 0.0, sample_rate, mode).detection);
+                print!(
+                    "{:>7.2}",
+                    average(a, t, 0.0, sample_rate, mode, DRAWS).0.detection
+                );
             }
             println!();
         }
@@ -186,10 +240,13 @@ fn main() {
         for t in thresholds {
             print!("{:<12}", format!("{t:.2}"));
             for n in noises {
-                let r = run(shipped_amplitude, t, n, sample_rate, mode);
+                let (r, e) = average(shipped_amplitude, t, n, sample_rate, mode, DRAWS);
                 print!(
                     "{:>15}",
-                    format!("{:.2}/{:.2}", r.detection, r.false_positive)
+                    format!(
+                        "{:.2}+-{:.2}/{:.2}",
+                        r.detection, e.detection, r.false_positive
+                    )
                 );
             }
             println!();

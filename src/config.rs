@@ -492,12 +492,22 @@ pub struct NorthTickConfig {
     ///
     /// What the number means: detection collapses when the pulse falls to
     /// about 1.6 times the threshold, so the shipped value holds detection
-    /// down to 31 percent of the expected pulse. The default reproduces the
-    /// 0.15 absolute threshold that was measured and settled -- raising it
-    /// was rejected, because what a higher threshold buys is detection under
-    /// channel noise and it buys nothing until 0.2 RMS and little until 0.3,
-    /// by which point the false positive rate is 0.18 either way. See
-    /// DESIGN.md.
+    /// down to 31 percent of the expected pulse.
+    ///
+    /// It reproduces the 0.15 absolute threshold that was measured and
+    /// settled, and it survived being re-measured as a fraction over sixteen
+    /// noise draws. The awkward digits are worth keeping. Rounding up to 0.20
+    /// looks free in DPLL mode, where the AGC normalises the level and the
+    /// amplitude cliff barely moves, but the simple tracker has no gain
+    /// control and its cliff is steep: at a pulse of 0.23 its detection falls
+    /// from 0.92 to 0.47 across that three percent. Rounding down to 0.1875
+    /// buys a little of that margin back and costs a little noise margin,
+    /// 0.86 detection at 0.2 RMS against 0.87. Neither is an improvement, and
+    /// the round number would imply a precision the knee does not have.
+    ///
+    /// Raising it further was rejected earlier for a different reason: what a
+    /// higher threshold buys is detection under channel noise, and it buys
+    /// nothing until 0.2 RMS and little until 0.3. See DESIGN.md.
     pub threshold_fraction: f32,
     /// Expected pulse amplitude in the north channel, before `gain_db`.
     ///
