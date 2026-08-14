@@ -6,6 +6,10 @@ use std::f32::consts::PI;
 /// band; this runs once per generated signal, not per sample.
 const AUDIO_BAND_TAPS: usize = 255;
 const AUDIO_BAND_TRANSITION_HZ: f32 = 150.0;
+/// The Doppler passband the impairment is scaled against, matching the
+/// shipped `DopplerConfig` defaults.
+const DOPPLER_BAND_LOW_HZ: f32 = 1350.0;
+const DOPPLER_BAND_HIGH_HZ: f32 = 1850.0;
 
 pub const NORTH_TICK_PULSE_WIDTH_RADIANS: f32 = 0.2;
 pub const NORTH_TICK_AMPLITUDE: f32 = 0.8;
@@ -54,11 +58,18 @@ fn add_north_pulse(channel: &mut [f32], epoch: f64, amplitude: f32) {
 /// is no phase spread, so only the reference term was ever exercised.
 #[derive(Debug, Clone, Copy)]
 pub struct DopplerImpairment {
-    /// Power in the interfering audio, relative to the rotation tone.
+    /// Interfering audio power *inside the Doppler passband*, relative to the
+    /// rotation tone. Measured on the recordings in `data/`: 0.199, 0.793 and
+    /// 6.579.
     ///
-    /// The reciprocal of the in-band fraction the census reports, near enough:
-    /// 20.0 here puts the tone at about 5 percent of the channel.
-    pub audio_to_tone_power: f32,
+    /// Not the ratio over the whole channel, which is the natural thing to
+    /// reach for and is wrong. Real audio sits well below the Doppler band, so
+    /// matching total power with flat voice-band noise puts about ten times
+    /// too much where it hurts: at the cleanest recording's whole-channel
+    /// ratio, flat noise produced 20.7 degrees of bearing error where that
+    /// recording achieves 1.6. What decides a bearing is the power in the
+    /// passband, so that is what this names.
+    pub passband_noise_to_tone: f32,
     /// Amplitude of the second harmonic, relative to the fundamental.
     pub second_harmonic: f32,
     /// Amplitude of the third harmonic, relative to the fundamental.
@@ -76,7 +87,7 @@ impl DopplerImpairment {
     /// Nothing but the tone, which is what this generator used to produce.
     pub fn none() -> Self {
         Self {
-            audio_to_tone_power: 0.0,
+            passband_noise_to_tone: 0.0,
             second_harmonic: 0.0,
             third_harmonic: 0.0,
             audio_low_hz: 300.0,
@@ -87,13 +98,21 @@ impl DopplerImpairment {
 
     /// Impairment in the range the captures in `data/` actually show.
     ///
-    /// Deliberately the mild end of what was measured: the tone at about 5
-    /// percent of the channel, against 0.2 to 7.5 measured, and harmonics at
-    /// 10 percent against 7 to 15. A generator that sits at the worst
-    /// observed case makes every test a test of the worst case.
+    /// The middle of the three, not the worst: a generator pinned to the worst
+    /// observed case makes every test silently a worst-case test.
     pub fn representative() -> Self {
         Self {
-            audio_to_tone_power: 20.0,
+            passband_noise_to_tone: 0.8,
+            second_harmonic: 0.10,
+            third_harmonic: 0.06,
+            ..Self::none()
+        }
+    }
+
+    /// A named level, for sweeping. The three are the three recordings.
+    pub fn at_passband_ratio(ratio: f32) -> Self {
+        Self {
+            passband_noise_to_tone: ratio,
             second_harmonic: 0.10,
             third_harmonic: 0.06,
             ..Self::none()
@@ -175,7 +194,7 @@ where
     // entirely removed by the bandpass and would understate the interference
     // by the ratio of the two bandwidths, which is what makes this the wrong
     // shortcut: it would look like impairment and behave like none.
-    let audio = if impairment.audio_to_tone_power > 0.0 {
+    let audio = if impairment.passband_noise_to_tone > 0.0 {
         let mut raw: Vec<f32> = (0..num_samples)
             .map(|i| noise_at(i, impairment.seed))
             .collect();
@@ -188,12 +207,25 @@ where
         ) {
             band.process_buffer(&mut raw);
         }
-        // Scale to the requested power against the tone, whose power is 1/2
-        // for a unit sine.
-        let power = raw.iter().map(|s| (s * s) as f64).sum::<f64>() / num_samples.max(1) as f64;
-        let wanted = 0.5 * impairment.audio_to_tone_power as f64;
-        let scale = if power > 0.0 {
-            (wanted / power).sqrt() as f32
+        // Scale by what reaches the Doppler passband, not by total power.
+        // How much of the voice band gets there depends on both filters, so it
+        // is measured rather than assumed.
+        let mut probe = raw.clone();
+        if let Ok(mut band) = FirBandpass::new(
+            DOPPLER_BAND_LOW_HZ,
+            DOPPLER_BAND_HIGH_HZ,
+            sample_rate as f32,
+            AUDIO_BAND_TAPS,
+            100.0,
+        ) {
+            band.process_buffer(&mut probe);
+        }
+        let passband_power =
+            probe.iter().map(|s| (s * s) as f64).sum::<f64>() / num_samples.max(1) as f64;
+        // A unit sine has power 1/2.
+        let wanted = 0.5 * impairment.passband_noise_to_tone as f64;
+        let scale = if passband_power > 0.0 {
+            (wanted / passband_power).sqrt() as f32
         } else {
             0.0
         };

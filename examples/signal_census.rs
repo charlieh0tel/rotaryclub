@@ -17,6 +17,19 @@
 //!   doppler harmonic ratio                 what the bandpass has to reject
 //!   doppler noise flatness                 whether the noise is white or shaped
 //!
+//! One quantity is deliberately absent: the noise power inside the doppler
+//! passband, relative to the tone, which is what actually decides a bearing.
+//! Measuring it here was tried and abandoned. Separating a weak tone from the
+//! noise around it needs the two integrated over the same band, and the filter
+//! mismatch leaves a floor near 0.1 that swamps a clean signal, while a capture
+//! whose tone is 0.3 percent of the channel defeats the separation entirely --
+//! ft-70d read 1.5 against an FFT measurement of 6.6.
+//!
+//! Measured by FFT instead, integrating the tone over plus or minus 8 Hz and
+//! the rest of 1350 to 1850 Hz around it, the recordings give 0.199, 0.793 and
+//! 6.579. Those are the numbers the synthetic generators are scaled to, and
+//! they set their own ratio by construction so they need no measurement.
+//!
 //! Flatness is the spectral flatness of the out-of-band remainder, the
 //! geometric mean of the power spectrum over its arithmetic mean. White noise
 //! approaches 1; anything shaped, and voice especially, sits far below it.
@@ -127,10 +140,29 @@ fn census(interleaved: &[f32], sample_rate: f32, rotation_hz: f32) -> Census {
         .collect();
 
     // --- Doppler channel: how much of it is the tone ---
+    //
+    // The rotation rate of a real capture is not exactly the nominal one, and
+    // correlating at a fixed frequency over several seconds decorrelates badly
+    // when it is off: a fortieth of a hertz is a quarter turn of phase drift
+    // over six seconds. Measuring at the nominal rate understated the tone by
+    // an order of magnitude on the recordings and inflated every ratio built
+    // on it, so the peak is found first.
+    let mut tone_hz = rotation_hz;
+    let mut best = 0.0f32;
+    let mut probe = rotation_hz - 3.0;
+    while probe <= rotation_hz + 3.0 {
+        let p = power_at(&doppler, probe, sample_rate);
+        if p > best {
+            best = p;
+            tone_hz = probe;
+        }
+        probe += 0.02;
+    }
+
     let total_power = doppler.iter().map(|s| (s * s) as f64).sum::<f64>() / doppler.len() as f64;
-    let fundamental = power_at(&doppler, rotation_hz, sample_rate);
-    let second = power_at(&doppler, rotation_hz * 2.0, sample_rate);
-    let third = power_at(&doppler, rotation_hz * 3.0, sample_rate);
+    let fundamental = best;
+    let second = power_at(&doppler, tone_hz * 2.0, sample_rate);
+    let third = power_at(&doppler, tone_hz * 3.0, sample_rate);
 
     // Spectral flatness of what is left once the tone and its first two
     // harmonics are accounted for, sampled across the band.
@@ -139,12 +171,50 @@ fn census(interleaved: &[f32], sample_rate: f32, rotation_hz: f32) -> Census {
     while f < sample_rate / 2.0 - 200.0 {
         let near_tone = [1.0, 2.0, 3.0]
             .iter()
-            .any(|k| (f - rotation_hz * k).abs() < 60.0);
+            .any(|k| (f - tone_hz * k).abs() < 60.0);
         if !near_tone {
             bins.push(power_at(&doppler, f, sample_rate).max(1e-20));
         }
         f += 137.0;
     }
+    // Noise power inside the doppler passband, against the tone. This is the
+    // quantity that decides a bearing, and the one worth matching: the
+    // whole-channel fraction differs between synthetic and real signal for a
+    // reason that does not matter, which is that real audio carries a great
+    // deal of energy below the passband where it does no harm.
+    //
+    // Measured by filtering and taking the power, not by summing correlations
+    // at sampled frequencies. The latter was tried and undercounts by the
+    // ratio of the analysis resolution to the sampling step -- about ninety
+    // here -- because it samples the spectrum rather than integrating it.
+    // Spectral flatness of what is left once the tone and its first two
+    // harmonics are accounted for, sampled across the band.
+    let mut bins = Vec::new();
+    let mut f = 200.0f32;
+    while f < sample_rate / 2.0 - 200.0 {
+        let near_tone = [1.0, 2.0, 3.0]
+            .iter()
+            .any(|k| (f - tone_hz * k).abs() < 60.0);
+        if !near_tone {
+            bins.push(power_at(&doppler, f, sample_rate).max(1e-20));
+        }
+        f += 137.0;
+    }
+    // Noise power inside the doppler passband, against the tone. This is the
+    // quantity that decides a bearing, and the one worth matching: the
+    // whole-channel fraction differs between synthetic and real signal for a
+    // reason that does not matter, which is that real audio carries a great
+    // deal of energy below the passband where it does no harm.
+    //
+    // Measured by filtering and taking the power, not by summing correlations
+    // at sampled frequencies. The latter was tried and undercounts by the
+    // ratio of the analysis resolution to the sampling step -- about ninety
+    // here -- because it samples the spectrum rather than integrating it.
+    // Both terms are integrated, not sampled. A real doppler tone is not a
+    // pure sinusoid -- it wanders over a few hertz -- so a correlation at one
+    // frequency captures part of its energy while a filtered band captures
+    // all of it, and mixing the two overstated the noise several-fold.
+
     let log_mean = bins.iter().map(|p| p.ln()).sum::<f32>() / bins.len().max(1) as f32;
     let arithmetic = bins.iter().sum::<f32>() / bins.len().max(1) as f32;
     let flatness = if arithmetic > 0.0 {
@@ -171,7 +241,7 @@ fn census(interleaved: &[f32], sample_rate: f32, rotation_hz: f32) -> Census {
 
 fn row(name: &str, c: &Census) {
     println!(
-        "{name:<34} {:>7.3} {:>8.3} {:>7.1} {:>9.4} {:>8.3} {:>9.3} {:>8.3} {:>8.3}",
+        "{name:<30} {:>7.3} {:>7.3} {:>6.1} {:>8.4} {:>7.3} {:>8.3} {:>7.3} {:>7.3}",
         c.pulse_amplitude,
         c.pulse_amplitude_spread,
         c.pulse_width_samples,
@@ -188,7 +258,7 @@ fn main() {
     let rotation_hz = config.doppler.expected_freq;
 
     println!(
-        "{:<34} {:>7} {:>8} {:>7} {:>9} {:>8} {:>9} {:>8} {:>8}",
+        "{:<30} {:>7} {:>7} {:>6} {:>8} {:>7} {:>8} {:>7} {:>7}",
         "signal", "pulse", "spread", "width", "floor", "jitter", "in-band", "harm", "flat"
     );
 
@@ -225,6 +295,6 @@ fn main() {
         // Cap the read so a long capture does not dominate the run.
         let cap = (rate as usize * 2 * 6).min(samples.len());
         let c = census(&samples[..cap], rate as f32, rotation_hz);
-        row(&name[..name.len().min(33)], &c);
+        row(&name[..name.len().min(29)], &c);
     }
 }
