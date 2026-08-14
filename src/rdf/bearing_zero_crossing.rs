@@ -3,11 +3,7 @@ use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
-use super::bearing::{
-    MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, bearing_uncertainty_deg, wrap_phase_diff,
-};
-
-const DEFAULT_SINGLE_CROSSING_COHERENCE: f32 = 0.5;
+use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg, wrap_phase_diff};
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
@@ -136,19 +132,10 @@ impl ZeroCrossingBearingCalculator {
         };
 
         // Spread of the per-crossing phases about the bearing they were
-        // averaged into, scored the same way the correlation method scores the
-        // spread of its sub-window phases.
-        //
-        // What this replaced measured the regularity of the intervals between
-        // crossings instead. That is a different quantity: a tone whose
-        // crossings are evenly spaced but sitting at the wrong phase scores
-        // well on it, and it says nothing about how much the phases disagree
-        // with each other. Both calculators report `coherence` into the same
-        // confidence weighting, so the two have to mean the same thing or the
-        // score changes meaning when the method is switched.
+        // averaged into, which is what the uncertainty figure is built from.
         let mut phase_variance = 0.0f32;
-        let coherence = if crossings.len() >= 2 {
-            let variance = crossings
+        if crossings.len() >= 2 {
+            phase_variance = crossings
                 .iter()
                 .map(|&crossing_idx| {
                     let samples_since_tick = self.base.samples_since_tick(north_tick, crossing_idx);
@@ -158,11 +145,7 @@ impl ZeroCrossingBearingCalculator {
                 })
                 .sum::<f32>()
                 / crossings.len() as f32;
-            phase_variance = variance;
-            (1.0 - variance / MAX_PHASE_VARIANCE).clamp(0.0, 1.0)
-        } else {
-            DEFAULT_SINGLE_CROSSING_COHERENCE
-        };
+        }
 
         // --- SNR Estimation via projection onto ideal Doppler sine ---
         // Reconstruct an ideal sine wave at the known bearing phase and north tick
@@ -195,7 +178,6 @@ impl ZeroCrossingBearingCalculator {
 
         ConfidenceMetrics {
             snr_db,
-            coherence,
             signal_strength,
             bearing_uncertainty_deg: bearing_uncertainty_deg(
                 phase_variance,
@@ -259,20 +241,21 @@ mod tests {
         );
     }
 
-    /// Coherence must fall as the per-crossing phases disagree.
+    /// The uncertainty must grow as the per-crossing phases disagree.
     ///
-    /// The metric this replaced scored the regularity of the intervals
-    /// between crossings, which is a different quantity and is why the two
-    /// bearing methods could report the same field meaning different things.
-    /// Driving the phases apart directly is the way to see that the number
-    /// now tracks phase agreement.
+    /// This method's phase spread is what its uncertainty figure is built
+    /// from, so driving the crossings apart is the direct way to see the
+    /// figure respond. It also pins the spread being measured about the
+    /// bearing the crossings were averaged into, rather than about the
+    /// regularity of the intervals between them, which is what an earlier
+    /// version of this measured and is a different quantity entirely.
     #[test]
-    fn test_coherence_falls_as_crossing_phases_disagree() {
+    fn test_uncertainty_grows_as_crossing_phases_disagree() {
         let sample_rate = 48_000.0f32;
         let doppler_config = DopplerConfig::default();
         let period = sample_rate / doppler_config.expected_freq;
 
-        let coherence_with_scatter = |scatter_fraction: f32| -> f32 {
+        let uncertainty_with_scatter = |scatter_fraction: f32| -> f32 {
             let calc = ZeroCrossingBearingCalculator::new(
                 &DopplerConfig::default(),
                 &AgcConfig::default(),
@@ -311,30 +294,31 @@ mod tests {
             let avg_phase = sum_y.atan2(sum_x);
 
             calc.calculate_metrics(&crossings, period, &tick, avg_phase)
-                .coherence
+                .bearing_uncertainty_deg
+                .expect("an uncertainty")
         };
 
-        let agreed = coherence_with_scatter(0.0);
-        let spread = coherence_with_scatter(0.1);
-        let scattered = coherence_with_scatter(0.25);
+        let agreed = uncertainty_with_scatter(0.0);
+        let spread = uncertainty_with_scatter(0.1);
+        let scattered = uncertainty_with_scatter(0.25);
 
         assert!(
-            agreed > 0.99,
-            "Crossings all at the same phase should be fully coherent, got {agreed}"
+            agreed < 0.01,
+            "Crossings all at the same phase should claim no uncertainty, got {agreed}"
         );
         assert!(
-            spread < agreed,
-            "A tenth of a turn of scatter should cost coherence: {spread} against {agreed}"
+            spread > agreed,
+            "A tenth of a turn of scatter should show up: {spread} against {agreed}"
         );
         assert!(
-            scattered < spread,
-            "A quarter turn of scatter should cost more still: {scattered} against {spread}"
+            scattered > spread,
+            "A quarter turn of scatter should show more still: {scattered} against {spread}"
         );
-        // A quarter turn either way is half the circle apart, which is most of
-        // the way to carrying no common phase at all.
+        // A tenth of a turn either way is 36 degrees of spread.
         assert!(
-            scattered < 0.3,
-            "A quarter turn of scatter should leave little coherence, got {scattered}"
+            (30.0..42.0).contains(&spread),
+            "A tenth of a turn either side is 36 degrees of spread, so the \
+             figure should land near that, got {spread}"
         );
     }
 }

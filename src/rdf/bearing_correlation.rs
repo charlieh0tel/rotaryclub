@@ -4,8 +4,7 @@ use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
 use super::bearing::{
-    MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, bearing_uncertainty_deg, circular_mean_phase,
-    wrap_phase_diff,
+    MIN_POWER_THRESHOLD, bearing_uncertainty_deg, circular_mean_phase, wrap_phase_diff,
 };
 /// Fewest windows the coherence estimate will use. Two is the least that has
 /// a spread at all; it is reached only when the buffer is shorter than two
@@ -170,9 +169,9 @@ impl CorrelationBearingCalculator {
         let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
         let snr_db = power_to_db(correlated_power / noise_power);
 
-        // --- Coherence Estimation ---
+        // --- Phase spread ---
         // One window per rotation, so the spread being measured is the spread
-        // of independent bearing estimates.
+        // of independent bearing estimates. It feeds the uncertainty figure.
         //
         // This used to cut the buffer into four regardless of its length. At
         // the shipped buffer size that made each window average some four
@@ -226,9 +225,6 @@ impl CorrelationBearingCalculator {
             .sum::<f32>()
             / window_count as f32;
 
-        let max_variance = MAX_PHASE_VARIANCE;
-        let coherence = (1.0 - phase_variance / max_variance).clamp(0.0, 1.0);
-
         let bearing_uncertainty_deg =
             bearing_uncertainty_deg(phase_variance, window_count, north_tick);
 
@@ -241,7 +237,6 @@ impl CorrelationBearingCalculator {
 
         ConfidenceMetrics {
             snr_db,
-            coherence,
             signal_strength,
             bearing_uncertainty_deg,
         }
@@ -609,20 +604,21 @@ mod tests {
         );
     }
 
-    /// Coherence must see phase noise that varies rotation to rotation.
+    /// The phase spread must see noise that varies rotation to rotation.
     ///
     /// The windows used to be four regardless of buffer length, each covering
     /// many rotations. Per-rotation wobble averages to nothing inside such a
     /// window, so the four agreed with each other and the metric reported a
     /// clean signal. Driving the phase alternately either side of the true
     /// bearing is that case exactly: every window mean is the true bearing,
-    /// and no individual rotation is.
+    /// and no individual rotation is. The spread now feeds the uncertainty
+    /// figure, so that is what this asserts on.
     ///
     /// The metric is driven directly rather than through `process_buffer`
     /// because the Doppler bandpass would filter the wobble back out before
     /// coherence ever saw it.
     #[test]
-    fn test_coherence_sees_rotation_to_rotation_phase_noise() {
+    fn test_uncertainty_sees_rotation_to_rotation_phase_noise() {
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
             expected_freq: 480.0,
@@ -642,7 +638,7 @@ mod tests {
             frequency: omega,
         };
 
-        let coherence_with_wobble = |wobble: f32| -> f32 {
+        let uncertainty_with_wobble = |wobble: f32| -> f32 {
             let mut calc = CorrelationBearingCalculator::new(
                 &doppler_config,
                 &AgcConfig::default(),
@@ -677,22 +673,24 @@ mod tests {
             let (i, q) = (i_sum / n, q_sum / n);
 
             calc.calculate_metrics(&north_tick, power_sum / n, (i * i + q * q).sqrt())
-                .coherence
+                .bearing_uncertainty_deg
+                .expect("an uncertainty")
         };
 
-        let steady = coherence_with_wobble(0.0);
-        let wobbling = coherence_with_wobble(0.5);
+        let steady = uncertainty_with_wobble(0.0);
+        let wobbling = uncertainty_with_wobble(0.5);
 
         assert!(
-            steady > 0.99,
-            "A tone at one phase should be fully coherent, got {steady}"
+            steady < 1.0,
+            "A tone held at one phase should claim little uncertainty, got {steady}"
         );
-        // Half a radian either side is a spread of 0.25 rad^2, which against
-        // the full-turn variance leaves about 0.92.
+        // Half a radian either side is 28.6 degrees of spread, and the figure
+        // is the root of the variance, so it should land near that.
         assert!(
-            wobbling < 0.95,
-            "Half a radian of per-rotation phase noise should cost coherence, \
-             got {wobbling} against {steady} for the same tone held steady"
+            wobbling > 20.0,
+            "Half a radian of per-rotation phase noise is 28 degrees of \
+             spread, so the uncertainty should be of that order: got \
+             {wobbling} against {steady} for the same tone held steady"
         );
     }
 }

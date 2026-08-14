@@ -67,7 +67,7 @@ struct BearingData {
     raw: f32,
     confidence: f32,
     snr_db: f32,
-    coherence: f32,
+    uncertainty_deg: Option<f32>,
     signal_strength: f32,
 }
 
@@ -262,7 +262,7 @@ fn send_tick_update(
             raw: (b.raw_bearing + offset).rem_euclid(360.0),
             confidence: b.confidence,
             snr_db: b.metrics.snr_db,
-            coherence: b.metrics.coherence,
+            uncertainty_deg: b.metrics.bearing_uncertainty_deg,
             signal_strength: b.metrics.signal_strength,
         }
     });
@@ -412,11 +412,27 @@ const NEEDLE_MIN_BRIGHTNESS: f32 = 0.2;
 const NEEDLE_BRIGHTNESS_RANGE: f32 = 0.8;
 const NEEDLE_STROKE_BASE: f32 = 1.0;
 const NEEDLE_STROKE_SCALE: f32 = 2.5;
+/// Bearing uncertainty, in degrees, at which the needle is as blunt as it
+/// gets. One sample of north timing is twelve degrees of bearing, so a needle
+/// at full width is one whose bearing is no better resolved than the
+/// reference tick itself.
+const UNCERTAINTY_FULL_SCALE_DEG: f32 = 12.0;
+
+/// How blunt to draw a bearing, from 0 for a sharp one to 1 for the worst the
+/// display distinguishes. An unknown uncertainty draws at full blur: it is
+/// not a good bearing, it is one that made no claim.
+fn blur_from(uncertainty_deg: Option<f32>) -> f32 {
+    match uncertainty_deg {
+        Some(u) if u.is_finite() && u >= 0.0 => (u / UNCERTAINTY_FULL_SCALE_DEG).clamp(0.0, 1.0),
+        _ => 1.0,
+    }
+}
+
 const NEEDLE_TIP_BASE: f32 = 2.0;
 const NEEDLE_TIP_SCALE: f32 = 3.0;
 const COMPASS_HELP_TEXT: &str = "Compass rose encoding:
 - Needle brightness = confidence
-- Needle width/tip size = coherence
+- Needle width/tip size = bearing uncertainty (blunt is unsure)
 - Needle length/radius = signal strength
 - Trail = recent bearings with phosphor decay
 - Trail points require confidence >= 0.5";
@@ -424,7 +440,9 @@ const COMPASS_HELP_TEXT: &str = "Compass rose encoding:
 struct TrailEntry {
     bearing: f32,
     confidence: f32,
-    coherence: f32,
+    /// 0 when the bearing is as certain as the display resolves, 1 at or
+    /// beyond `UNCERTAINTY_FULL_SCALE_DEG`.
+    blur: f32,
     strength: f32,
     time: f64,
 }
@@ -434,7 +452,7 @@ struct History {
     raw_bearing: VecDeque<[f64; 2]>,
     snr: VecDeque<[f64; 2]>,
     confidence: VecDeque<[f64; 2]>,
-    coherence: VecDeque<[f64; 2]>,
+    uncertainty: VecDeque<[f64; 2]>,
     signal_strength: VecDeque<[f64; 2]>,
     lock_quality: VecDeque<[f64; 2]>,
     compass_trail: VecDeque<TrailEntry>,
@@ -447,7 +465,7 @@ impl History {
             raw_bearing: VecDeque::new(),
             snr: VecDeque::new(),
             confidence: VecDeque::new(),
-            coherence: VecDeque::new(),
+            uncertainty: VecDeque::new(),
             signal_strength: VecDeque::new(),
             lock_quality: VecDeque::new(),
             compass_trail: VecDeque::new(),
@@ -461,7 +479,7 @@ impl History {
             &mut self.raw_bearing,
             &mut self.snr,
             &mut self.confidence,
-            &mut self.coherence,
+            &mut self.uncertainty,
             &mut self.signal_strength,
             &mut self.lock_quality,
         ] {
@@ -493,7 +511,7 @@ struct RdfGuiApp {
     latest_bearing: Option<f32>,
     latest_confidence: Option<f32>,
     latest_snr: Option<f32>,
-    latest_coherence: Option<f32>,
+    latest_uncertainty: Option<f32>,
     latest_signal_strength: Option<f32>,
     latest_rotation_freq: Option<f32>,
     latest_lock_quality: Option<f32>,
@@ -527,7 +545,7 @@ impl RdfGuiApp {
             latest_bearing: None,
             latest_confidence: None,
             latest_snr: None,
-            latest_coherence: None,
+            latest_uncertainty: None,
             latest_signal_strength: None,
             latest_rotation_freq: None,
             latest_lock_quality: None,
@@ -562,7 +580,7 @@ impl RdfGuiApp {
             self.latest_bearing = None;
             self.latest_confidence = None;
             self.latest_snr = None;
-            self.latest_coherence = None;
+            self.latest_uncertainty = None;
             self.latest_signal_strength = None;
             self.latest_rotation_freq = None;
             self.latest_lock_quality = None;
@@ -620,16 +638,16 @@ impl RdfGuiApp {
                         self.history
                             .confidence
                             .push_back([time_secs, b.confidence as f64]);
-                        self.history
-                            .coherence
-                            .push_back([time_secs, b.coherence as f64]);
+                        if let Some(u) = b.uncertainty_deg {
+                            self.history.uncertainty.push_back([time_secs, u as f64]);
+                        }
                         self.history
                             .signal_strength
                             .push_back([time_secs, b.signal_strength as f64]);
                         self.history.compass_trail.push_back(TrailEntry {
                             bearing: b.bearing,
                             confidence: b.confidence,
-                            coherence: b.coherence,
+                            blur: blur_from(b.uncertainty_deg),
                             strength: b.signal_strength,
                             time: time_secs,
                         });
@@ -637,7 +655,7 @@ impl RdfGuiApp {
                         self.latest_bearing = Some(b.bearing);
                         self.latest_confidence = Some(b.confidence);
                         self.latest_snr = Some(b.snr_db);
-                        self.latest_coherence = Some(b.coherence);
+                        self.latest_uncertainty = b.uncertainty_deg;
                         self.latest_signal_strength = Some(b.signal_strength);
                     }
 
@@ -757,7 +775,7 @@ impl RdfGuiApp {
             let angle_rad = entry.bearing.to_radians();
             let dot_r = radius * (NEEDLE_MIN_RADIUS_FRAC + NEEDLE_RADIUS_RANGE * entry.strength);
             let pos = center + egui::vec2(angle_rad.sin() * dot_r, -angle_rad.cos() * dot_r);
-            let dot_size = TRAIL_DOT_BASE + TRAIL_DOT_SCALE * entry.coherence;
+            let dot_size = TRAIL_DOT_BASE + TRAIL_DOT_SCALE * entry.blur;
 
             let glow_alpha = (brightness * TRAIL_GLOW_ALPHA_SCALE * 255.0).clamp(0.0, 255.0) as u8;
             let glow_color = egui::Color32::from_rgba_unmultiplied(
@@ -780,7 +798,7 @@ impl RdfGuiApp {
 
         if let Some(bearing) = self.latest_bearing {
             let confidence = self.latest_confidence.unwrap_or(0.0);
-            let coherence = self.latest_coherence.unwrap_or(0.0);
+            let blur = blur_from(self.latest_uncertainty);
             let strength = self.latest_signal_strength.unwrap_or(0.0);
             let angle_rad = bearing.to_radians();
             let needle_len = radius * (NEEDLE_MIN_RADIUS_FRAC + NEEDLE_RADIUS_RANGE * strength);
@@ -793,14 +811,10 @@ impl RdfGuiApp {
                 (PHOSPHOR_COLOR.1 as f32 * bright) as u8,
                 (PHOSPHOR_COLOR.2 as f32 * bright) as u8,
             );
-            let stroke_width = NEEDLE_STROKE_BASE + NEEDLE_STROKE_SCALE * coherence;
+            let stroke_width = NEEDLE_STROKE_BASE + NEEDLE_STROKE_SCALE * blur;
 
             painter.line_segment([center, tip], egui::Stroke::new(stroke_width, needle_color));
-            painter.circle_filled(
-                tip,
-                NEEDLE_TIP_BASE + NEEDLE_TIP_SCALE * coherence,
-                needle_color,
-            );
+            painter.circle_filled(tip, NEEDLE_TIP_BASE + NEEDLE_TIP_SCALE * blur, needle_color);
 
             let tri_size = 6.0;
             let rim_pos = center + egui::vec2(angle_rad.sin() * radius, -angle_rad.cos() * radius);
@@ -858,9 +872,12 @@ impl RdfGuiApp {
             } else {
                 ui.label(dash.clone());
             }
-            ui.label(egui::RichText::new("Coh:").color(egui::Color32::LIGHT_GRAY));
-            if let Some(c) = self.latest_coherence {
-                ui.label(egui::RichText::new(format!("{:.2}", c)).color(quality_color(c)));
+            ui.label(egui::RichText::new("+/-:").color(egui::Color32::LIGHT_GRAY));
+            if let Some(u) = self.latest_uncertainty {
+                ui.label(
+                    egui::RichText::new(format!("{u:.1}deg"))
+                        .color(quality_color(1.0 - blur_from(Some(u)))),
+                );
             } else {
                 ui.label(dash.clone());
             }
@@ -958,12 +975,18 @@ impl RdfGuiApp {
 
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("Confidence / Coherence / Strength")
+            egui::RichText::new("Confidence / Certainty / Strength")
                 .color(egui::Color32::LIGHT_GRAY)
                 .small(),
         );
         let conf_pts = in_window(&self.history.confidence);
-        let coh_pts = in_window(&self.history.coherence);
+        // Uncertainty is in degrees and reads the other way round from the
+        // rest of this plot, so it is shown as the certainty it implies: the
+        // same number the needle's sharpness is drawn from.
+        let certainty_pts: Vec<[f64; 2]> = in_window(&self.history.uncertainty)
+            .into_iter()
+            .map(|[t, u]| [t, 1.0 - blur_from(Some(u as f32)) as f64])
+            .collect();
         let str_pts = in_window(&self.history.signal_strength);
         Plot::new("quality_plot")
             .height(plot_height)
@@ -983,7 +1006,8 @@ impl RdfGuiApp {
                     Line::new("Confidence", conf_pts).color(egui::Color32::from_rgb(100, 255, 100)),
                 );
                 plot_ui.line(
-                    Line::new("Coherence", coh_pts).color(egui::Color32::from_rgb(100, 100, 255)),
+                    Line::new("Certainty", certainty_pts)
+                        .color(egui::Color32::from_rgb(100, 100, 255)),
                 );
                 plot_ui.line(
                     Line::new("Strength", str_pts).color(egui::Color32::from_rgb(255, 100, 255)),

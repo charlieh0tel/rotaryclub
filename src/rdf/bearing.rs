@@ -4,13 +4,6 @@ pub use crate::constants::MIN_POWER_THRESHOLD;
 use super::NorthTick;
 use std::f32::consts::PI;
 
-/// Circular variance of a phase spread uniformly over the full turn.
-///
-/// Coherence is scored against this, so a measurement whose phases carry no
-/// information about a common bearing scores zero rather than something that
-/// depends on how the spread happened to fall.
-pub(super) const MAX_PHASE_VARIANCE: f32 = PI * PI / 3.0;
-
 /// Mean direction of a set of phases, taken as vectors so that the wrap at
 /// the turn does not pull the answer towards zero.
 pub(super) fn circular_mean_phase(phases: &[f32]) -> f32 {
@@ -112,8 +105,6 @@ pub(super) fn bearing_uncertainty_deg(
 pub struct ConfidenceMetrics {
     /// Signal-to-noise ratio in dB
     pub snr_db: f32,
-    /// Phase stability across the buffer (0-1, higher is more stable)
-    pub coherence: f32,
     /// Normalized signal power (0-1)
     pub signal_strength: f32,
     /// Estimated one-sigma uncertainty of this bearing, in degrees, or None
@@ -198,7 +189,6 @@ mod tests {
     fn metrics_with(uncertainty: Option<f32>) -> ConfidenceMetrics {
         ConfidenceMetrics {
             snr_db: 20.0,
-            coherence: 1.0,
             signal_strength: 1.0,
             bearing_uncertainty_deg: uncertainty,
         }

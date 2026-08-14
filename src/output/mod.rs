@@ -23,7 +23,9 @@ pub struct BearingOutput {
     pub raw: f32,
     pub confidence: f32,
     pub snr_db: f32,
-    pub coherence: f32,
+    /// One-sigma bearing uncertainty in degrees, or None where it could not
+    /// be estimated.
+    pub bearing_uncertainty_deg: Option<f32>,
     pub signal_strength: f32,
     pub lock_quality: Option<f32>,
     pub phase_error_variance: Option<f32>,

@@ -13,13 +13,24 @@
 
 use super::{BearingOutput, Formatter, timestamp_millis};
 
+/// SNR, in dB, taken as a full-scale tone peak.
+const TONE_PEAK_FULL_SCALE_DB: f32 = 40.0;
+
 pub struct Kn5rFormatter;
 
 impl Formatter for Kn5rFormatter {
     fn format(&self, output: &BearingOutput) -> String {
         let angle = (output.bearing * 10.0).round() as u16 % 3600;
         let magnitude = (output.signal_strength.clamp(0.0, 1.0) * 999.0).round() as u16;
-        let tone_peak = (output.coherence.clamp(0.0, 1.0) * 999.0).round() as u16;
+        // What the receiving end expects in "tone peak" is not documented
+        // anywhere available here: the reference points at a data-format.md
+        // in the kn5r-rdf project, which is not vendored, and nothing in this
+        // repo describes it. Feeding it from SNR is a guess, though a better
+        // one than the coherence it replaced, which sat near full scale
+        // whatever the signal did. Verify against the KN5R side before
+        // relying on it.
+        let tone_peak =
+            ((output.snr_db / TONE_PEAK_FULL_SCALE_DB).clamp(0.0, 1.0) * 999.0).round() as u16;
         let ts = timestamp_millis();
 
         format!("C{angle:04}{magnitude:03}{tone_peak:03}{ts:015}")

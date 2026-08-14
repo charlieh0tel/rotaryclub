@@ -20,12 +20,14 @@ impl Formatter for TextFormatter {
                 .phase_error_variance
                 .map_or("-".to_string(), |v| format!("{:.4}", v));
             format!(
-                "Bearing: {:>6.1}° (raw: {:>6.1}°) conf: {:.2} [SNR: {:>5.1} dB, coh: {:.2}, str: {:.2}, lock: {}, pev: {}]",
+                "Bearing: {:>6.1}° (raw: {:>6.1}°) conf: {:.2} [SNR: {:>5.1} dB, +/-{}, str: {:.2}, lock: {}, pev: {}]",
                 output.bearing,
                 output.raw,
                 output.confidence,
                 output.snr_db,
-                output.coherence,
+                output
+                    .bearing_uncertainty_deg
+                    .map_or("?".to_string(), |u| format!("{u:.1}deg")),
                 output.signal_strength,
                 lock,
                 pev

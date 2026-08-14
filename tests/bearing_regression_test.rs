@@ -429,7 +429,12 @@ fn test_bearing_metrics_are_finite_and_bounded() {
     assert!(corr_m.bearing_degrees.is_finite());
     assert!(corr_m.raw_bearing.is_finite());
     assert!(corr_m.metrics.snr_db.is_finite());
-    assert!((0.0..=1.0).contains(&corr_m.metrics.coherence));
+    assert!(
+        corr_m
+            .metrics
+            .bearing_uncertainty_deg
+            .is_some_and(|u| u.is_finite() && u >= 0.0)
+    );
     assert!((0.0..=1.0).contains(&corr_m.metrics.signal_strength));
     assert!((0.0..=1.0).contains(&corr_m.confidence));
 
@@ -447,7 +452,11 @@ fn test_bearing_metrics_are_finite_and_bounded() {
     assert!(zc_m.bearing_degrees.is_finite());
     assert!(zc_m.raw_bearing.is_finite());
     assert!(zc_m.metrics.snr_db.is_finite());
-    assert!((0.0..=1.0).contains(&zc_m.metrics.coherence));
+    assert!(
+        zc_m.metrics
+            .bearing_uncertainty_deg
+            .is_some_and(|u| u.is_finite() && u >= 0.0)
+    );
     assert!((0.0..=1.0).contains(&zc_m.metrics.signal_strength));
     assert!((0.0..=1.0).contains(&zc_m.confidence));
 }

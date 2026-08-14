@@ -11,13 +11,16 @@ impl Formatter for CsvFormatter {
             .phase_error_variance
             .map_or(String::new(), |v| format!("{:.4}", v));
         format!(
-            "{},{:.1},{:.1},{:.2},{:.1},{:.2},{:.2},{},{}",
+            "{},{:.1},{:.1},{:.2},{:.1},{},{:.2},{},{}",
             iso8601_timestamp(),
             output.bearing,
             output.raw,
             output.confidence,
             output.snr_db,
-            output.coherence,
+            output
+                .bearing_uncertainty_deg
+                .map(|u| format!("{u:.2}"))
+                .unwrap_or_default(),
             output.signal_strength,
             lock,
             pev
@@ -26,7 +29,7 @@ impl Formatter for CsvFormatter {
 
     fn header(&self) -> Option<&'static str> {
         Some(
-            "ts,bearing,raw,confidence,snr_db,coherence,signal_strength,lock_quality,phase_error_variance",
+            "ts,bearing,raw,confidence,snr_db,bearing_uncertainty_deg,signal_strength,lock_quality,phase_error_variance",
         )
     }
 }
