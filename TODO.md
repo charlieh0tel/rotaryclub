@@ -3,7 +3,27 @@
 - File rotation for --dump-audio to bound disk usage on very long recordings
   (memory growth is fixed: dumps stream to disk incrementally)
 - Add criterion benchmarks for DSP pipeline (FIR filters, AGC, I/Q correlation)
-- Improve zero-crossing coherence metric (sub-window phase variance like correlation method)
+
+## Bearing Confidence
+
+- [ ] Coherence saturates, in both bearing methods, and so contributes almost
+      nothing to the confidence score. It is normalized against the circular
+      variance of a phase spread over the whole turn, `PI * PI / 3`, so it only
+      leaves 1.0 when the phases carry no common bearing at all. Measured with
+      `config_compare` on a synthetic signal, driving noise until the bearing
+      is worthless:
+
+        noise    0.15   0.30   0.60   1.00   2.00
+        bearing  0.18    .25    .43    .72  39.82   correlation, degrees
+        coher.  1.0000 1.0000 1.0000 0.9999 0.9994
+        bearing  0.92   1.89   3.82   6.26  35.56   zero crossing, degrees
+        coher.  1.0000 0.9999 0.9997 0.9992 0.9895
+
+      A metric that reads 0.999 when the bearing is 40 degrees wrong is not
+      carrying information into the confidence. Rescaling it changes what
+      every confidence score means, so it needs deciding rather than quietly
+      adjusting: either normalize against a spread that represents a bearing
+      worth distrusting, or drop coherence from the weighting and say so.
 
 ## North Tick Tracking
 
