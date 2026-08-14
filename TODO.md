@@ -66,62 +66,38 @@
       exactly unchanged, and it recovers a pulse of 0.15 that the fixed-gain
       detector misses entirely.
 
-- [ ] The north detection threshold has less margin than the sweep that chose
-      it showed. That sweep ran with noise carrying a seventh of the in-band
-      energy it claimed, so its noise 0.10 column is about noise 0.04 in real
-      terms. Re-run with the generator fixed, at the shipped threshold of 0.15
-      and full pulse amplitude:
+- [x] The north detection threshold has less margin than the sweep that chose
+      it showed. Re-measured twice, and the answer changed in between.
+      The first re-measurement, before the north AGC existed, found that the
+      amplitude at which detection collapses tracks the threshold at about 1.6
+      times it, so 0.15 detects down to a pulse of 0.25 and 0.25 only to 0.42.
+      Against the 0.8 expected that is a factor of 3.2 on receiver level
+      against 1.9, and it was the reason to leave the threshold alone.
+      The AGC removes that cost, because it normalises the level the threshold
+      meets. With it running, detection at a threshold of 0.25 holds at 0.92
+      or better down to a pulse of 0.15, where before it was zero below 0.42:
 
-        north noise rms   0.05   0.10   0.20   0.40
-        detection         1.00   1.00   0.50   0.49
+        thresh\amp  1.00  0.80  0.60  0.50  0.42  0.35  0.30  0.25  0.20  0.15
+        0.15        1.00  1.00  1.00  1.00  1.00  1.00  1.00  1.00  0.97  0.99
+        0.25        1.00  1.00  1.00  1.00  1.00  0.98  0.92  0.99  0.99  0.99
 
-      and sweeping the threshold at north noise 0.20, where 0.15 fails:
+      and the noise margin that a higher threshold buys is real:
 
-        threshold         0.05   0.10   0.15   0.25   0.40   0.60
-        detection         0.37   0.50   0.50   1.00   1.00   0.23
+        thresh\noise    0.00   0.05   0.10   0.20   0.30   0.40
+        0.15            1.00   1.00   0.98   0.90   0.67   0.45
+        0.25            1.00   1.00   0.99   0.95   0.75   0.57
 
-      Raising the threshold *improves* detection, which says the failure is
-      early triggering on noise followed by the dead time masking the real
-      pulse -- detection pinned at almost exactly one half is every other
-      pulse lost, which is what a dead time slightly longer than a rotation
-      produces when it starts early.
-      Not a reason to move the default on its own. The real captures detect
-      18628 of 18630 and 121073 of 121074, and the pipeline scenario carries
-      north noise near rms 0.1, where 0.15 still takes everything. But the
-      margin above the shipped value is about one doubling of channel noise,
-      not the comfortable band the original sweep implied, and 0.25 holds a
-      factor of four further out at no measured cost in the harness.
-      Worth settling with a capture from a genuinely noisy channel, which is
-      the same thing the highpass question needs.
-
-- [x] Sweep `highpass_cutoff` again, with the current estimator and a finer
-      grid. Done, on all three captures, 250 Hz to 3 kHz in fine steps at the
-      shipped 63 taps. The shipped 1 kHz is already at the optimum, which is a
-      broad basin from 1000 to 1250 Hz. Fit residual for the shipped energy
-      centroid, in degrees:
-
-        cutoff   none   500   750  1000  1250  1500  2000  3000
-        ft-70d  3.576 3.506 3.478 3.472 3.472 3.484 3.503 3.512
-        wouxun1 0.460 0.535 0.494 0.441 0.438 0.453 0.536 0.562
-        wouxun3 0.358 0.422 0.378 0.337 0.335 0.356 0.451 0.507
-
-      1250 Hz beats 1000 by 0.002 to 0.003 degrees, which is not a reason to
-      move. The hint that the filter still costs timing at 1 kHz is refuted:
-      filtering at 1 kHz beats not filtering at all on every capture.
-      Filter length was swept with it. 63 taps is the right choice: 31 is
-      worse everywhere, and 127 helps ft-70d by 0.1 degrees while hurting the
-      wouxun captures by 0.01.
-      The estimator and cutoff do interact, as expected. The amplitude
-      centroid at 2 kHz beats the energy centroid at 1250 on both wouxun
-      captures, 0.367 against 0.438 and 0.290 against 0.335, and ties on
-      ft-70d. That pairing is worth knowing but not worth taking: it is half a
-      percent of a sample, it is measured on three captures from two radios,
-      and the amplitude centroid is markedly worse than the energy centroid
-      everywhere below 1500 Hz, so the pair is sharp where the current one is
-      flat.
-      Note what this metric is. Residuals are scored against a fitted constant
-      rate, so it measures jitter and absorbs any constant delay, and it
-      includes whatever the radio itself contributes.
+      0.15 stays anyway, because the AGC is DPLL-only and the threshold is
+      not. In simple mode the cliff is exactly where it was, and both 0.20 and
+      0.25 fail `test_north_tick_detection_under_hum_clipping_and_drift`,
+      which is a simple-mode floor. A default that suits one tracker and
+      quietly costs the other its level margin is worse than one that is
+      merely conservative for the first.
+      For a DPLL-only deployment, 0.25 is available and is worth about a
+      quarter of the detection rate at 0.3 RMS of channel noise. Whether the
+      threshold should follow the tracking mode, or be expressed as a fraction
+      of `expected_pulse_amplitude` now that the AGC makes that meaningful, is
+      the question this leaves behind.
 
 - [ ] Price what the highpass is for, with a capture that bleeds audio into
       the north channel. That is the only argument for filtering high, and no

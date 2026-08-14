@@ -208,6 +208,16 @@ detection in a regime where the false positive rate has already reached 0.18.
 0.25 and 0.20 both also fail `test_north_tick_detection_under_hum_clipping_and_drift`.
 0.15 stays.
 
+The north AGC changes half of this and not the other half. Where it runs, it
+normalises the level the threshold meets, so the amplitude cliff stops being a
+cost: at a threshold of 0.25 detection then holds at 0.92 or better down to a
+pulse of 0.15, against zero below 0.42 without it. The noise margin a higher
+threshold buys is unaffected and still real -- 0.95 against 0.90 at 0.2 RMS,
+0.75 against 0.67 at 0.3. But the AGC is DPLL-only and the threshold is not, so
+in simple mode the cliff sits exactly where it did, and a default of 0.25 would
+buy the loop some noise margin by quietly taking level margin from the tracker
+that has no gain control. For a DPLL-only deployment 0.25 is the better value.
+
 An earlier version of this section reported a wide plateau from 0.10 to 0.40
 and a shared amplitude cliff at 0.3 regardless of threshold. Both were wrong.
 The sweep behind them ran in Simple mode, which is not what ships, and scaled
