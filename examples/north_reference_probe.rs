@@ -143,9 +143,10 @@ fn main() {
     // correction nothing to fix -- so it contributes only the oscillator's own
     // residual phase wander. This is the cost of that, per estimator.
     println!("\ndpll timing against a pulse train, by estimator");
+    println!("ten second run, mean tick error in samples by third");
     println!(
-        "{:>18} {:>10} {:>10} {:>10} {:>10}",
-        "estimator", "mean", "worst", "mean off", "worst off"
+        "{:>18} {:>12} {:>12} {:>12}",
+        "estimator", "first", "second", "third"
     );
     let period = sample_rate as f64 / config.doppler.expected_freq as f64;
     for estimator in [
@@ -156,7 +157,7 @@ fn main() {
         let mut cfg = RdfConfig::default();
         cfg.north_tick.estimator = estimator;
 
-        let total = 48_000usize;
+        let total = 480_000usize;
         let mut train = vec![0.0f32; total];
         let mut epochs = Vec::new();
         let mut k = 0i64;
@@ -204,17 +205,14 @@ fn main() {
                 errors.push(tick - nearest);
             }
         }
-        let mean = errors.iter().sum::<f64>() / errors.len().max(1) as f64;
-        let worst = errors
-            .iter()
-            .fold(0.0f64, |a, b| if b.abs() > a.abs() { *b } else { a });
+        let third = errors.len() / 3;
+        let seg = |s: &[f64]| s.iter().sum::<f64>() / s.len().max(1) as f64;
         println!(
-            "{:>18} {:>10.4} {:>10.4} {:>10} {:>10}",
+            "{:>18} {:>12.4} {:>12.4} {:>12.4}",
             format!("{estimator:?}"),
-            mean,
-            worst,
-            "-",
-            "-"
+            seg(&errors[..third]),
+            seg(&errors[third..2 * third]),
+            seg(&errors[2 * third..])
         );
     }
 }

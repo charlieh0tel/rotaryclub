@@ -256,6 +256,35 @@ fn main() {
         );
     }
 
+    // The loop bandwidth is about a hertz, so a half-second run is still
+    // acquiring for most of its length. Sweeping duration separates what the
+    // pipeline gets wrong in steady state from what it is still settling out of.
+    println!("\nresidual at trim 0, against run length");
+    println!("{:<14} {:>14}", "seconds", "error (deg)");
+    for seconds in [0.5f32, 1.0, 2.0, 5.0, 10.0] {
+        let mut config = RdfConfig::default();
+        config.audio.sample_rate = sample_rate;
+        config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
+        config.doppler.method = BearingMethod::Correlation;
+        config.doppler.north_tick_timing_adjustment_us = 0.0;
+        let n = (sample_rate as f32 * seconds) as usize;
+        let signal = build_signal(
+            n,
+            sample_rate as f32,
+            rotation_hz,
+            truth,
+            Placement::TrueEpoch,
+            Shape::BandLimited,
+            config.north_tick.expected_pulse_amplitude,
+            0,
+            0.0,
+        );
+        match measure(&signal, &config, truth) {
+            Some(v) => println!("{seconds:<14.1} {v:>14.3}"),
+            None => println!("{seconds:<14.1} {:>14}", "none"),
+        }
+    }
+
     println!("\nresidual at trim 0, against buffer size and AGC");
     println!(
         "{:<12} {:>14} {:>16}",
