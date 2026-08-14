@@ -6,11 +6,17 @@
 //! signal degrades, and it must not read lower than the scatter it describes.
 //!
 //! The second is the one with teeth. Reducing the reference term by the
-//! averaging the loop performs on top of the detections is correct as
-//! filter theory and wrong here, because as the signal degrades the tick's
-//! error stops being scatter and becomes a displacement the loop follows.
-//! That change passes every other test in the suite and makes this figure
+//! averaging the loop performs on top of the detections is correct as filter
+//! theory and wrong here, because as the signal degrades the tick's error
+//! stops being scatter and becomes a displacement the loop follows. That
+//! change passes every other test in the suite and makes this figure
 //! understate a worthless bearing sixteenfold.
+//!
+//! An earlier version of this file justified its design by a systematic bias
+//! in the zero-crossing bearing method. There is no such bias: it was an
+//! artifact of a noise generator that produced half a DC offset, and the two
+//! bearing methods measure within hundredths of a degree of each other once
+//! the noise they are judged with is noise.
 
 use std::f32::consts::PI;
 
@@ -179,13 +185,12 @@ fn test_stated_uncertainty_grows_with_degradation() {
 /// The figure describes precision, and precision is all it can describe.
 ///
 /// It is built from the spread of the phase estimates, so it covers the part
-/// of the error that scatters and cannot cover a constant displacement. That
-/// limit is not academic: the zero-crossing method's error is almost entirely
-/// a bias which grows with noise -- two degrees of offset against two degrees
-/// of mean error at noise 0.3, six and a half against six -- so a figure that
-/// covered its total error would have to be measuring something this one
-/// structurally cannot see. Asserting against the scatter is asserting what
-/// the number actually claims.
+/// of the error that scatters and cannot cover a displacement they all share.
+/// A north tick that is late by the same amount every rotation moves every
+/// bearing equally and leaves the spread untouched; that is why the reference
+/// contributes its own term. Asserting against the scatter is asserting what
+/// the number claims, and asserting against total error would be asserting
+/// something it does not.
 #[test]
 fn test_stated_uncertainty_does_not_understate_the_scatter() {
     for method in [BearingMethod::Correlation, BearingMethod::ZeroCrossing] {

@@ -28,7 +28,7 @@ bearing = (phase_offset / 2π) × 360°
 ## Signal Processing
 
 ### North Tick Detection (Right Channel)
-1. Highpass filter at 5 kHz (isolate 20µs pulse transients)
+1. Highpass filter at 1 kHz (isolate 20µs pulse transients)
 2. Peak detection with 0.15 threshold and 0.6ms minimum spacing
 3. Sub-sample pulse estimation (configurable): the detected peak is an
    integer sample index, and one sample at 48 kHz is 12° of bearing, so the
@@ -40,9 +40,12 @@ bearing = (phase_offset / 2π) × 360°
    The two centroids differ only in how weight spreads across the pulse.
    Amplitude weighting gives the skirts more say and wins on a narrow pulse;
    energy weighting concentrates on the peak and wins on a wider one.
-   Measured on the captures in `data/` at the 1 kHz cutoff, energy leads
-   0.69 degrees to 0.89; at 5 kHz, where the filter leaves a narrower pulse,
-   that reverses to 1.57 against 0.60.
+   Measured on the captures in `data/` at the 1 kHz cutoff, unclipped energy
+   leads at 0.44 degrees against amplitude's 0.52. The figures once quoted
+   here -- 0.69 against 0.89, reversing to 1.57 against 0.60 at 5 kHz -- were
+   the clipped energy centroid, which is not what ships: clipping helps an odd
+   weighting exponent and harms an even one, and the energy centroid stopped
+   clipping. The reversal with cutoff went with it.
 4. Rotation tracking (configurable):
    - **DPLL mode** (default): Digital PLL locks onto rotation frequency for smooth tracking
    - **Simple mode**: Exponential smoothing of period measurements
@@ -137,7 +140,10 @@ Channel assignment is configurable via `ChannelRole` enum.
 Test file (11.6s, moving radio source):
 - **Rotation detection:** 1601.0 Hz (99.9% accurate)
 - **Measurement rate:** 265 bearings/sec
-- **Confidence:** 0.90-1.00
+- **Confidence:** signal-dependent; see `bearing_uncertainty_deg`. A clean
+  synthetic signal reads about 0.97 and a bearing forty degrees out reads
+  0.02. The 0.90-1.00 once quoted here described the weighted-sum score that
+  floored near 0.59 whatever the signal did, and is not comparable.
 - **Latency:** <100ms
 - **CPU usage:** <5%
 
@@ -164,9 +170,11 @@ Test file (11.6s, moving radio source):
 1. **Calibration system**: Phase offsets, amplitude compensation,
    temperature drift
 
-(Correlation-based phase detection and SNR/coherence confidence metrics,
-previously listed here, are implemented — correlation is the default
-bearing method.)
+(Correlation-based phase detection, previously listed here, is implemented and
+is the default bearing method. The coherence metric that was listed alongside
+it has been removed: it was normalised against the circular variance of a
+whole turn, so it read 0.99 on a bearing that was tens of degrees wrong.
+Confidence now derives from an estimated bearing uncertainty in degrees.)
 
 Note: adaptive thresholding for north tick detection is not a priority, and
 this is measured rather than assumed. `examples/north_threshold_sweep` sweeps

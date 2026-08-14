@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 
-def load_and_prepare(source, min_confidence, min_coherence):
+def load_and_prepare(source, min_confidence, max_uncertainty):
     """Load CSV and prepare dataframe with time column."""
     if isinstance(source, str) or isinstance(source, Path):
         df = pd.read_csv(source)
@@ -26,7 +26,15 @@ def load_and_prepare(source, min_confidence, min_coherence):
         df['ts'] = pd.to_datetime(df['ts'])
         df['time_s'] = (df['ts'] - df['ts'].iloc[0]).dt.total_seconds()
 
-    mask = (df['confidence'] >= min_confidence) & (df['coherence'] >= min_coherence)
+    # An empty uncertainty means the tracker could not estimate one. Those
+    # rows are dropped rather than kept: a bearing that made no claim about
+    # its own quality is not one to plot as though it had.
+    uncertainty = pd.to_numeric(df['bearing_uncertainty_deg'], errors='coerce')
+    mask = (
+        (df['confidence'] >= min_confidence)
+        & uncertainty.notna()
+        & (uncertainty <= max_uncertainty)
+    )
     return df, df[mask]
 
 
@@ -49,8 +57,9 @@ def main():
                         help='Output file path')
     parser.add_argument('--min-confidence', type=float, default=0.5,
                         help='Minimum confidence threshold (0.0-1.0, default: 0.5)')
-    parser.add_argument('--min-coherence', type=float, default=0.5,
-                        help='Minimum coherence threshold (0.0-1.0, default: 0.5)')
+    parser.add_argument('--max-uncertainty', type=float, default=12.0,
+                        help='Largest stated bearing uncertainty to plot, in degrees '
+                             '(default: 12.0, one sample of north timing)')
     parser.add_argument('--no-show', action='store_true',
                         help='Do not display the plot (just save)')
     args = parser.parse_args()
@@ -67,13 +76,14 @@ def plot_single(args):
     """Original single-file plotting mode."""
     if args.csv_file:
         df, df_filtered = load_and_prepare(
-            args.csv_file, args.min_confidence, args.min_coherence)
+            args.csv_file, args.min_confidence, args.max_uncertainty)
     else:
         df, df_filtered = load_and_prepare(
-            sys.stdin, args.min_confidence, args.min_coherence)
+            sys.stdin, args.min_confidence, args.max_uncertainty)
 
     print(f"Plotting {len(df_filtered)}/{len(df)} points "
-          f"(confidence >= {args.min_confidence}, coherence >= {args.min_coherence})")
+          f"(confidence >= {args.min_confidence}, "
+          f"uncertainty <= {args.max_uncertainty} deg)")
 
     fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
 
@@ -89,7 +99,8 @@ def plot_single(args):
 
     ax2 = axes[1]
     ax2.scatter(df['time_s'], df['confidence'], s=1, alpha=0.5, label='Confidence')
-    ax2.scatter(df['time_s'], df['coherence'], s=1, alpha=0.5, label='Coherence')
+    ax2.scatter(df['time_s'], df['bearing_uncertainty_deg'], s=1, alpha=0.5,
+                label='Uncertainty (deg)')
     ax2.set_xlabel('Time (seconds)')
     ax2.set_ylabel('Quality Metric')
     ax2.set_ylim(0, 1)
@@ -118,7 +129,7 @@ def plot_comparison(args):
 
     if args.correlation:
         df_corr, df_corr_f = load_and_prepare(
-            args.correlation, args.min_confidence, args.min_coherence)
+            args.correlation, args.min_confidence, args.max_uncertainty)
         if len(df_corr) == 0:
             print("Correlation: no data")
             df_corr = df_corr_f = None
@@ -127,7 +138,7 @@ def plot_comparison(args):
 
     if args.zero_crossing:
         df_zc, df_zc_f = load_and_prepare(
-            args.zero_crossing, args.min_confidence, args.min_coherence)
+            args.zero_crossing, args.min_confidence, args.max_uncertainty)
         if len(df_zc) == 0:
             print("Zero-crossing: no data")
             df_zc = df_zc_f = None

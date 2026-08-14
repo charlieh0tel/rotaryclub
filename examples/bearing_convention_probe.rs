@@ -256,7 +256,7 @@ fn main() {
         );
     }
 
-    // The loop bandwidth is about a hertz, so a half-second run is still
+    // The loop bandwidth is a couple of hertz, so a half-second run is still
     // acquiring for most of its length. Sweeping duration separates what the
     // pipeline gets wrong in steady state from what it is still settling out of.
     println!("\nresidual at trim 0, against run length");

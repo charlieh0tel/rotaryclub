@@ -153,9 +153,10 @@ pub struct ConfidenceMetrics {
     ///
     /// This is precision, not accuracy, and cannot be otherwise: it is built
     /// from how much the estimates disagree, so a displacement they all share
-    /// is invisible to it. The zero-crossing method's error is almost entirely
-    /// such a displacement, growing to six degrees of offset under noise, and
-    /// no spread-derived figure will ever see it.
+    /// is invisible to it. A mistimed north tick is exactly such a
+    /// displacement -- it moves every estimate equally and leaves the spread
+    /// untouched -- which is why the reference contributes its own term rather
+    /// than being inferred from the scatter.
     ///
     /// Unlike `coherence` it is still a claim that can be checked, and
     /// `tests/bearing_uncertainty_test.rs` checks it: it must grow as the

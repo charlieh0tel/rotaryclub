@@ -99,8 +99,9 @@ impl ZeroCrossingBearingCalculator {
         // the fraction of the expected crossings that were found, so it does
         // say whether there was anything to measure, and a buffer holding
         // almost none of them has nothing to report. It is deliberately not
-        // in the confidence score: the detector keeps finding crossings in
-        // noise, so it reads 0.995 on a bearing six degrees out.
+        // in the confidence score: the detector goes on finding crossings as
+        // the signal degrades, so it stays near unity long after the bearing
+        // has stopped being usable.
         if metrics.signal_strength < self.base.confidence().min_signal_strength {
             return None;
         }

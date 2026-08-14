@@ -22,7 +22,9 @@ C  AAAA  MMM  TTT  UUUUUUUUUUUUUUU
    +------------------ bearing x 10, 0-3599
 ```
 
-Example: `C34699600841663117493011` is 346.9 degrees, magnitude 960, tone 084.
+Example: `C3469960084001663117493011` is 346.9 degrees, magnitude 960, tone
+084. The timestamp is zero-padded to 15 digits, making the sentence 26
+characters.
 
 ## The questions
 
@@ -47,7 +49,8 @@ Example: `C34699600841663117493011` is 346.9 degrees, magnitude 960, tone 084.
    peak?**
 
    We send a normalised signal strength: for the correlation method, the
-   fraction of buffer power that correlated with the rotation reference. If
+   square root of the fraction of buffer power that correlated with the
+   rotation reference, so it is linear in amplitude rather than power. If
    magnitude is meant to be an absolute level and tone peak a quality figure,
    ours may be the wrong way round.
 

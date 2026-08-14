@@ -7,7 +7,10 @@
 //! - Positions 8-10: tone peak (0-999), zero-padded
 //! - Positions 11-25: Unix timestamp in milliseconds, zero-padded
 //!
-//! Example: `C34699600841663117493011` = 346.9°, magnitude 960, tone 084
+//! Example: `C3469960084001663117493011` = 346.9°, magnitude 960, tone 084.
+//! Note the timestamp is zero-padded to 15 digits, so the whole sentence is
+//! 26 characters; an earlier version of this example showed 13 and so was 24,
+//! which would put every field offset wrong for anyone parsing by position.
 //!
 //! Reference: <https://github.com/kn5r/kn5r-rdf> (see docs/data-format.md)
 

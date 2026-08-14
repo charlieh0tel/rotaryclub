@@ -24,6 +24,22 @@ pub struct NorthTick {
     /// Doppler tone cannot see this: a reference that is late by the same
     /// amount every rotation moves every bearing equally and leaves the tone
     /// looking perfectly coherent.
+    ///
+    /// The DPLL reports the scatter of its detections here, deliberately not
+    /// reduced by the averaging the loop performs on top of them. That
+    /// reduction is real -- while the phase correction runs, the reported time
+    /// is pulled onto an oscillator estimate resting on the loop's whole
+    /// memory, 755 ticks at the shipped bandwidth, so the reported tick
+    /// scatters some twenty-seven times less than this figure says. Dividing
+    /// by it was tried and measured, and it makes the number worse where it
+    /// matters: as the signal degrades the tick's error stops being scatter
+    /// and becomes a displacement the loop follows, invisible from inside
+    /// because the oscillator agrees with the detections dragging it. Taking
+    /// the reduction turned a figure that brackets the true error into one
+    /// that understates it sixteenfold exactly when a bearing is worthless.
+    ///
+    /// The simple tracker has no oscillator, and derives the same quantity
+    /// from the scatter of the intervals between its detections.
     pub phase_variance: Option<f32>,
     /// Fractional timing offset (samples) relative to `sample_index`.
     /// Positive means the effective tick time is after `sample_index`.

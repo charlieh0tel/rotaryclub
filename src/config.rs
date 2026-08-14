@@ -442,7 +442,7 @@ pub struct BearingConfig {
     pub north_offset_degrees: f32,
     /// Timeout in seconds before warning about missing north tick (live capture only)
     pub north_tick_warning_timeout_secs: f32,
-    /// Weights for combining confidence metrics into overall score
+    /// How the estimated bearing uncertainty becomes a confidence score
     pub confidence: ConfidenceConfig,
 }
 
@@ -468,8 +468,9 @@ pub struct ConfidenceConfig {
     ///
     /// This is a validity gate rather than a quality term. Signal strength
     /// answers whether there was anything to measure, not whether the answer
-    /// is good: the zero-crossing detector keeps finding crossings in noise,
-    /// so it reads 0.995 on a bearing that is six degrees out.
+    /// is good: the zero-crossing detector goes on finding crossings as the
+    /// signal degrades, so it stays near unity long after the bearing has
+    /// stopped being usable.
     ///
     /// The floor is low on purpose, because the two methods do not measure
     /// the same thing by this name. Zero crossing reports the fraction of
@@ -516,7 +517,7 @@ impl Default for LockQualityWeights {
 /// Normalizes signal amplitude variations for consistent processing.
 #[derive(Debug, Clone)]
 pub struct AgcConfig {
-    /// Target RMS signal level (0-1 range, typically 0.5)
+    /// Target RMS signal level (0-1 range, default 0.3)
     pub target_rms: f32,
     /// Attack time constant in milliseconds (how fast gain decreases for loud signals)
     pub attack_time_ms: f32,
@@ -526,7 +527,7 @@ pub struct AgcConfig {
     pub measurement_window_ms: f32,
     /// Minimum gain (prevents excessive attenuation, default: 0.1 = -20dB)
     pub min_gain: f32,
-    /// Maximum gain (prevents excessive amplification, default: 10.0 = +20dB)
+    /// Maximum gain (prevents excessive amplification, default: 5.0 = +14 dB)
     pub max_gain: f32,
 }
 

@@ -83,9 +83,15 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 
 - `bearing`: Smoothed azimuth estimate in degrees, wrapped to `[0, 360)`.
 - `raw`: Instantaneous unsmoothed azimuth estimate in degrees, wrapped to `[0, 360)`.
-- `confidence`: Combined quality score in `[0, 1]` from weighted normalized SNR, coherence, and signal strength.
+- `confidence`: Quality score in `[0, 1]`, derived from `bearing_uncertainty_deg` as
+  `1 / (1 + (uncertainty / half_confidence_deg)^2)`. It reads 0.5 at the configured
+  half-confidence point, six degrees by default, and 0 when the uncertainty could not
+  be estimated at all — which is the absence of a claim, not a claim of a bad bearing.
+- `bearing_uncertainty_deg`: Estimated one-sigma uncertainty of this bearing, in degrees,
+  from the spread of the individual phase estimates and the timing scatter of the north
+  reference they were measured against. Empty when it cannot be estimated. This is
+  precision rather than accuracy: a displacement every estimate shares is invisible to it.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
-- `coherence`: Phase-consistency metric in `[0, 1]` (correlation: sub-window circular phase variance; zero-crossing: crossing-interval regularity).
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
 
 #### North Tracking Quality Measures
@@ -161,11 +167,11 @@ The `scripts/plot_bearings.py` script visualizes bearing data from CSV output.
 # Generate CSV from a WAV file
 rotaryclub -i recording.wav -f csv > recording.csv
 
-# Plot with default thresholds (confidence >= 0.5, coherence >= 0.5)
+# Plot with the default confidence threshold (0.5)
 python3 scripts/plot_bearings.py recording.csv
 
-# Custom thresholds
-python3 scripts/plot_bearings.py recording.csv --min-confidence 0.7 --min-coherence 0.6
+# Custom thresholds: confidence, and a ceiling on the stated uncertainty
+python3 scripts/plot_bearings.py recording.csv --min-confidence 0.7 --max-uncertainty 4.0
 ```
 
 Requires `pandas` and `matplotlib`.

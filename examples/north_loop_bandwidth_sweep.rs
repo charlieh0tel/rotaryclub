@@ -1,6 +1,6 @@
 //! What does the DPLL's loop bandwidth buy, and what does it cost?
 //!
-//! `dpll.natural_frequency_hz` ships at 1 Hz. A wider loop acquires faster and
+//! `dpll.natural_frequency_hz` ships at 2 Hz. A wider loop acquires faster and
 //! follows a moving rate more closely; a narrower one averages more of the
 //! measurement's noise out of the reported tick. The coasting budget sits on
 //! the far side of that trade: it is derived from the scatter of the frequency
