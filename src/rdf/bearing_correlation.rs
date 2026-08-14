@@ -3,9 +3,10 @@ use crate::error::Result;
 use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
-use super::bearing::MIN_POWER_THRESHOLD;
+use super::bearing::{
+    MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, circular_mean_phase, wrap_phase_diff,
+};
 const COHERENCE_WINDOW_COUNT: usize = 4;
-const MAX_PHASE_VARIANCE: f32 = PI * PI / 3.0;
 const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
 // Below this normalized correlation magnitude there is no Doppler tone to
 // measure (a dead channel yields i = q = 0 and atan2(0, 0) would report a
@@ -16,20 +17,6 @@ const MIN_CORRELATION_MAGNITUDE: f32 = 1e-6;
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
 use super::{BearingCalculator, BearingMeasurement, ConfidenceMetrics, NorthTick};
-
-fn circular_mean_phase(phases: &[f32]) -> f32 {
-    let (sum_sin, sum_cos) = phases
-        .iter()
-        .fold((0.0_f32, 0.0_f32), |(acc_sin, acc_cos), &p| {
-            (acc_sin + p.sin(), acc_cos + p.cos())
-        });
-    sum_sin.atan2(sum_cos)
-}
-
-fn wrap_phase_diff(phase: f32, reference: f32) -> f32 {
-    let diff = (phase - reference).rem_euclid(2.0 * PI);
-    if diff > PI { diff - 2.0 * PI } else { diff }
-}
 
 /// Correlation-based bearing calculator using I/Q demodulation
 ///

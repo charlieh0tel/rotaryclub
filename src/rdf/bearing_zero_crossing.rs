@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
-use super::bearing::MIN_POWER_THRESHOLD;
+use super::bearing::{MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, wrap_phase_diff};
 
 const DEFAULT_SINGLE_CROSSING_COHERENCE: f32 = 0.5;
 
@@ -123,17 +123,29 @@ impl ZeroCrossingBearingCalculator {
             0.0
         };
 
+        // Spread of the per-crossing phases about the bearing they were
+        // averaged into, scored the same way the correlation method scores the
+        // spread of its sub-window phases.
+        //
+        // What this replaced measured the regularity of the intervals between
+        // crossings instead. That is a different quantity: a tone whose
+        // crossings are evenly spaced but sitting at the wrong phase scores
+        // well on it, and it says nothing about how much the phases disagree
+        // with each other. Both calculators report `coherence` into the same
+        // confidence weighting, so the two have to mean the same thing or the
+        // score changes meaning when the method is switched.
         let coherence = if crossings.len() >= 2 {
-            let expected_interval = samples_per_rotation;
-            let mean_error: f32 = crossings
-                .windows(2)
-                .map(|window| {
-                    let interval = window[1] - window[0];
-                    ((interval - expected_interval) / expected_interval).abs()
+            let variance = crossings
+                .iter()
+                .map(|&crossing_idx| {
+                    let samples_since_tick = self.base.samples_since_tick(north_tick, crossing_idx);
+                    let angle = samples_since_tick / samples_per_rotation * 2.0 * PI;
+                    let deviation = wrap_phase_diff(angle, avg_phase);
+                    deviation * deviation
                 })
                 .sum::<f32>()
-                / (crossings.len() - 1) as f32;
-            (1.0 - mean_error.min(1.0)).clamp(0.0, 1.0)
+                / crossings.len() as f32;
+            (1.0 - variance / MAX_PHASE_VARIANCE).clamp(0.0, 1.0)
         } else {
             DEFAULT_SINGLE_CROSSING_COHERENCE
         };
@@ -225,6 +237,84 @@ mod tests {
         assert!(
             calc.is_ok(),
             "Should be able to create ZeroCrossingBearingCalculator"
+        );
+    }
+
+    /// Coherence must fall as the per-crossing phases disagree.
+    ///
+    /// The metric this replaced scored the regularity of the intervals
+    /// between crossings, which is a different quantity and is why the two
+    /// bearing methods could report the same field meaning different things.
+    /// Driving the phases apart directly is the way to see that the number
+    /// now tracks phase agreement.
+    #[test]
+    fn test_coherence_falls_as_crossing_phases_disagree() {
+        let sample_rate = 48_000.0f32;
+        let doppler_config = DopplerConfig::default();
+        let period = sample_rate / doppler_config.expected_freq;
+
+        let coherence_with_scatter = |scatter_fraction: f32| -> f32 {
+            let calc = ZeroCrossingBearingCalculator::new(
+                &DopplerConfig::default(),
+                &AgcConfig::default(),
+                ConfidenceWeights::default(),
+                sample_rate,
+                1,
+            )
+            .expect("calculator");
+
+            // Crossings one rotation apart, each displaced from where the
+            // rotation says it belongs by an alternating fraction of a turn.
+            let crossings: Vec<f32> = (0..16)
+                .map(|k| {
+                    let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+                    k as f32 * period + sign * scatter_fraction * period
+                })
+                .collect();
+
+            let tick = NorthTick {
+                sample_index: 0,
+                period: Some(period),
+                lock_quality: Some(1.0),
+                fractional_sample_offset: 0.0,
+                phase: 0.0,
+                frequency: 2.0 * PI / period,
+            };
+
+            let (sum_x, sum_y) = crossings
+                .iter()
+                .map(|&c| {
+                    let angle = calc.base.samples_since_tick(&tick, c) / period * 2.0 * PI;
+                    (angle.cos(), angle.sin())
+                })
+                .fold((0.0f32, 0.0f32), |(ax, ay), (x, y)| (ax + x, ay + y));
+            let avg_phase = sum_y.atan2(sum_x);
+
+            calc.calculate_metrics(&crossings, period, &tick, avg_phase)
+                .coherence
+        };
+
+        let agreed = coherence_with_scatter(0.0);
+        let spread = coherence_with_scatter(0.1);
+        let scattered = coherence_with_scatter(0.25);
+
+        assert!(
+            agreed > 0.99,
+            "Crossings all at the same phase should be fully coherent, got {agreed}"
+        );
+        assert!(
+            spread < agreed,
+            "A tenth of a turn of scatter should cost coherence: {spread} against {agreed}"
+        );
+        assert!(
+            scattered < spread,
+            "A quarter turn of scatter should cost more still: {scattered} against {spread}"
+        );
+        // A quarter turn either way is half the circle apart, which is most of
+        // the way to carrying no common phase at all.
+        assert!(
+            scattered < 0.3,
+            "A quarter turn of scatter should leave little coherence, got {scattered}"
         );
     }
 }

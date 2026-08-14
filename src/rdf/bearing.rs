@@ -2,6 +2,31 @@ pub use crate::config::ConfidenceWeights;
 pub use crate::constants::MIN_POWER_THRESHOLD;
 
 use super::NorthTick;
+use std::f32::consts::PI;
+
+/// Circular variance of a phase spread uniformly over the full turn.
+///
+/// Coherence is scored against this, so a measurement whose phases carry no
+/// information about a common bearing scores zero rather than something that
+/// depends on how the spread happened to fall.
+pub(super) const MAX_PHASE_VARIANCE: f32 = PI * PI / 3.0;
+
+/// Mean direction of a set of phases, taken as vectors so that the wrap at
+/// the turn does not pull the answer towards zero.
+pub(super) fn circular_mean_phase(phases: &[f32]) -> f32 {
+    let (sum_sin, sum_cos) = phases
+        .iter()
+        .fold((0.0_f32, 0.0_f32), |(acc_sin, acc_cos), &p| {
+            (acc_sin + p.sin(), acc_cos + p.cos())
+        });
+    sum_sin.atan2(sum_cos)
+}
+
+/// Signed difference between two phases, in (-PI, PI].
+pub(super) fn wrap_phase_diff(phase: f32, reference: f32) -> f32 {
+    let diff = (phase - reference).rem_euclid(2.0 * PI);
+    if diff > PI { diff - 2.0 * PI } else { diff }
+}
 
 pub trait BearingCalculator {
     /// Preprocess the doppler buffer (AGC + bandpass filter).
