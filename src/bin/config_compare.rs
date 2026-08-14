@@ -163,7 +163,7 @@ fn noise_at(index: usize) -> f32 {
     x ^= x >> 33;
     x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
     x ^= x >> 29;
-    (((x >> 33) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
+    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
 }
 
 fn jitter_at(index: usize, max_abs: i32) -> f64 {

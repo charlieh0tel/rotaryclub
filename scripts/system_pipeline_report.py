@@ -146,7 +146,14 @@ for north_mode in ("dpll", "simple"):
             {
                 "bearing_success_rate": 0.95,
                 "detection_rate": 0.97,
-                "false_positive_rate": 0.05,
+                # 0.06 rather than 0.05 because the scenario got harder, not
+                # because the detector got worse. The generator's noise was
+                # half a DC offset and carried a seventh of the in-band energy
+                # white noise would; correcting it gives this scenario the
+                # broadband noise it always claimed to have, and the north
+                # detector answers with a few more false positives. The DPLL
+                # rows read 0.049 to 0.054 against 0.048 before.
+                "false_positive_rate": 0.06,
             }
         )
 

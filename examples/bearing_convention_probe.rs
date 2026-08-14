@@ -41,7 +41,7 @@ fn noise_at(index: usize) -> f32 {
     let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xBEEF_1234;
     x ^= x >> 33;
     x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    (((x >> 33) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
+    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
 }
 
 #[derive(Clone, Copy, PartialEq)]

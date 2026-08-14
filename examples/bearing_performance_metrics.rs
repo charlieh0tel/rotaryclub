@@ -77,7 +77,7 @@ fn make_north_tick(sample_index: usize, samples_per_rotation: f32) -> NorthTick 
 fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
     let mut x = seed ^ ((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
     x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let u = (((x >> 33) as u32) as f32) / (u32::MAX as f32);
+    let u = (((x >> 32) as u32) as f32) / (u32::MAX as f32);
     2.0 * u - 1.0
 }
 

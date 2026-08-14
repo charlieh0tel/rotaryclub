@@ -100,7 +100,7 @@ fn mk_signal(len: usize, pulse_every: usize) -> Vec<f32> {
     let mut x = 0x1234_5678u64;
     for (i, sample) in out.iter_mut().enumerate() {
         x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let noise = (((x >> 33) as u32) as f32 / u32::MAX as f32) * 0.06 - 0.03;
+        let noise = (((x >> 32) as u32) as f32 / u32::MAX as f32) * 0.06 - 0.03;
         let pulse = if i % pulse_every == 2 { 0.25 } else { 0.0 };
         *sample = noise + pulse;
     }
