@@ -22,10 +22,11 @@ const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
 /// change, or the detection was spurious -- and the detected position is then
 /// the better answer.
 ///
-/// Measured at the shipped 1 Hz loop bandwidth: this bound leaves steady-state
-/// error untouched (0.007 samples either way) while halving the worst
-/// acquisition error, because during acquisition the correction saturates and
-/// whatever it saturates at goes straight into the bearing.
+/// Measured at a 1 Hz loop bandwidth, before the default widened to 2: this
+/// bound leaves steady-state error untouched (0.007 samples either way) while
+/// halving the worst acquisition error, because during acquisition the
+/// correction saturates and whatever it saturates at goes straight into the
+/// bearing.
 const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.5;
 /// The reported fraction is re-anchored onto the nearest sample, so it can
 /// never point past a neighbouring sample.

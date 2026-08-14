@@ -29,13 +29,28 @@
       whether 1 kHz is safe generally or only on these two radios. Needs
       hardware.
 
-- [ ] Measure loop bandwidth against both acquisition and holdover, then pick
-      one. At 2 Hz steady-state error is identical to 1 Hz -- 0.28 to 0.31
-      degrees either way -- and acquisition halves from 0.84 s. But the
-      coasting budget is derived from the scatter of the frequency estimate,
-      and a wider loop makes that scatter worse, so holdover may shorten. The
-      two pull in opposite directions and the tradeoff has never been
-      measured.
+- [ ] The coasting budget punishes a phase offset as though it were a rate
+      error. `coast_budget_samples` derives a per-rotation error from the
+      larger of the frequency scatter and the mean phase error above its noise
+      floor. But a predicted tick advances from the last measured tick by
+      `period`; it never uses the oscillator's phase. So a loop sitting at a
+      constant phase offset predicts perfectly well, and the budget cuts it off
+      anyway. Measured with `coast_budget_probe`: at 0.5 Hz the mean phase
+      error is -0.0276 rad, which prices holdover at four rotations, while the
+      coasted ticks it does emit are accurate to 0.001 samples. At 1 Hz the
+      offset falls under its noise floor, the term vanishes, and holdover runs
+      to the cap.
+      What the term is trying to catch -- a rate that is steadily wrong with
+      little scatter -- shows up as a mean phase error that *drifts*, not one
+      that merely sits away from zero. Its trend is the quantity to test.
+      This is why bandwidths below 1 Hz are currently unusable, and they are
+      exactly the ones with the best steady-state timing.
+
+- [ ] Add a mode that runs two configurations over the same signal and reports
+      the difference. Every comparison so far -- estimator, highpass cutoff,
+      loop bandwidth, phase correction on and off -- has meant editing a
+      default, rebuilding, and diffing two report files by hand, which is slow
+      and has twice produced numbers from a build that was one iteration stale.
 
 ## Bearing Calculator
 
