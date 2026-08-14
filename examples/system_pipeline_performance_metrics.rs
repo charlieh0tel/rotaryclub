@@ -1,5 +1,6 @@
 use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
+use rotaryclub::signal_processing::FirBandpass;
 use std::f32::consts::PI;
 use std::time::Instant;
 
@@ -12,7 +13,28 @@ const TICK_MATCH_TOLERANCE_SAMPLES: f32 = 2.0;
 struct Scenario {
     name: &'static str,
     amplitude: f32,
+    /// White noise added to the north channel, as a peak amplitude. White is
+    /// right here: the north highpass at 1 kHz passes most of the spectrum,
+    /// so what is generated is close to what the detector meets.
     noise_peak: f32,
+    /// Interfering audio power *inside the doppler passband*, relative to the
+    /// rotation tone. Measured on the recordings in `data/`: 0.199, 0.793 and
+    /// 6.579.
+    ///
+    /// This used to be a peak amplitude of white noise, which impaired
+    /// almost nothing. The doppler bandpass is 500 Hz of 24 kHz, so 98 percent
+    /// of white noise is thrown away before it reaches anything, and the
+    /// scenario named for low SNR ran at an in-band tone fraction of 0.998.
+    ///
+    /// It is also not the ratio over the whole channel, which was the next
+    /// thing tried and was wrong in the other direction. Real audio is
+    /// concentrated well below the doppler band, so matching total power
+    /// with flat voice-band noise puts ten times too much where it hurts:
+    /// the cleanest recording measures 0.075 of the channel as tone and
+    /// achieves 1.6 degrees, while flat noise at that same total ratio gave
+    /// 20.7. What decides the bearing is the power in the passband, so that
+    /// is what this names and what the generator scales to.
+    doppler_passband_noise_to_tone: f32,
     dc_offset: f32,
     second_tone_ratio: f32,
     third_tone_ratio: f32,
@@ -172,6 +194,46 @@ fn north_pulse_at(global: usize, epoch: f64) -> f32 {
     ((px.sin() / px) * (window.sin() / window)) as f32
 }
 
+/// Interfering audio for the doppler channel, band-limited to the voice band
+/// and scaled to the requested power against the tone.
+///
+/// Generated once for the whole run rather than per chunk, so the band
+/// limiting is continuous across chunk boundaries.
+fn doppler_audio(total_samples: usize, sample_rate: f32, scenario: Scenario) -> Vec<f32> {
+    if scenario.doppler_passband_noise_to_tone <= 0.0 {
+        return vec![0.0f32; total_samples];
+    }
+    let mut audio: Vec<f32> = (0..total_samples)
+        .map(|i| deterministic_noise_at(i, 0x0DDB_A11A_5EED_1234))
+        .collect();
+    if let Ok(mut band) = FirBandpass::new(300.0, 3400.0, sample_rate, 255, 150.0) {
+        band.process_buffer(&mut audio);
+    }
+
+    // Scale by what lands in the doppler passband, not by total power. How
+    // much of the voice band reaches the passband depends on both filters, so
+    // it is measured rather than assumed.
+    let mut probe = audio.clone();
+    if let Ok(mut band) = FirBandpass::new(1350.0, 1850.0, sample_rate, 255, 100.0) {
+        band.process_buffer(&mut probe);
+    }
+    let passband_power =
+        probe.iter().map(|s| (s * s) as f64).sum::<f64>() / total_samples.max(1) as f64;
+    // A tone of amplitude a has power a^2 / 2.
+    let tone_power = (scenario.amplitude * scenario.amplitude / 2.0) as f64;
+    let wanted = tone_power * scenario.doppler_passband_noise_to_tone as f64;
+    let scale = if passband_power > 0.0 {
+        (wanted / passband_power).sqrt() as f32
+    } else {
+        0.0
+    };
+    for sample in audio.iter_mut() {
+        *sample *= scale;
+    }
+    audio
+}
+
+#[allow(clippy::too_many_arguments)]
 fn build_chunk(
     scenario: Scenario,
     chunk_start: usize,
@@ -180,6 +242,7 @@ fn build_chunk(
     sample_rate: f32,
     rotation_hz: f32,
     tick_positions: &[f64],
+    doppler_audio: &[f32],
 ) -> Vec<f32> {
     let omega = 2.0 * PI * rotation_hz / sample_rate;
     let bearing_rad = expected_bearing_deg.to_radians();
@@ -200,11 +263,10 @@ fn build_chunk(
         let fundamental = p.sin();
         let second = (2.0 * p).sin();
         let third = (3.0 * p).sin();
-        let noise = deterministic_noise_at(global, 0xBEEF_1234_5678_9ABC);
         let doppler = scenario.amplitude * fundamental
             + scenario.second_tone_ratio * second
             + scenario.third_tone_ratio * third
-            + scenario.noise_peak * noise
+            + doppler_audio.get(global).copied().unwrap_or(0.0)
             + scenario.dc_offset;
 
         let mut north = 0.8
@@ -299,6 +361,7 @@ fn run_case(
     let total_samples = total_chunks * buffer_size;
     let (tick_positions, predictable_positions) =
         expected_tick_positions(total_samples, samples_per_rotation, scenario);
+    let audio = doppler_audio(total_samples, sample_rate, scenario);
 
     let mut processor = RdfProcessor::new(&config, true, true).expect("rdf processor creation");
 
@@ -316,6 +379,7 @@ fn run_case(
             sample_rate,
             rotation_hz,
             &tick_positions,
+            &audio,
         );
 
         let t0 = Instant::now();
@@ -398,6 +462,7 @@ fn main() {
     let scenarios = [
         Scenario {
             name: "clean",
+            doppler_passband_noise_to_tone: 0.0,
             amplitude: 1.0,
             noise_peak: 0.0,
             dc_offset: 0.0,
@@ -410,6 +475,7 @@ fn main() {
         },
         Scenario {
             name: "noisy_jittered",
+            doppler_passband_noise_to_tone: 0.8,
             amplitude: 0.9,
             noise_peak: 0.08,
             dc_offset: 0.0,
@@ -422,6 +488,7 @@ fn main() {
         },
         Scenario {
             name: "harmonic_contaminated",
+            doppler_passband_noise_to_tone: 0.2,
             amplitude: 0.9,
             noise_peak: 0.04,
             dc_offset: 0.0,
@@ -434,6 +501,7 @@ fn main() {
         },
         Scenario {
             name: "low_snr_dc",
+            doppler_passband_noise_to_tone: 6.5,
             amplitude: 0.45,
             noise_peak: 0.40,
             dc_offset: 0.20,
