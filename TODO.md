@@ -15,39 +15,49 @@ applied; and the generator took its pulse amplitude from a constant rather
 than from the impairment. Identical rows are the tell, and worth checking
 for on every sweep.
 
-- [ ] The uncertainty model understates under heavy noise, by a third to a
-      half. Investigated, and the first description of it here was wrong twice
-      over.
-      It was recorded as a large-buffer effect. It is not: the buffer trend is
-      weak and not monotone. Comparing the stated sigma against the standard
-      deviation of the bearings, over an eightfold buffer range:
+- [ ] The uncertainty should come from the SNR, not from the phase spread.
+      Diagnosed. The figure is built as the spread of the per-rotation phase
+      estimates over an independent count, and it understates the bearing
+      scatter everywhere: measured against a standard deviation, the ratio
+      runs 0.53 to 0.91 and centres on 0.69.
 
-        buffer      noise 0.2   noise 6.5
-        256              0.80        0.64
-        512              0.91        0.68
-        1024             0.86        0.61
-        2048             0.79        0.53
+      The independent count is not the fault. Set the buffer to one filter
+      length so the count is 1.01 and the averaging term disappears, and the
+      figure still understates by 40 to 47 percent. So the spread itself is
+      too small: the per-window phases agree with each other more closely than
+      the bearing agrees with truth.
 
-      The dominant variable is noise, not buffer. That agrees with the real
-      captures measured independently, where the calibration test reads 1.04
-      and 0.97 on the two clean recordings and 0.60 on the degraded one.
-      It was also read off the wrong quantity. `config_sweep` reported a mean
-      absolute deviation while the stated figure is a standard deviation, and
-      the two differ by a factor of 0.8 for a normal distribution -- enough to
-      make a figure understating by a fifth look correct. Both are standard
-      deviations now.
-      It is not the precision-against-accuracy limit either, which was the
-      obvious first guess: the shared bias is small against the scatter, 6.4
-      degrees against 31.7 at the worst cell. What the model gets wrong is the
-      scatter itself. Either the phase variance it measures understates the
-      per-estimate error at low SNR, or the independent count -- buffer over
-      filter length -- overstates how much of it averages away. The AGC gain
-      and the north tick are both shared across a whole buffer and neither is
-      in that count.
-      What it costs in practice is small, because confidence is already near
-      0.05 in the regime where the understatement is worst, so both the figure
-      and the truth say the bearing is unusable. It would matter to anyone
-      thresholding in the middle of the range.
+      They do so because the interference is common-mode within a buffer. The
+      doppler passband is 500 Hz, so in-band noise decorrelates over about 96
+      samples -- at a 128-sample buffer that is 1.3 independent realisations,
+      one coherent perturbation shifting every window together. A spread taken
+      within the buffer cannot see it, and it varies buffer to buffer, so it
+      lands in the bearing scatter instead. That also explains why it was
+      mistaken for a bias question: the perturbation is shared, but it is not
+      constant, so the mean bias stays small.
+
+      A physically derived figure does much better. For additive noise at a
+      signal-to-noise power ratio S/N averaged over N independent
+      realisations, sigma is 1 / sqrt(2 (S/N) N):
+
+        buffer  noise   actual   spread  ratio   from SNR  ratio
+           128    0.2    12.60     7.61   0.60      15.69   1.25
+           128    6.5    63.65    33.88   0.53      89.45   1.41
+           512    0.2     7.09     6.47   0.91       7.85   1.11
+           512    6.5    44.56    30.25   0.68      44.73   1.00
+          2048    0.2     4.78     3.78   0.79       3.92   0.82
+          2048    6.5    31.71    16.84   0.53      22.36   0.71
+
+      Centred on 1.08 against 0.69, and it errs high at small buffers where
+      the current one errs low. Its own residual drift -- overstating at small
+      buffers, understating at large -- says the effective independence grows
+      more slowly than buffer over correlation length, which is the next
+      thing to pin down if this is taken further.
+
+      `snr_db` is already computed and already discriminates well, 58.8 dB to
+      8.8 across a noise sweep, and is currently reported and unused. Changing
+      the composition is another change to what every confidence number means,
+      so it wants deciding rather than doing.
 
 - [ ] The estimator and the highpass cutoff trade against each other and the
       answer depends on noise. On a clean channel the amplitude centroid beats
