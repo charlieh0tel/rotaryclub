@@ -271,13 +271,20 @@ pub enum NorthTrackingMode {
 /// under 0.02 degrees against a scatter of 10.9, and its confidence interval
 /// spans zero at every noise level tried.
 ///
-/// So the shipped default is not the better estimator on the metric where
-/// either is measurably better, and it does not matter, which is why it has
-/// not changed. Both are far inside anything a bearing can see -- 0.0037
-/// samples is 0.04 degrees. An earlier note here claimed energy weighting was
-/// measurably better at the shipped cutoff, and a reversal between the two at
-/// 0.05 RMS; neither survives replication. Both came from a single noise draw
-/// that sat outside the spread of the twelve that followed.
+/// On the recordings the two are a tie, and the tie is better evidence than
+/// either synthetic result: `north_hpf_sweep` over 121,073 ticks of
+/// `wouxun_..._test1.wav` puts amplitude weighting at 0.704 degrees per tick
+/// against 0.688 for energy at this cutoff, a two percent difference. At
+/// 5 kHz the ordering reverses and the gap is real, 0.664 against 1.624,
+/// which is what the cutoff-dependence above describes.
+///
+/// So nothing recommends a change, and that is why there has not been one.
+/// Both are far inside anything a bearing can see: 0.0037 samples is 0.04
+/// degrees, against a bearing scatter of 10.9.
+///
+/// What did not survive replication is narrower than it once read here: the
+/// claim that the two reverse at 0.05 RMS of north noise, which was one
+/// synthetic draw sitting outside the spread of the twelve that followed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum NorthPulseEstimator {
     /// Index of the largest filtered sample, quantized to whole samples

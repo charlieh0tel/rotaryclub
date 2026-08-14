@@ -109,13 +109,30 @@ for on every sweep.
 
       On bearing they are indistinguishable everywhere. The scatter difference
       is under 0.02 degrees against a scatter of 10.9, and its interval spans
-      zero at every noise level. So the shipped energy centroid is not the
-      better estimator on the one metric where either is measurably better,
-      and it does not matter; it has not been changed.
+      zero at every noise level.
 
       The reversal this item was built on -- 0.0141 against 0.0130 at 0.05 --
       does not exist. It was one noise draw, and it sat outside the spread of
       the twelve that followed.
+
+      The recordings outrank all of the above and say the two are a tie at the
+      shipped cutoff. `scripts/centroid_weighting_report.py` and
+      `src/bin/north_hpf_sweep.rs` compare the estimators on the captures, and
+      the latter over 121,073 ticks puts amplitude at 0.704 degrees per tick
+      against energy at 0.688 -- two percent. At 5 kHz the ordering reverses
+      and the gap is real, 0.664 against 1.624. Nothing recommends a change,
+      so the shipped energy centroid stays.
+
+      Worth recording how this was nearly got wrong. The synthetic result was
+      briefly written up as overturning the capture measurement behind the
+      shipped default, on the grounds that it too was a single draw. It was
+      not: it came from the two capture harnesses above, which were missed
+      because the search for them looked in `examples/` and at
+      `north_hpf_sweep --help`, and they live in `scripts/` and behind no
+      flag. A synthetic measurement does not overturn a capture measurement
+      whatever its error bars, and the two are not even in disagreement --
+      they are separated by roughly a hundredfold in tick error, because a
+      real channel jitters and a generated one does not.
 
       The cutoff half is settled the same way. 1250 Hz looked to dominate the
       shipped 1000, never worse and 13 percent better on bearing scatter at
