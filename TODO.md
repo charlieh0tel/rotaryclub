@@ -15,18 +15,39 @@ applied; and the generator took its pulse amplitude from a constant rather
 than from the impairment. Identical rows are the tell, and worth checking
 for on every sweep.
 
-- [ ] The uncertainty model understates at large buffers. Its calibration
-      holds well over an eightfold buffer range -- stated against actual
-      bearing error stays between 0.73 and 1.25 across 256 to 2048 samples and
-      three noise levels -- but the ratio falls as the buffer grows, reaching
-      0.73 at 2048 samples and a passband noise ratio of 6.5. The model gives
-      averaging the root of buffer over filter length, and the measured error
-      improves more slowly than that at large buffers, so something shared
-      across the whole buffer is not averaging away. The reference term is
-      added whole already; this is a second shared component in the doppler
-      path, and the AGC gain and the filter state are the candidates.
-      Not urgent: the default buffer sits at 1.08 to 1.22, comfortably on the
-      conservative side.
+- [ ] The uncertainty model understates under heavy noise, by a third to a
+      half. Investigated, and the first description of it here was wrong twice
+      over.
+      It was recorded as a large-buffer effect. It is not: the buffer trend is
+      weak and not monotone. Comparing the stated sigma against the standard
+      deviation of the bearings, over an eightfold buffer range:
+
+        buffer      noise 0.2   noise 6.5
+        256              0.80        0.64
+        512              0.91        0.68
+        1024             0.86        0.61
+        2048             0.79        0.53
+
+      The dominant variable is noise, not buffer. That agrees with the real
+      captures measured independently, where the calibration test reads 1.04
+      and 0.97 on the two clean recordings and 0.60 on the degraded one.
+      It was also read off the wrong quantity. `config_sweep` reported a mean
+      absolute deviation while the stated figure is a standard deviation, and
+      the two differ by a factor of 0.8 for a normal distribution -- enough to
+      make a figure understating by a fifth look correct. Both are standard
+      deviations now.
+      It is not the precision-against-accuracy limit either, which was the
+      obvious first guess: the shared bias is small against the scatter, 6.4
+      degrees against 31.7 at the worst cell. What the model gets wrong is the
+      scatter itself. Either the phase variance it measures understates the
+      per-estimate error at low SNR, or the independent count -- buffer over
+      filter length -- overstates how much of it averages away. The AGC gain
+      and the north tick are both shared across a whole buffer and neither is
+      in that count.
+      What it costs in practice is small, because confidence is already near
+      0.05 in the regime where the understatement is worst, so both the figure
+      and the truth say the bearing is unusable. It would matter to anyone
+      thresholding in the middle of the range.
 
 - [ ] The estimator and the highpass cutoff trade against each other and the
       answer depends on noise. On a clean channel the amplitude centroid beats

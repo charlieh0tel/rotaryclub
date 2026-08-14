@@ -180,9 +180,22 @@ struct Cell {
     labels: Vec<String>,
     tick_error: f64,
     bearing_error: f64,
+    /// Mean signed error: the part of it every estimate shares.
+    bearing_bias: f64,
+    /// Standard deviation about that: the part that scatters.
+    ///
+    /// Reported separately because the uncertainty figure models only the
+    /// second. A displacement all the estimates share is invisible to a
+    /// spread, so comparing `stated` against total error charges it for
+    /// something it does not claim to measure.
+    ///
+    /// A standard deviation and not a mean absolute one, so it is the same
+    /// quantity `stated` is. The two differ by a factor of 0.8 for a normal
+    /// distribution, which is enough to turn a figure that is correct into
+    /// one that looks like it understates by a fifth.
+    bearing_scatter: f64,
     bearing_p95: f64,
     stated_sigma: f64,
-    confidence: f64,
     bearings: usize,
 }
 
@@ -217,8 +230,8 @@ fn measure(config: &RdfConfig, signal: &[f32], truth: f32, period: f64) -> Resul
 
     let mut tick_errors = Vec::new();
     let mut bearing_errors = Vec::new();
+    let mut signed_errors = Vec::new();
     let mut stated = Vec::new();
-    let mut confidences = Vec::new();
     for result in &results {
         let time = result.north_tick.sample_index as f64
             + result.north_tick.fractional_sample_offset as f64;
@@ -230,7 +243,7 @@ fn measure(config: &RdfConfig, signal: &[f32], truth: f32, period: f64) -> Resul
         if let Some(bearing) = result.bearing {
             let error = (((bearing.raw_bearing - truth) + 540.0).rem_euclid(360.0) - 180.0) as f64;
             bearing_errors.push(error.abs());
-            confidences.push(bearing.confidence as f64);
+            signed_errors.push(error);
             if let Some(u) = bearing.metrics.bearing_uncertainty_deg {
                 stated.push(u as f64);
             }
@@ -238,13 +251,26 @@ fn measure(config: &RdfConfig, signal: &[f32], truth: f32, period: f64) -> Resul
     }
 
     let mut bearing_tail = tail(&bearing_errors, 0.2);
+    let signed_tail = tail(&signed_errors, 0.2);
+    let bias = mean(&signed_tail);
+    let scatter = if signed_tail.is_empty() {
+        f64::NAN
+    } else {
+        (signed_tail
+            .iter()
+            .map(|e| (e - bias) * (e - bias))
+            .sum::<f64>()
+            / signed_tail.len() as f64)
+            .sqrt()
+    };
     Ok(Cell {
         labels: Vec::new(),
         tick_error: mean(&tail(&tick_errors, 0.2)),
         bearing_error: mean(&bearing_tail.clone()),
+        bearing_bias: bias,
+        bearing_scatter: scatter,
         bearing_p95: percentile(&mut bearing_tail, 0.95),
         stated_sigma: mean(&tail(&stated, 0.2)),
-        confidence: mean(&tail(&confidences, 0.2)),
         bearings: bearing_errors.len(),
     })
 }
@@ -402,8 +428,8 @@ fn main() -> Result<()> {
         print!("{h:>w$} ", w = w);
     }
     println!(
-        "{:>10} {:>10} {:>10} {:>10} {:>10} {:>8}",
-        "tick", "bearing", "b p95", "stated", "confid", "count"
+        "{:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8}",
+        "tick", "bearing", "bias", "scatter", "b p95", "stated", "count"
     );
 
     for row in &rows {
@@ -411,12 +437,13 @@ fn main() -> Result<()> {
             print!("{label:>w$} ", w = w);
         }
         println!(
-            "{:>10.4} {:>10.3} {:>10.3} {:>10.3} {:>10.4} {:>8}",
+            "{:>9.4} {:>9.3} {:>9.3} {:>9.3} {:>9.3} {:>9.3} {:>8}",
             row.tick_error,
             row.bearing_error,
+            row.bearing_bias,
+            row.bearing_scatter,
             row.bearing_p95,
             row.stated_sigma,
-            row.confidence,
             row.bearings
         );
     }
