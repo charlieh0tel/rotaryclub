@@ -471,9 +471,14 @@ pub struct NorthTickConfig {
     ///
     /// At the default rotation rate this covers 96% of a rotation, which is
     /// why the timing gate can only act on detections arriving late. Trading
-    /// some of it for gate reach was measured and rejected: at a noise RMS of
-    /// 0.20 against a 0.8 pulse, shortening to 0.45 ms drops detection from
-    /// 0.84 to 0.25 and raises false positives from 0.06 to 0.65. The gate
+    /// some of it for gate reach was measured and rejected. Re-measured with
+    /// `config_sweep`, against a north channel noise of 0.20 RMS: the shipped
+    /// 0.6 ms gives 0.32 samples of tick error and 12.1 degrees of bearing
+    /// error, where 0.45 ms gives 0.89 and 86.1, and 0.3 ms gives 0.86 and
+    /// 75.1. The figures this comment used to quote -- detection falling from
+    /// 0.84 to 0.25 -- came from a generator that produced a half DC offset
+    /// carrying a seventh of the in-band energy it claimed, so they were
+    /// wrong even though the conclusion they supported was right. The gate
     /// does not rescue it -- it rejects what disagrees with the tracked
     /// rotation, and noise triggers arriving where a pulse is due are
     /// indistinguishable from the pulse. `test_dead_time_rejects_noise_

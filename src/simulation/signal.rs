@@ -79,6 +79,12 @@ pub struct SignalImpairment {
     /// without ever having been a nuisance.
     pub audio_low_hz: f32,
     pub audio_high_hz: f32,
+    /// Amplitude of the north pulses, before any gain.
+    ///
+    /// The recordings in `data/` measure 0.21, 0.44 and 0.78 against a
+    /// configured expectation of 0.8, so a factor of nearly four across two
+    /// radios. This is the axis the north AGC exists for.
+    pub north_pulse_amplitude: f32,
     /// RMS of the white noise added to the north channel.
     ///
     /// White rather than band-limited, unlike the doppler side: the north
@@ -98,6 +104,7 @@ impl SignalImpairment {
             passband_noise_to_tone: 0.0,
             second_harmonic: 0.0,
             third_harmonic: 0.0,
+            north_pulse_amplitude: NORTH_TICK_AMPLITUDE,
             north_noise_rms: 0.0,
             audio_low_hz: 300.0,
             audio_high_hz: 3400.0,
@@ -194,7 +201,7 @@ where
         if epoch >= num_samples as f64 {
             break;
         }
-        add_north_pulse(&mut north, epoch, NORTH_TICK_AMPLITUDE);
+        add_north_pulse(&mut north, epoch, impairment.north_pulse_amplitude);
         rotation += 1;
     }
 

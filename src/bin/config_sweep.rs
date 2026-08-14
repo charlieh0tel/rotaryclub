@@ -330,6 +330,20 @@ fn main() -> Result<()> {
         let mut config = RdfConfig::default();
         let mut stimulus = Stimulus::default_for(&config);
 
+        // The rotation is applied first, because `apply_rotation` rewrites
+        // several fields from the defaults -- the dead time, the loop's
+        // frequency bounds, the doppler passband -- and doing it afterwards
+        // silently discarded any axis that touched one of them. Sweeping
+        // min_interval_ms produced four identical rows before this was moved,
+        // which is the failure this tool exists to make visible: a sweep that
+        // is not sweeping what it says.
+        for ((key, _), value) in axes.iter().zip(combination) {
+            if stimulus.apply(key, value)? {
+                continue;
+            }
+        }
+        config.apply_rotation(RotationFrequency::from_hz(stimulus.rotation_hz));
+
         for ((key, _), value) in axes.iter().zip(combination) {
             let applied = apply_config(&mut config, key, value)? || stimulus.apply(key, value)?;
             if !applied {
@@ -337,7 +351,6 @@ fn main() -> Result<()> {
             }
         }
         config.bearing.smoothing_window = config.bearing.smoothing_window.max(1);
-        config.apply_rotation(RotationFrequency::from_hz(stimulus.rotation_hz));
 
         // One signal per distinct stimulus, reused across the configuration
         // axes. Rebuilding it per cell would let two configurations be
@@ -354,6 +367,7 @@ fn main() -> Result<()> {
                     SignalImpairment {
                         passband_noise_to_tone: stimulus.doppler_noise,
                         north_noise_rms: stimulus.north_noise,
+                        north_pulse_amplitude: stimulus.pulse_amplitude,
                         ..SignalImpairment::representative()
                     },
                 );

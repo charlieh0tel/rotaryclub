@@ -4,6 +4,50 @@
   (memory growth is fixed: dumps stream to disk incrementally)
 - Add criterion benchmarks for DSP pipeline (FIR filters, AGC, I/Q correlation)
 
+## Measured with config_sweep
+
+Five grids run once the sweep tool existed. Two of them found bugs in the
+tool itself before finding anything about the pipeline, both of the same
+shape: an axis that silently did nothing, visible because the rows came out
+identical. `apply_rotation` rewrites the dead time and the loop's frequency
+bounds from the defaults, and it was being called after the axes were
+applied; and the generator took its pulse amplitude from a constant rather
+than from the impairment. Identical rows are the tell, and worth checking
+for on every sweep.
+
+- [ ] The uncertainty model understates at large buffers. Its calibration
+      holds well over an eightfold buffer range -- stated against actual
+      bearing error stays between 0.73 and 1.25 across 256 to 2048 samples and
+      three noise levels -- but the ratio falls as the buffer grows, reaching
+      0.73 at 2048 samples and a passband noise ratio of 6.5. The model gives
+      averaging the root of buffer over filter length, and the measured error
+      improves more slowly than that at large buffers, so something shared
+      across the whole buffer is not averaging away. The reference term is
+      added whole already; this is a second shared component in the doppler
+      path, and the AGC gain and the filter state are the candidates.
+      Not urgent: the default buffer sits at 1.08 to 1.22, comfortably on the
+      conservative side.
+
+- [ ] The estimator and the highpass cutoff trade against each other and the
+      answer depends on noise. On a clean channel the amplitude centroid beats
+      the shipped energy centroid on tick error at 1000 and 1250 Hz, 0.0022
+      samples against 0.0037. Add 0.05 RMS of north noise and it reverses,
+      0.0141 against 0.0130. Both are far inside anything that matters for a
+      bearing -- 0.0037 samples is 0.04 degrees -- so this is not a reason to
+      move, but it does mean the estimator comparison has no answer that is
+      independent of the channel.
+      750 Hz and 2000 Hz are worse than 1000 and 1250 for both estimators,
+      which agrees with the cutoff sweep on the real captures.
+
+- [ ] `gate_sigma` has never had a default chosen by measurement, and the
+      shipped 3.0 is not obviously the best. At 0.20 RMS of north noise a
+      tighter gate gives better timing and fewer ticks: sigma 2 gives 0.235
+      samples of tick error against 0.321 at the shipped 3, but produces 8237
+      bearings against 8930. At 0.05 RMS the shipped value wins outright,
+      0.0130 against 0.0163. So it is a trade between timing and coverage
+      whose right answer depends on how noisy the channel is, and 3.0 is a
+      reasonable middle rather than a measured optimum.
+
 ## Bearing Confidence
 
 - [x] Decide what confidence means, and make it that. Done.
