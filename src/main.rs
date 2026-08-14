@@ -162,7 +162,7 @@ fn main() -> anyhow::Result<()> {
     );
     eprintln!(
         "North tick threshold: {} of the expected pulse",
-        config.north_tick.threshold_fraction
+        config.north_tick.resolved_threshold_fraction()
     );
     eprintln!("North tick tracking: {:?}", config.north_tick.mode);
     eprintln!("Bearing method: {:?}", config.doppler.method);

@@ -337,7 +337,7 @@ fn test_north_tracking_threshold_sweep() {
     // this swept before the threshold became dimensionless.
     for threshold in [0.103f32, 0.155, 0.194, 0.258, 0.323] {
         let mut config = base_config.clone();
-        config.north_tick.threshold_fraction = threshold;
+        config.north_tick.threshold_fraction = Some(threshold);
         let (ticks, freq_opt) = run_north_tracker(&config, &north_signal);
         let metrics = detection_metrics(&pulse_positions, &ticks, 3.0);
 
@@ -749,12 +749,12 @@ fn test_north_tick_config_guardrails() {
             // The case this replaced set an absolute 0.9 against a 0.8 pulse;
             // as a fraction 0.9 is merely a very tight gate, and legal.
             "threshold fraction at the whole pulse height",
-            |c| c.north_tick.threshold_fraction = 1.0,
+            |c| c.north_tick.threshold_fraction = Some(1.0),
             "(0, 1)",
         ),
         (
             "threshold fraction at zero",
-            |c| c.north_tick.threshold_fraction = 0.0,
+            |c| c.north_tick.threshold_fraction = Some(0.0),
             "(0, 1)",
         ),
         (

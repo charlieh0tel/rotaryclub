@@ -101,7 +101,7 @@ fn run(
     // costs, which is exactly the trade a threshold controls, so sweeping in
     // Simple mode -- which this did -- measures a tracker that does not ship.
     config.north_tick.mode = mode;
-    config.north_tick.threshold_fraction = threshold;
+    config.north_tick.threshold_fraction = Some(threshold);
     let num_samples = (sample_rate * 1.5) as usize;
     let (signal, truth) = build(num_samples, sample_rate, amplitude, noise_rms, seed);
 

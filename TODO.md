@@ -267,17 +267,41 @@ for on every sweep.
       of `expected_pulse_amplitude` now that the AGC makes that meaningful, is
       the question this leaves behind.
 
-- [ ] Decide how the detection threshold should be expressed. The sweep that
-      settled 0.15 left this behind rather than answering it, and two options
-      are open. It could follow the tracking mode: 0.25 is available to a
-      DPLL-only deployment and is worth about a quarter of the detection rate
-      at 0.3 RMS of channel noise, but is not safe for the simple tracker,
-      which is what holds the shipped value down. Or it could be a fraction of
-      `expected_pulse_amplitude` rather than an absolute level, which was not
-      a real option before the north AGC and is now, because the AGC is what
-      makes that field mean something on a channel whose level nobody set.
-      An absolute threshold is a level margin that quietly depends on the
-      receiver's audio gain, and the AGC removes exactly that dependence.
+- [x] Decide how the detection threshold should be expressed. Done, in three
+      steps, and both options in this item turned out to be right.
+
+      It is now a fraction of the pulse height the detector expects rather
+      than an absolute level. An absolute threshold met a signal that scaled
+      with `gain_db` while itself staying put, so attenuation silently
+      defeated detection and validation had grown a check for exactly that;
+      derived, the failure cannot be expressed. The change was made on its own
+      and verified to alter nothing: 96 rows across both performance
+      harnesses, every accuracy and rate column, not one differing value.
+
+      The awkward 0.19361 stays rather than rounding to 0.20. In DPLL mode the
+      difference is invisible, but the simple tracker's amplitude cliff is
+      steep enough that three percent crosses it -- detection at a pulse of
+      0.23 falls from 0.92 to 0.47 -- and those cells carry no noise, so they
+      are exact rather than a draw.
+
+      And it follows the tracking mode after all, though the predicate is the
+      AGC rather than the mode as such: a high threshold costs level margin
+      and the AGC is what supplies it, so a DPLL with its AGC off gets the
+      conservative value too. 0.323 where gain-controlled, 0.19361 where not.
+      At 0.323 the simple tracker fails detection under hum, clipping and
+      drift, 0.37 against a floor of 0.45, where the loop passes everything;
+      through the system pipeline the split touches DPLL rows only and
+      improves the noisy ones.
+
+- [ ] Sixteen files carry their own copy of the synthetic noise generator, and
+      they have diverged twice. The first divergence shifted the output range
+      and put a DC offset carrying a seventh of the in-band energy through
+      twelve of them; the second was the seed mixing, which was fixed in the
+      library and in none of the copies. Neither is live now -- every
+      remaining copy uses a single fixed seed, and the seed defect only bites
+      when nearby seeds are compared -- so this is a hazard rather than a bug.
+      `simulation::noise_at` is public for the purpose and one harness has
+      been moved onto it. The rest should follow.
 
 - [ ] Price what the highpass is for, with a capture that bleeds audio into
       the north channel. That is the only argument for filtering high, and no

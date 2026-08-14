@@ -66,7 +66,7 @@ impl SimpleNorthTracker {
         // follows it. That keeps the fraction meaning the same thing in both
         // trackers without giving this one any machinery it does not have.
         let threshold = detection_threshold(
-            config.threshold_fraction,
+            config.resolved_threshold_fraction(),
             effective_pulse_amplitude,
             &highpass,
         );

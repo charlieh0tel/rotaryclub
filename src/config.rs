@@ -428,6 +428,32 @@ impl Default for NorthAgcConfig {
 ///
 /// Controls detection of the north timing reference pulses used to
 /// establish bearing zero reference.
+/// Detection threshold for a tracker whose gain control holds the pulse at the
+/// expected height, as a fraction of that height.
+///
+/// Higher than the figure below, and it can be, because the cost of a high
+/// threshold is level margin and the AGC is what supplies it. Measured over
+/// eight noise draws at the shipped pulse amplitude, this reads 0.95
+/// detection with no false positives at 0.2 RMS of channel noise against 0.88
+/// and 0.06 at the conservative value, and its amplitude cliff barely moves:
+/// detection holds near one down to a pulse of 0.15.
+///
+/// Equal to an absolute 0.25 at the default pulse and filter, which is the
+/// value a DPLL-only deployment was already known to want.
+pub const THRESHOLD_FRACTION_GAIN_CONTROLLED: f32 = 0.323;
+
+/// Detection threshold for a tracker that takes the level it is given.
+///
+/// 0.15 of full scale at the default pulse and filter, the absolute threshold
+/// that was measured and settled before this became a fraction.
+///
+/// The simple tracker cannot use the figure above. Its amplitude cliff is
+/// steep and unaided, and at 0.323 it fails detection under combined hum,
+/// clipping and baseline drift -- 0.37 against a floor of 0.45 -- where the
+/// loop passes every disturbance. This is also what a DPLL runs at with its
+/// AGC switched off, since without gain control it has the same exposure.
+pub const THRESHOLD_FRACTION_UNAIDED: f32 = 0.19361;
+
 #[derive(Debug, Clone)]
 pub struct NorthTickConfig {
     /// Tracking mode (DPLL recommended)
@@ -508,7 +534,11 @@ pub struct NorthTickConfig {
     /// Raising it further was rejected earlier for a different reason: what a
     /// higher threshold buys is detection under channel noise, and it buys
     /// nothing until 0.2 RMS and little until 0.3. See DESIGN.md.
-    pub threshold_fraction: f32,
+    ///
+    /// `None` takes the default for the tracker in use, which is not the same
+    /// number in both -- see `resolved_threshold_fraction`. Set it to pin one
+    /// value regardless.
+    pub threshold_fraction: Option<f32>,
     /// Expected pulse amplitude in the north channel, before `gain_db`.
     ///
     /// Sets the detection threshold, the peak search window and, with the AGC
@@ -744,6 +774,31 @@ impl Default for DopplerConfig {
     }
 }
 
+impl NorthTickConfig {
+    /// The detection threshold this configuration actually uses.
+    ///
+    /// A threshold is a trade between noise margin and level margin, and only
+    /// one of the two trackers can pay for it. Where gain control holds the
+    /// pulse at the expected height the level margin is supplied by the AGC,
+    /// so the threshold can be set high enough to reject noise triggers
+    /// outright. Where it is not, the same setting spends margin the tracker
+    /// does not have.
+    ///
+    /// So the default follows the AGC rather than the tracking mode as such.
+    /// A DPLL with its AGC disabled is in the same position as the simple
+    /// tracker and gets the same conservative value.
+    pub fn resolved_threshold_fraction(&self) -> f32 {
+        self.threshold_fraction.unwrap_or({
+            let gain_controlled = matches!(self.mode, NorthTrackingMode::Dpll) && self.agc.enabled;
+            if gain_controlled {
+                THRESHOLD_FRACTION_GAIN_CONTROLLED
+            } else {
+                THRESHOLD_FRACTION_UNAIDED
+            }
+        })
+    }
+}
+
 impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
@@ -754,9 +809,7 @@ impl Default for NorthTickConfig {
             highpass_cutoff: 1000.0,
             fir_highpass_length_us: 1312.5,
             highpass_transition_hz: 500.0,
-            // 0.15 of full scale at the default 0.8 pulse through the
-            // default filter, which is the absolute threshold this replaced.
-            threshold_fraction: 0.19361,
+            threshold_fraction: None,
             expected_pulse_amplitude: 0.8,
             min_interval_ms: 0.6,
             max_coast_ms: 1000.0,

@@ -139,7 +139,9 @@ fn apply(config: &mut RdfConfig, assignment: &str) -> Result<()> {
         "north_tick.fir_highpass_length_us" => {
             config.north_tick.fir_highpass_length_us = number(key)?
         }
-        "north_tick.threshold_fraction" => config.north_tick.threshold_fraction = number(key)?,
+        "north_tick.threshold_fraction" => {
+            config.north_tick.threshold_fraction = Some(number(key)?)
+        }
         "north_tick.expected_pulse_amplitude" => {
             config.north_tick.expected_pulse_amplitude = number(key)?
         }

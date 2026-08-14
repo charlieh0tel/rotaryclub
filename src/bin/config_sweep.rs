@@ -149,7 +149,7 @@ fn apply_config(config: &mut RdfConfig, key: &str, value: &str) -> Result<bool> 
         "north_tick.gain_db" => config.north_tick.gain_db = number()?,
         "north_tick.highpass_cutoff" => config.north_tick.highpass_cutoff = number()?,
         "north_tick.fir_highpass_length_us" => config.north_tick.fir_highpass_length_us = number()?,
-        "north_tick.threshold_fraction" => config.north_tick.threshold_fraction = number()?,
+        "north_tick.threshold_fraction" => config.north_tick.threshold_fraction = Some(number()?),
         "north_tick.min_interval_ms" => config.north_tick.min_interval_ms = number()?,
         "north_tick.max_coast_ms" => config.north_tick.max_coast_ms = number()?,
         "north_tick.gate_sigma" => config.north_tick.gate_sigma = number()?,

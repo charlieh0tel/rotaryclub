@@ -80,7 +80,8 @@ fn main() {
     let min_interval = (nt.min_interval_ms / 1000.0 * sample_rate) as usize;
     // The same derivation the trackers use: a fraction of the pulse height as
     // it reaches the detector, which is after the filter.
-    let threshold = nt.threshold_fraction * nt.expected_pulse_amplitude * highpass.peak_response();
+    let threshold =
+        nt.resolved_threshold_fraction() * nt.expected_pulse_amplitude * highpass.peak_response();
     let search = {
         let crossing = highpass.threshold_crossing_offset(threshold, nt.expected_pulse_amplitude);
         ((highpass.peak_offset() - crossing).max(0.0)).ceil() as usize + 3

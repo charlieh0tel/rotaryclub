@@ -223,10 +223,24 @@ normalises the level the threshold meets, so the amplitude cliff stops being a
 cost: at a threshold of 0.25 detection then holds at 0.92 or better down to a
 pulse of 0.15, against zero below 0.42 without it. The noise margin a higher
 threshold buys is unaffected and still real -- 0.95 against 0.90 at 0.2 RMS,
-0.75 against 0.67 at 0.3. But the AGC is DPLL-only and the threshold is not, so
-in simple mode the cliff sits exactly where it did, and a default of 0.25 would
-buy the loop some noise margin by quietly taking level margin from the tracker
-that has no gain control. For a DPLL-only deployment 0.25 is the better value.
+0.75 against 0.67 at 0.3.
+
+The threshold now follows the gain control, which resolves that. A tracker
+whose AGC holds the pulse at the expected height can afford a high threshold,
+because what a high threshold costs is level margin and the AGC is what
+supplies it; a tracker that takes the level it is given cannot. So the default
+is 0.323 of the expected pulse where the AGC runs and 0.19361 where it does
+not -- an absolute 0.25 and 0.15 at the default pulse and filter -- and a DPLL
+with its AGC switched off gets the conservative value, because without gain
+control it has the same exposure the simple tracker does.
+
+The split is what the measurement asks for. At 0.323 the simple tracker fails
+detection under combined hum, clipping and baseline drift, 0.37 against a floor
+of 0.45, while the loop passes every disturbance in that test. Through the
+system pipeline the change touches DPLL rows only and improves the noisy ones:
+detection on `low_snr_dc` goes from 0.974 to 0.988 and its tick error from
+0.355 to 0.351 samples, with the largest movement the other way being a bearing
+error of 40.73 degrees becoming 40.79.
 
 Re-measured as a fraction, over sixteen independent noise draws, the shipped
 value holds. The question was whether the derived 0.19361 could become a round

@@ -349,7 +349,7 @@ impl DpllNorthTracker {
         let centroid_half_width =
             centroid_half_width(config.estimator, sample_rate, nominal_period_samples);
         let threshold = detection_threshold(
-            config.threshold_fraction,
+            config.resolved_threshold_fraction(),
             effective_pulse_amplitude,
             &highpass,
         );

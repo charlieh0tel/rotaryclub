@@ -45,13 +45,14 @@ pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: 
     // one. What this used to have to check -- a threshold sitting above the
     // amplitude it would meet, which a gain change alone could bring about
     // and which silently emitted no ticks -- cannot be expressed any more.
-    finite("threshold_fraction", config.threshold_fraction)?;
-    if !(0.0..1.0).contains(&config.threshold_fraction) || config.threshold_fraction == 0.0 {
+    let fraction = config.resolved_threshold_fraction();
+    finite("threshold_fraction", fraction)?;
+    if !(0.0..1.0).contains(&fraction) || fraction == 0.0 {
         return Err(RdfError::Config(format!(
             "north_tick.threshold_fraction is {}, must be within (0, 1); it is the \
              fraction of the expected filtered pulse height a detection has to clear, \
              and at 1 or above no pulse can ever cross it",
-            config.threshold_fraction
+            fraction
         )));
     }
 
@@ -398,7 +399,10 @@ pub(super) fn preprocess_north_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::RdfConfig;
+    use crate::config::{
+        NorthTrackingMode, RdfConfig, THRESHOLD_FRACTION_GAIN_CONTROLLED,
+        THRESHOLD_FRACTION_UNAIDED,
+    };
 
     fn default_highpass(config: &NorthTickConfig, sample_rate: f32) -> FirHighpass {
         FirHighpass::new(
@@ -410,56 +414,87 @@ mod tests {
         .expect("filter")
     }
 
-    /// The fraction reproduces the absolute threshold it replaced.
+    /// Both fractions reproduce the absolute thresholds they stand for.
     ///
-    /// 0.15 of full scale was measured and settled, and the change to a
-    /// fraction was meant to leave it exactly where it was. Pinned here
-    /// because nothing else would notice it drifting: a threshold slightly
-    /// off shows up as a slightly different detection cliff, which no test
+    /// 0.15 of full scale was measured and settled, and 0.25 is what a
+    /// DPLL-only deployment was separately found to want. Pinned because
+    /// nothing else would notice them drifting: a threshold slightly off
+    /// shows up as a slightly different detection cliff, which no test
     /// asserts directly.
     #[test]
-    fn test_the_default_fraction_reproduces_the_measured_threshold() {
+    fn test_the_fractions_reproduce_the_measured_thresholds() {
         let config = RdfConfig::default();
         let sample_rate = config.audio.sample_rate as f32;
         let highpass = default_highpass(&config.north_tick, sample_rate);
-        let threshold = detection_threshold(
-            config.north_tick.threshold_fraction,
-            config.north_tick.expected_pulse_amplitude,
-            &highpass,
+        let expected = config.north_tick.expected_pulse_amplitude;
+
+        for (fraction, absolute) in [
+            (THRESHOLD_FRACTION_UNAIDED, 0.15f32),
+            (THRESHOLD_FRACTION_GAIN_CONTROLLED, 0.25),
+        ] {
+            let threshold = detection_threshold(fraction, expected, &highpass);
+            assert!(
+                (threshold - absolute).abs() < 1e-3,
+                "fraction {fraction} gives a threshold of {threshold}, not the \
+                 {absolute} it stands for"
+            );
+        }
+    }
+
+    /// The default follows the gain control, not the tracking mode as such.
+    #[test]
+    fn test_the_default_threshold_follows_the_gain_control() {
+        let mut config = RdfConfig::default().north_tick;
+
+        config.mode = NorthTrackingMode::Dpll;
+        config.agc.enabled = true;
+        assert_eq!(
+            config.resolved_threshold_fraction(),
+            THRESHOLD_FRACTION_GAIN_CONTROLLED
         );
-        assert!(
-            (threshold - 0.15).abs() < 1e-4,
-            "default fraction gives a threshold of {threshold}, not the 0.15 it replaced"
+
+        // A loop without gain control is in the simple tracker's position and
+        // gets the simple tracker's threshold.
+        config.agc.enabled = false;
+        assert_eq!(
+            config.resolved_threshold_fraction(),
+            THRESHOLD_FRACTION_UNAIDED
         );
+
+        config.mode = NorthTrackingMode::Simple;
+        config.agc.enabled = true;
+        assert_eq!(
+            config.resolved_threshold_fraction(),
+            THRESHOLD_FRACTION_UNAIDED
+        );
+
+        config.threshold_fraction = Some(0.4);
+        assert_eq!(config.resolved_threshold_fraction(), 0.4);
     }
 
     /// The gain no longer moves the pulse out from under the threshold.
     ///
-    /// This is the whole point of the change. An absolute threshold stayed
-    /// put while the signal it met scaled with the gain, so attenuation
-    /// silently defeated detection and validation had to reject it. Derived,
-    /// the margin is the same at any gain.
+    /// This is the whole point of expressing it as a fraction. An absolute
+    /// threshold stayed put while the signal it met scaled with the gain, so
+    /// attenuation silently defeated detection and validation had to reject
+    /// it. Derived, the margin is the same at any gain.
     #[test]
     fn test_the_margin_is_invariant_under_gain() {
         let config = RdfConfig::default();
         let sample_rate = config.audio.sample_rate as f32;
         let highpass = default_highpass(&config.north_tick, sample_rate);
         let expected = config.north_tick.expected_pulse_amplitude;
+        let fraction = config.north_tick.resolved_threshold_fraction();
 
         for gain_db in [-20.0f32, -6.0, 0.0, 6.0, 20.0] {
             let gain = db_to_amplitude(gain_db);
-            let threshold = detection_threshold(
-                config.north_tick.threshold_fraction,
-                expected * gain,
-                &highpass,
-            );
+            let threshold = detection_threshold(fraction, expected * gain, &highpass);
             let pulse_peak = expected * gain * highpass.peak_response();
             let margin = threshold / pulse_peak;
             assert!(
-                (margin - config.north_tick.threshold_fraction).abs() < 1e-5,
+                (margin - fraction).abs() < 1e-5,
                 "at {gain_db} dB the threshold is {margin} of the pulse, not the \
-                 configured {}",
-                config.north_tick.threshold_fraction
+                 configured {fraction}"
             );
         }
     }
