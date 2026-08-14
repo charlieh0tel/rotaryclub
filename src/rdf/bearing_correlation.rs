@@ -6,7 +6,14 @@ use std::f32::consts::PI;
 use super::bearing::{
     MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, circular_mean_phase, wrap_phase_diff,
 };
-const COHERENCE_WINDOW_COUNT: usize = 4;
+/// Fewest windows the coherence estimate will use. Two is the least that has
+/// a spread at all; it is reached only when the buffer is shorter than two
+/// rotations.
+const MIN_COHERENCE_WINDOWS: usize = 2;
+/// Most windows it will use, which caps the per-tick work on long buffers.
+/// Beyond this each window covers more than one rotation again, which is the
+/// old behaviour but with enough points to be a variance.
+const MAX_COHERENCE_WINDOWS: usize = 64;
 const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
 // Below this normalized correlation magnitude there is no Doppler tone to
 // measure (a dead channel yields i = q = 0 and atan2(0, 0) would report a
@@ -137,7 +144,7 @@ impl CorrelationBearingCalculator {
         correlation_magnitude: f32,
     ) -> ConfidenceMetrics {
         let n = self.base.work_buffer.len();
-        if n < COHERENCE_WINDOW_COUNT
+        if n < MIN_COHERENCE_WINDOWS
             || !signal_power.is_finite()
             || !correlation_magnitude.is_finite()
             || signal_power < MIN_POWER_THRESHOLD
@@ -155,10 +162,31 @@ impl CorrelationBearingCalculator {
         let snr_db = power_to_db(correlated_power / noise_power);
 
         // --- Coherence Estimation ---
-        // Split buffer into sub-windows and compute phase in each
-        let window_size = n / COHERENCE_WINDOW_COUNT;
-        let mut phases = [0.0f32; COHERENCE_WINDOW_COUNT];
+        // One window per rotation, so the spread being measured is the spread
+        // of independent bearing estimates.
+        //
+        // This used to cut the buffer into four regardless of its length. At
+        // the shipped buffer size that made each window average some four
+        // rotations, which averages away most of the noise the metric exists
+        // to detect, and four points is thin evidence for a variance besides.
+        // Worse, four windows that agree with each other can be wrong
+        // together: with the tone buried in noise the quarters still matched
+        // to a couple of degrees while the bearing was forty degrees out, so
+        // the metric read fully coherent on a measurement that was useless.
+        let samples_per_rotation = north_tick
+            .period
+            .filter(|p| p.is_finite() && *p >= 1.0)
+            .unwrap_or_else(|| 2.0 * PI / north_tick.frequency.max(f32::EPSILON));
+        let window_count = ((n as f32 / samples_per_rotation) as usize)
+            .clamp(MIN_COHERENCE_WINDOWS, MAX_COHERENCE_WINDOWS);
+        let window_size = n / window_count;
+        if window_size == 0 {
+            return ConfidenceMetrics::default();
+        }
+
         let omega = north_tick.frequency;
+        let mut phases = [0.0f32; MAX_COHERENCE_WINDOWS];
+        let phases = &mut phases[..window_count];
         for (win_idx, phase) in phases.iter_mut().enumerate() {
             let start = win_idx * window_size;
             let end = start + window_size;
@@ -179,7 +207,7 @@ impl CorrelationBearingCalculator {
         }
 
         // Calculate phase variance (circular variance)
-        let mean_phase = circular_mean_phase(&phases);
+        let mean_phase = circular_mean_phase(phases);
         let phase_variance: f32 = phases
             .iter()
             .map(|p| {
@@ -187,7 +215,7 @@ impl CorrelationBearingCalculator {
                 wrapped * wrapped
             })
             .sum::<f32>()
-            / COHERENCE_WINDOW_COUNT as f32;
+            / window_count as f32;
 
         let max_variance = MAX_PHASE_VARIANCE;
         let coherence = (1.0 - phase_variance / max_variance).clamp(0.0, 1.0);
@@ -550,6 +578,92 @@ mod tests {
             measurement.metrics.snr_db > 5.0,
             "Expected high SNR for clean sine, got {} dB",
             measurement.metrics.snr_db
+        );
+    }
+
+    /// Coherence must see phase noise that varies rotation to rotation.
+    ///
+    /// The windows used to be four regardless of buffer length, each covering
+    /// many rotations. Per-rotation wobble averages to nothing inside such a
+    /// window, so the four agreed with each other and the metric reported a
+    /// clean signal. Driving the phase alternately either side of the true
+    /// bearing is that case exactly: every window mean is the true bearing,
+    /// and no individual rotation is.
+    ///
+    /// The metric is driven directly rather than through `process_buffer`
+    /// because the Doppler bandpass would filter the wobble back out before
+    /// coherence ever saw it.
+    #[test]
+    fn test_coherence_sees_rotation_to_rotation_phase_noise() {
+        let sample_rate = 48000.0;
+        let doppler_config = DopplerConfig {
+            expected_freq: 480.0,
+            bandpass_low: 400.0,
+            bandpass_high: 560.0,
+            ..Default::default()
+        };
+        let samples_per_rotation = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / samples_per_rotation;
+        let north_tick = NorthTick {
+            sample_index: 0,
+            period: Some(samples_per_rotation),
+            lock_quality: None,
+            fractional_sample_offset: 0.0,
+            phase: 0.0,
+            frequency: omega,
+        };
+
+        let coherence_with_wobble = |wobble: f32| -> f32 {
+            let mut calc = CorrelationBearingCalculator::new(
+                &doppler_config,
+                &AgcConfig::default(),
+                ConfidenceWeights::default(),
+                sample_rate,
+                1,
+            )
+            .unwrap();
+
+            let bearing_radians = 45.0f32.to_radians();
+            let per_rotation = samples_per_rotation as usize;
+            calc.base.work_buffer = (0..4800)
+                .map(|i| {
+                    let sign = if (i / per_rotation).is_multiple_of(2) {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    (omega * i as f32 - bearing_radians + sign * wobble).sin()
+                })
+                .collect();
+
+            let (mut i_sum, mut q_sum, mut power_sum) = (0.0f32, 0.0f32, 0.0f32);
+            for (idx, &sample) in calc.base.work_buffer.iter().enumerate() {
+                let phase = north_tick.phase
+                    + calc.base.samples_since_tick(&north_tick, idx as f32) * omega;
+                i_sum += sample * phase.cos();
+                q_sum += sample * phase.sin();
+                power_sum += sample * sample;
+            }
+            let n = calc.base.work_buffer.len() as f32;
+            let (i, q) = (i_sum / n, q_sum / n);
+
+            calc.calculate_metrics(&north_tick, power_sum / n, (i * i + q * q).sqrt())
+                .coherence
+        };
+
+        let steady = coherence_with_wobble(0.0);
+        let wobbling = coherence_with_wobble(0.5);
+
+        assert!(
+            steady > 0.99,
+            "A tone at one phase should be fully coherent, got {steady}"
+        );
+        // Half a radian either side is a spread of 0.25 rad^2, which against
+        // the full-turn variance leaves about 0.92.
+        assert!(
+            wobbling < 0.95,
+            "Half a radian of per-rotation phase noise should cost coherence, \
+             got {wobbling} against {steady} for the same tone held steady"
         );
     }
 }
