@@ -225,8 +225,7 @@ impl CorrelationBearingCalculator {
             .sum::<f32>()
             / window_count as f32;
 
-        let bearing_uncertainty_deg =
-            bearing_uncertainty_deg(phase_variance, window_count, north_tick);
+        let bearing_uncertainty_deg = bearing_uncertainty_deg(Some(phase_variance), north_tick);
 
         // --- Signal Strength ---
         let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
@@ -316,7 +315,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
-            phase_variance: None,
+            phase_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -387,7 +386,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
-            phase_variance: None,
+            phase_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -396,7 +395,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
-            phase_variance: None,
+            phase_variance: Some(0.0),
             fractional_sample_offset: true_fractional_offset,
             phase: 0.0,
             frequency: omega,
@@ -462,7 +461,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
-            phase_variance: None,
+            phase_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -525,7 +524,10 @@ mod tests {
                 sample_index: 0,
                 period: Some(samples_per_rotation),
                 lock_quality: None,
-                phase_variance: None,
+                // A reference of known-zero scatter, so what these measure is
+                // the phase spread alone. None would mean "not estimable" and
+                // suppress the figure entirely, which is its own test.
+                phase_variance: Some(0.0),
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: omega,
@@ -580,7 +582,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
-            phase_variance: None,
+            phase_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -632,7 +634,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
-            phase_variance: None,
+            phase_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,

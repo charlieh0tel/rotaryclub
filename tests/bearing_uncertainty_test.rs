@@ -14,8 +14,9 @@
 
 use std::f32::consts::PI;
 
-use rotaryclub::config::{BearingMethod, RdfConfig};
+use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
+use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
 
 const PULSE_HALF_WIDTH: i64 = 12;
 
@@ -202,4 +203,170 @@ fn test_stated_uncertainty_does_not_understate_the_scatter() {
             );
         }
     }
+}
+
+/// An uncertainty that cannot be estimated must not be reported as zero.
+///
+/// A reference whose scatter is unknown was previously converted to "the
+/// reference is perfect" by an `unwrap_or(0.0)`, so the worst-informed
+/// moments produced the most confident output: a DPLL that had just cleared
+/// its statistics after a run of rejections, and a single zero crossing with
+/// no spread to measure. The contract is that the figure is absent and
+/// confidence is zero, which is the absence of a claim rather than a claim of
+/// excellence.
+#[test]
+fn test_unknown_reference_suppresses_the_uncertainty() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let period = sample_rate / config.doppler.expected_freq;
+
+    let mut calc = CorrelationBearingCalculator::new(
+        &config.doppler,
+        &config.agc,
+        config.bearing.confidence,
+        sample_rate,
+        1,
+    )
+    .expect("calculator");
+
+    let omega = 2.0 * PI / period;
+    let buffer: Vec<f32> = (0..4800).map(|i| (omega * i as f32).sin()).collect();
+
+    let unknown = NorthTick {
+        sample_index: 0,
+        period: Some(period),
+        lock_quality: Some(1.0),
+        phase_variance: None,
+        fractional_sample_offset: 0.0,
+        phase: 0.0,
+        frequency: omega,
+    };
+    let measured = calc
+        .process_buffer(&buffer, &unknown)
+        .expect("a bearing is still produced");
+    assert!(
+        measured.metrics.bearing_uncertainty_deg.is_none(),
+        "an unknown reference must suppress the uncertainty, got {:?}",
+        measured.metrics.bearing_uncertainty_deg
+    );
+    assert_eq!(
+        measured.confidence, 0.0,
+        "an unestimatable uncertainty must score zero confidence, not one"
+    );
+
+    // The same signal against a reference that does know its scatter.
+    let known = NorthTick {
+        phase_variance: Some(0.0),
+        ..unknown
+    };
+    let measured = calc
+        .process_buffer(&buffer, &known)
+        .expect("a bearing is still produced");
+    assert!(
+        measured.metrics.bearing_uncertainty_deg.is_some(),
+        "a known reference must produce an uncertainty"
+    );
+}
+
+/// The simple tracker estimates its own timing scatter from its intervals.
+///
+/// It has no oscillator to compare a detection against, but if each tick has
+/// timing variance v then the interval between two has variance 2v, so the
+/// interval scatter it already measures for its period estimate carries what
+/// the bearing uncertainty needs. Reporting nothing instead suppressed the
+/// figure and every confidence built on it for the whole mode.
+#[test]
+fn test_simple_tracker_reports_a_reference_scatter() {
+    let mut config = RdfConfig::default();
+    config.north_tick.mode = NorthTrackingMode::Simple;
+    config.bearing.smoothing_window = 1;
+
+    let sample_rate = config.audio.sample_rate as f32;
+    let signal = build_signal(
+        (sample_rate * 2.0) as usize,
+        sample_rate,
+        config.doppler.expected_freq,
+        200.0,
+        config.north_tick.expected_pulse_amplitude,
+        0.0,
+    );
+
+    let mut processor = RdfProcessor::new(&config, false, true).expect("processor");
+    let results = processor.process_signal(&signal);
+    let bearings: Vec<_> = results.iter().filter_map(|r| r.bearing).collect();
+    assert!(bearings.len() > 100, "expected a run of bearings");
+
+    // Skip the opening, where there are not yet two intervals to compare.
+    let settled = &bearings[bearings.len() / 2..];
+    for bearing in settled {
+        assert!(
+            bearing.metrics.bearing_uncertainty_deg.is_some(),
+            "the simple tracker should report an uncertainty once it has              intervals to measure"
+        );
+        assert!(
+            bearing.confidence > 0.0,
+            "and a confidence built on it, got {}",
+            bearing.confidence
+        );
+    }
+}
+
+/// A predicted tick must report a growing uncertainty as it coasts.
+///
+/// A coasted tick is not as good as a measured one and its error grows with
+/// every rotation predicted -- the budget exists precisely to bound that at
+/// half a sample, which is six degrees of bearing. Reporting the last
+/// measured scatter unchanged, as this did, left a tick predicted a full
+/// second ago claiming what one just detected claims.
+///
+/// This asserts on the tick's own reported variance rather than on the
+/// bearing confidence. An earlier version of this test checked confidence
+/// end to end and passed with the defect still present, because confidence
+/// drifts during a dropout for unrelated reasons; only the tick's variance
+/// isolates the behaviour under test.
+#[test]
+fn test_coasted_ticks_report_growing_uncertainty() {
+    let mut config = RdfConfig::default();
+    config.bearing.smoothing_window = 1;
+
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+    let settle = (sample_rate * 3.0) as usize;
+    let total = settle + (sample_rate * 0.5) as usize;
+
+    // Pulses stop halfway; the Doppler tone continues.
+    let mut signal = build_signal(
+        total,
+        sample_rate,
+        rotation_hz,
+        200.0,
+        config.north_tick.expected_pulse_amplitude,
+        0.0,
+    );
+    for i in settle..total {
+        signal[i * 2 + 1] = 0.0;
+    }
+
+    let mut processor = RdfProcessor::new(&config, false, true).expect("processor");
+    let results = processor.process_signal(&signal);
+
+    let coasted: Vec<f32> = results
+        .iter()
+        .filter(|r| r.north_tick.sample_index > settle)
+        .filter_map(|r| r.north_tick.phase_variance)
+        .collect();
+
+    assert!(
+        coasted.len() > 20,
+        "expected the tracker to coast over the dropout, got {} ticks",
+        coasted.len()
+    );
+
+    let first = coasted[0];
+    let last = *coasted.last().expect("a coasted tick");
+    assert!(
+        last > first * 1.5,
+        "the reported variance should grow as the coast lengthens: {last} at \
+         the end against {first} at the start"
+    );
 }

@@ -553,6 +553,26 @@ impl DpllNorthTracker {
 
     /// Confidence in a tick predicted rather than measured, falling to zero at
     /// the end of the coasting budget.
+    /// Timing variance a predicted tick carries on top of the measured
+    /// scatter, in radians squared of rotation phase.
+    ///
+    /// A coasted tick is not as good as a measured one and its error grows
+    /// with every rotation predicted, which is the whole reason the budget
+    /// exists. Reporting the last measured scatter unchanged -- as this did --
+    /// left confidence flat across a dropout: a tick predicted a full second
+    /// ago scored the same as one just detected, and `lock_quality`, the only
+    /// field that did decay, is not in the confidence.
+    ///
+    /// The budget's contract is that accumulated error stays inside
+    /// `MAX_COAST_TIMING_ERROR_SAMPLES`, so the fraction of the budget spent
+    /// is the fraction of that error to expect.
+    fn coast_drift_variance(&self, at: usize) -> f32 {
+        let spent = 1.0 - self.coast_quality_scale(at);
+        let drift_samples = MAX_COAST_TIMING_ERROR_SAMPLES * spent;
+        let drift_radians = drift_samples * self.frequency;
+        drift_radians * drift_radians
+    }
+
     fn coast_quality_scale(&self, at: usize) -> f32 {
         let budget = self.coast_budget_samples();
         if budget == 0 {
@@ -651,7 +671,10 @@ impl DpllNorthTracker {
                 lock_quality: self
                     .lock_quality()
                     .map(|q| q * self.coast_quality_scale(next)),
-                phase_variance: self.phase_error_stats.variance(),
+                phase_variance: self
+                    .phase_error_stats
+                    .variance()
+                    .map(|v| v + self.coast_drift_variance(next)),
                 fractional_sample_offset: self.last_tick_fraction,
                 phase: 0.0,
                 frequency,

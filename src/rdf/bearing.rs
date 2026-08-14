@@ -73,31 +73,34 @@ pub fn phase_to_bearing(phase_radians: f32) -> f32 {
 /// One-sigma bearing uncertainty, in degrees, from the spread of the
 /// individual phase estimates and the reference they were measured against.
 ///
-/// `phase_variance` is the spread of the `count` estimates that were averaged
-/// into this bearing. It is deliberately not reduced by the root of that
-/// count. Averaging would earn that reduction only if the estimates were
-/// independent, and they are not: every one of them is measured against the
+/// Both terms must be known. An unknown one is not a zero one, and treating
+/// it as zero is how a confidence score comes to claim certainty it has no
+/// basis for: the simple tracker cannot estimate its own timing scatter and
+/// reports None, a DPLL that has just cleared its statistics after a run of
+/// rejections reports None, and a single zero crossing gives no spread to
+/// measure. Each of those is a moment to say nothing, not a moment to report
+/// a perfect bearing. `ConfidenceMetrics::score` maps the resulting None to
+/// zero confidence.
+///
+/// `phase_variance` is deliberately not reduced by the root of the number of
+/// estimates that went into it. Averaging would earn that reduction only if
+/// they were independent, and they are not: every one is measured against the
 /// same north tick, through the same filter state, at the same AGC gain, so
 /// whatever those contribute lands on all of them together. Taking the
-/// reduction anyway makes the zero-crossing method claim 1.26 degrees where
-/// it is 1.95 degrees out.
+/// reduction anyway made the zero-crossing method claim 1.26 degrees where it
+/// was 1.95 degrees out.
 ///
 /// The reference contributes whole for the same reason, more obviously: an
 /// error in the tick displaces every estimate equally.
 pub(super) fn bearing_uncertainty_deg(
-    phase_variance: f32,
-    count: usize,
+    phase_variance: Option<f32>,
     north_tick: &NorthTick,
 ) -> Option<f32> {
-    if count == 0 || !phase_variance.is_finite() || phase_variance < 0.0 {
-        return None;
-    }
-    let reference_variance = north_tick
+    let spread = phase_variance.filter(|v| v.is_finite() && *v >= 0.0)?;
+    let reference = north_tick
         .phase_variance
-        .filter(|v| v.is_finite() && *v >= 0.0)
-        .unwrap_or(0.0);
-    let variance = phase_variance + reference_variance;
-    variance.sqrt().to_degrees().into()
+        .filter(|v| v.is_finite() && *v >= 0.0)?;
+    Some((spread + reference).sqrt().to_degrees())
 }
 
 /// Detailed confidence metrics for bearing measurements

@@ -9,7 +9,10 @@ fn make_north_tick(samples_per_rotation: f32) -> NorthTick {
         sample_index: 0,
         period: Some(samples_per_rotation),
         lock_quality: None,
-        phase_variance: None,
+        // A reference whose scatter is known to be zero. None would mean the
+        // tracker cannot estimate it, which correctly suppresses the
+        // uncertainty figure and any confidence built on it.
+        phase_variance: Some(0.0),
         fractional_sample_offset: 0.0,
         phase: 0.0,
         frequency: 2.0 * PI / samples_per_rotation,

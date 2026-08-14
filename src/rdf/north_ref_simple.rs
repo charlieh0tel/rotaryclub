@@ -28,6 +28,11 @@ pub struct SimpleNorthTracker {
     /// requantized to whole samples on every rotation.
     last_tick_fraction: f32,
     samples_per_rotation: Option<f32>,
+    /// Smoothed squared deviation of the measured interval from its own
+    /// average, in samples squared. See `reference_phase_variance`.
+    period_variance: Option<f32>,
+    /// Intervals measured so far, so a variance is not reported off one.
+    intervals_seen: usize,
     sample_counter: usize,
     sample_rate: f32,
     filter_buffer: Vec<f32>,
@@ -97,6 +102,8 @@ impl SimpleNorthTracker {
             last_tick_sample: None,
             last_tick_fraction: 0.0,
             samples_per_rotation: None,
+            period_variance: None,
+            intervals_seen: 0,
             sample_counter: 0,
             sample_rate,
             filter_buffer: Vec::new(),
@@ -104,6 +111,34 @@ impl SimpleNorthTracker {
             quiet_watch: QuietChannelWatch::new(sample_rate),
             threshold: config.threshold,
         })
+    }
+
+    /// This tracker's own timing scatter, in radians squared of rotation
+    /// phase, or None before it has enough intervals to say.
+    ///
+    /// There is no oscillator here to compare a detection against, but the
+    /// intervals between detections carry the same information: if each tick
+    /// has timing variance v, the interval between two of them has variance
+    /// 2v, so half the interval scatter is the per-tick scatter. Converting
+    /// samples squared to radians squared is the square of one rotation's
+    /// worth of phase per sample.
+    ///
+    /// This is what the bearing uncertainty needs from a reference and it is
+    /// two fields and an exponential average to produce. Reporting nothing --
+    /// which this used to -- is not free: an unknown reference suppresses the
+    /// uncertainty figure entirely and with it any confidence built on it.
+    fn reference_phase_variance(&self) -> Option<f32> {
+        // One interval is a number, not a spread.
+        if self.intervals_seen < 2 {
+            return None;
+        }
+        let interval_variance = self.period_variance?;
+        let period = self.samples_per_rotation?;
+        if !interval_variance.is_finite() || !period.is_finite() || period <= f32::EPSILON {
+            return None;
+        }
+        let radians_per_sample = 2.0 * PI / period;
+        Some(interval_variance / 2.0 * radians_per_sample * radians_per_sample)
     }
 
     /// Advance the sample clock over lost samples so tick indices after a
@@ -149,7 +184,7 @@ impl SimpleNorthTracker {
             sample_index: reported_sample,
             period: self.samples_per_rotation,
             lock_quality: self.lock_quality(),
-            phase_variance: None,
+            phase_variance: self.reference_phase_variance(),
             fractional_sample_offset,
             phase: 0.0,
             frequency,
@@ -211,6 +246,24 @@ impl SimpleNorthTracker {
                 let period = (compensated_sample - last) as f32 + fractional_sample_offset
                     - self.last_tick_fraction;
 
+                // How far this interval sits from the average, before the
+                // average absorbs it. Smoothed the same way the period is,
+                // which is all the statistic this tracker needs to say how
+                // much its own timing scatters.
+                if let Some(mean) = self.samples_per_rotation {
+                    let deviation = period - mean;
+                    let squared = deviation * deviation;
+                    self.period_variance = Some(
+                        self.period_variance
+                            .map(|prev| {
+                                (1.0 - PERIOD_SMOOTHING_FACTOR) * prev
+                                    + PERIOD_SMOOTHING_FACTOR * squared
+                            })
+                            .unwrap_or(squared),
+                    );
+                    self.intervals_seen = self.intervals_seen.saturating_add(1);
+                }
+
                 self.samples_per_rotation = Some(
                     self.samples_per_rotation
                         .map(|prev| {
@@ -231,7 +284,7 @@ impl SimpleNorthTracker {
                 sample_index: reported_sample,
                 period: self.samples_per_rotation,
                 lock_quality: self.lock_quality(),
-                phase_variance: None,
+                phase_variance: self.reference_phase_variance(),
                 fractional_sample_offset,
                 phase: 0.0, // By definition, tick = north = 0 radians
                 frequency,

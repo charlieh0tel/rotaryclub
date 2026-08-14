@@ -133,18 +133,24 @@ impl ZeroCrossingBearingCalculator {
 
         // Spread of the per-crossing phases about the bearing they were
         // averaged into, which is what the uncertainty figure is built from.
-        let mut phase_variance = 0.0f32;
+        // One crossing gives no spread. Leaving this at zero, as it did,
+        // reported an uncertainty of zero degrees and a confidence of one on
+        // a bearing resting on a single noise-triggered crossing.
+        let mut phase_variance = None;
         if crossings.len() >= 2 {
-            phase_variance = crossings
-                .iter()
-                .map(|&crossing_idx| {
-                    let samples_since_tick = self.base.samples_since_tick(north_tick, crossing_idx);
-                    let angle = samples_since_tick / samples_per_rotation * 2.0 * PI;
-                    let deviation = wrap_phase_diff(angle, avg_phase);
-                    deviation * deviation
-                })
-                .sum::<f32>()
-                / crossings.len() as f32;
+            phase_variance = Some(
+                crossings
+                    .iter()
+                    .map(|&crossing_idx| {
+                        let samples_since_tick =
+                            self.base.samples_since_tick(north_tick, crossing_idx);
+                        let angle = samples_since_tick / samples_per_rotation * 2.0 * PI;
+                        let deviation = wrap_phase_diff(angle, avg_phase);
+                        deviation * deviation
+                    })
+                    .sum::<f32>()
+                    / crossings.len() as f32,
+            );
         }
 
         // --- SNR Estimation via projection onto ideal Doppler sine ---
@@ -179,11 +185,7 @@ impl ZeroCrossingBearingCalculator {
         ConfidenceMetrics {
             snr_db,
             signal_strength,
-            bearing_uncertainty_deg: bearing_uncertainty_deg(
-                phase_variance,
-                crossings.len(),
-                north_tick,
-            ),
+            bearing_uncertainty_deg: bearing_uncertainty_deg(phase_variance, north_tick),
         }
     }
 }
@@ -278,7 +280,10 @@ mod tests {
                 sample_index: 0,
                 period: Some(period),
                 lock_quality: Some(1.0),
-                phase_variance: None,
+                // A reference of known-zero scatter, so what these measure is
+                // the phase spread alone. None would mean "not estimable" and
+                // suppress the figure entirely, which is its own test.
+                phase_variance: Some(0.0),
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: 2.0 * PI / period,
