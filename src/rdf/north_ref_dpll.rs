@@ -702,6 +702,15 @@ impl DpllNorthTracker {
             .note_detections(peaks.len(), strongest, self.threshold);
         self.quiet_watch.advance(buffer.len(), self.threshold);
 
+        // A channel that has gone silent is the one piece of evidence that a
+        // frozen gain has stopped working, so it is the one thing that lets
+        // the gain move again. Detections arriving cannot.
+        if let Some(agc) = self.agc.as_mut()
+            && self.quiet_watch.is_quiet()
+        {
+            agc.unfreeze();
+        }
+
         let delay = derive_delay_compensation(&self.highpass, self.pulse_reference_offset);
 
         let mut ticks = Vec::with_capacity(peaks.len());

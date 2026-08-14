@@ -134,6 +134,26 @@ impl NorthPulseAgc {
         self.observations >= OBSERVATIONS_BEFORE_FREEZE
     }
 
+    /// Allow the gain to move again.
+    ///
+    /// Freezing is what makes this safe -- converge once and then stop, so
+    /// there is no standing exposure to whatever the channel does later --
+    /// but taken absolutely it means a level that genuinely changes can never
+    /// be followed. A receiver swapped, a volume nudged, an interface
+    /// renegotiated: the frozen gain is then wrong and detection falls away
+    /// with no way back.
+    ///
+    /// The caller unfreezes on a long silence, which is the evidence that the
+    /// gain it converged to has stopped working. That keeps the safety
+    /// property, because nothing can drag the gain while detections are still
+    /// arriving; it only reconsiders once what it settled on has demonstrably
+    /// failed. The current gain is kept as the starting point, and the next
+    /// observation is free to move it the whole way.
+    pub fn unfreeze(&mut self) {
+        self.observations = 0;
+        self.recent.clear();
+    }
+
     /// Note a buffer that has produced no detections.
     ///
     /// Only useful before anything has ever been detected, and only acted on

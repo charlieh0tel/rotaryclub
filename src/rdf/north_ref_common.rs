@@ -151,6 +151,12 @@ impl QuietChannelWatch {
         }
     }
 
+    /// Whether the channel has been silent long enough to have complained
+    /// about it.
+    pub(super) fn is_quiet(&self) -> bool {
+        self.warned
+    }
+
     /// Samples since a pulse was last detected.
     pub(super) fn samples_since_detection(&self) -> usize {
         self.samples_since_detection

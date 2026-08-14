@@ -138,3 +138,65 @@ fn test_agc_holds_gain_on_a_silent_channel() {
         "the AGC must not raise gain until the noise floor becomes detections"
     );
 }
+
+/// A frozen gain must be able to recover when the level genuinely changes.
+///
+/// Freezing after the first few hundred pulses is what keeps the gain from
+/// being dragged around by a noisy channel, but taken absolutely it means a
+/// receiver swapped, or a volume nudged, leaves the gain wrong for good and
+/// detection falls away with nothing to say why. A long silence is the
+/// evidence that what it converged to has stopped working, and the only thing
+/// that lets it move again -- detections arriving cannot.
+#[test]
+fn test_a_frozen_gain_recovers_after_the_channel_goes_quiet() {
+    let mut config = RdfConfig::default();
+    config.north_tick.mode = NorthTrackingMode::Dpll;
+    config.north_tick.agc.enabled = true;
+
+    let sample_rate = config.audio.sample_rate as f32;
+    let period = sample_rate as f64 / config.doppler.expected_freq as f64;
+
+    // Strong pulses long enough to converge and freeze, then two seconds of
+    // silence, then pulses at a level the frozen gain cannot detect.
+    let strong_len = (sample_rate * 1.0) as usize;
+    let silence_len = (sample_rate * 2.0) as usize;
+    let weak_len = (sample_rate * 2.0) as usize;
+
+    let (strong, _) = build(strong_len, period, 0.8);
+    let silence = vec![0.0f32; silence_len];
+    let (weak, weak_epochs) = build(weak_len, period, 0.05);
+
+    let mut tracker =
+        NorthReferenceTracker::new(&config.north_tick, sample_rate).expect("tracker config");
+    for chunk in strong.chunks(512) {
+        let _ = tracker.process_buffer(chunk);
+    }
+    for chunk in silence.chunks(512) {
+        let _ = tracker.process_buffer(chunk);
+    }
+
+    let mut ticks = Vec::new();
+    for chunk in weak.chunks(512) {
+        for tick in tracker.process_buffer(chunk) {
+            ticks.push(tick.sample_index as f64 + tick.fractional_sample_offset as f64);
+        }
+    }
+
+    // Score the last half, by which point it has had time to re-converge.
+    let base = (strong_len + silence_len) as f64;
+    let start = weak_epochs.len() / 2;
+    let mut matched = 0usize;
+    for epoch in &weak_epochs[start..] {
+        let want = epoch + base;
+        if ticks.iter().any(|t| (t - want).abs() < 3.0) {
+            matched += 1;
+        }
+    }
+    let recovered = matched as f64 / (weak_epochs.len() - start).max(1) as f64;
+
+    assert!(
+        recovered > 0.9,
+        "after the channel went quiet the gain should be free to follow the \
+         new level, recovering the weak pulses: got {recovered:.3}"
+    );
+}
