@@ -29,22 +29,28 @@
       whether 1 kHz is safe generally or only on these two radios. Needs
       hardware.
 
-- [ ] The coasting budget punishes a phase offset as though it were a rate
-      error. `coast_budget_samples` derives a per-rotation error from the
-      larger of the frequency scatter and the mean phase error above its noise
-      floor. But a predicted tick advances from the last measured tick by
-      `period`; it never uses the oscillator's phase. So a loop sitting at a
-      constant phase offset predicts perfectly well, and the budget cuts it off
-      anyway. Measured with `coast_budget_probe`: at 0.5 Hz the mean phase
-      error is -0.0276 rad, which prices holdover at four rotations, while the
-      coasted ticks it does emit are accurate to 0.001 samples. At 1 Hz the
-      offset falls under its noise floor, the term vanishes, and holdover runs
-      to the cap.
-      What the term is trying to catch -- a rate that is steadily wrong with
-      little scatter -- shows up as a mean phase error that *drifts*, not one
-      that merely sits away from zero. Its trend is the quantity to test.
-      This is why bandwidths below 1 Hz are currently unusable, and they are
-      exactly the ones with the best steady-state timing.
+- [x] The coasting budget punishes a phase offset as though it were a rate
+      error. Investigated and wrong: the budget is right, and the reasoning
+      that said otherwise had the causality backwards.
+      A predicted tick does advance from the last measured tick by `period`
+      and never uses the oscillator's phase, so a standing phase offset looks
+      like it should cost nothing. But for a second-order loop a standing
+      offset is precisely the observable that says the integrator has not
+      converged, which is to say the rate is still slightly wrong. At 0.5 Hz
+      the rate is off by 0.0004 samples per rotation -- invisible over the
+      four rotations the budget allows, and worth three samples, 35 degrees of
+      bearing, over five seconds. Replacing the term with a test on the drift
+      of the mean phase error let those loops coast freely and put exactly
+      that error into the holdover.
+      The budget is conservative rather than correct: at 0.5 Hz it prices the
+      per-rotation error at 0.116 samples against a true 0.0004, so it is
+      318 times short. That costs holdover only at bandwidths below 1 Hz,
+      which the sweep disqualified on acquisition anyway. If it is ever worth
+      tightening, the drift signal is real but sits at the noise floor of a
+      128-tick window; it would need a longer window to be usable, which
+      trades against how fast the budget can react to a genuine rate change.
+      `test_coasting_stops_before_its_error_escapes_the_bound` now pins the
+      bound itself, and fails against the change described above.
 
 - [ ] Add a mode that runs two configurations over the same signal and reports
       the difference. Every comparison so far -- estimator, highpass cutoff,
