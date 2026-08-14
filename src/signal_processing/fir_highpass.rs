@@ -120,6 +120,15 @@ impl FirHighpass {
         0.0
     }
 
+    /// Largest tap, which is the peak of the impulse response.
+    ///
+    /// A pulse of amplitude A arriving on a sample produces a filtered peak of
+    /// A times this, so it converts between the amplitude a configuration
+    /// names and the amplitude a threshold actually meets.
+    pub fn peak_response(&self) -> f32 {
+        self.core.taps().iter().fold(0.0f64, |acc, &t| acc.max(t)) as f32
+    }
+
     /// Energy centroid of the filtered impulse response, as an offset from
     /// group delay.
     ///

@@ -340,6 +340,38 @@ impl Default for DpllConfig {
     }
 }
 
+/// Slow automatic gain control for the north reference channel.
+///
+/// Off by default. Enabling it changes what the detection threshold meets,
+/// which is the point, but that is a behaviour change and should be a
+/// decision rather than a surprise.
+#[derive(Debug, Clone, Copy)]
+pub struct NorthAgcConfig {
+    /// Whether to adapt the north channel gain at all. With this off,
+    /// `gain_db` alone decides the level, which is how this shipped.
+    pub enabled: bool,
+    /// How long the gain takes to settle, in seconds.
+    ///
+    /// Slow on purpose: the reference tick does not change once the hardware
+    /// is running, so the only real transient is startup, and a slow loop
+    /// cannot pump on the pulse train itself.
+    pub time_constant_secs: f32,
+    /// Bounds on the adaptive gain, before `gain_db` is applied.
+    pub min_gain: f32,
+    pub max_gain: f32,
+}
+
+impl Default for NorthAgcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            time_constant_secs: 2.0,
+            min_gain: 0.1,
+            max_gain: 10.0,
+        }
+    }
+}
+
 /// North reference pulse detection configuration
 ///
 /// Controls detection of the north timing reference pulses used to
@@ -348,6 +380,8 @@ impl Default for DpllConfig {
 pub struct NorthTickConfig {
     /// Tracking mode (DPLL recommended)
     pub mode: NorthTrackingMode,
+    /// Slow gain control for this channel, off by default.
+    pub agc: NorthAgcConfig,
     /// Sub-sample estimator for the pulse arrival time
     pub estimator: NorthPulseEstimator,
     /// Input gain in dB (0.0 = unity, applied before filtering)
@@ -602,6 +636,7 @@ impl Default for NorthTickConfig {
     fn default() -> Self {
         Self {
             mode: NorthTrackingMode::Dpll,
+            agc: NorthAgcConfig::default(),
             estimator: NorthPulseEstimator::EnergyCentroid,
             gain_db: 0.0,
             highpass_cutoff: 1000.0,

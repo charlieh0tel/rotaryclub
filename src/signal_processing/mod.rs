@@ -6,6 +6,7 @@ pub mod fir_bandpass;
 pub mod fir_core;
 pub mod fir_highpass;
 pub mod moving_average;
+pub mod north_agc;
 pub mod peak_detector;
 pub mod zero_crossing_detector;
 
@@ -17,5 +18,6 @@ pub use fir_bandpass::FirBandpass;
 pub use fir_core::FirFilterCore;
 pub use fir_highpass::FirHighpass;
 pub use moving_average::MovingAverage;
+pub use north_agc::NorthPulseAgc;
 pub use peak_detector::PeakDetector;
 pub use zero_crossing_detector::ZeroCrossingDetector;

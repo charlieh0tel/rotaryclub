@@ -49,29 +49,22 @@
 
 ## North Tick Tracking
 
-- [ ] A slow AGC on the north channel. Pulse amplitude varies 3.7x across the
-      two radios in `data/`, 0.21 to 0.78, against a configured
-      `expected_pulse_amplitude` of 0.8, and the existing AGC does not reach
-      this channel: it runs only on the doppler buffer, while the north path
-      applies a static `gain_db` that defaults to unity.
-      It must be referenced to the pulse peak, not to RMS. The pulse is a
-      1.2-sample event every 30, a duty cycle of 0.04, so the RMS of a clean
-      pulse train is 0.2 times the pulse amplitude and the doppler AGC's
-      target of 0.3 implies an amplitude of 1.5. Pointed at the three
-      captures it asks for 1.9x to 7.0x and drives the pulses to 1.06, 1.50
-      and 1.50 -- clipping on all three. An RMS reference also tracks the
-      rotation rate, since the duty cycle does.
-      Two things it has to get right: adaptation gated on detections, because
-      a peak tracker with no pulses ramps gain into the noise floor and
-      manufactures its own, and `QuietChannelWatch` already knows when
-      nothing is arriving; and a time constant of seconds, which the hardware
-      allows because the tick does not change once it is running.
-      What it buys beyond the level itself: normalising the peak to
-      `expected_pulse_amplitude` turns the threshold into a genuine fraction
-      of the pulse, which is what it already reads as. The amplitude cliff
-      sits at about 1.6 times the threshold and only matters because the
-      incoming level is unknown; normalise it and that becomes guaranteed
-      rather than assumed. Wants a fixed-gain escape hatch for bench work.
+- [x] A slow AGC on the north channel. Done, off by default:
+      `north_tick.agc.enabled`. Peak-referenced rather than RMS, because the
+      pulse is a 1.2-sample event every 30 and an RMS reference would both
+      demand an amplitude of 1.5 and track the rotation rate.
+      One thing the design as written here got wrong. Gating adaptation purely
+      on detections is correct once pulses are arriving, but a receiver quiet
+      enough to need the gain is quiet enough that nothing is detected, so the
+      first version could never rescue anything: it measured 0.000 detection
+      with the AGC on and off alike at a pulse amplitude of 0.15. The way out
+      is that a pulse train and a noise floor do not look alike -- a peak
+      twenty-five times the mean absolute value against about four -- so
+      before the first detection the gain adapts to the buffer peak, and only
+      when the buffer looks like pulses by that measure.
+      Enabling it leaves the tick count on all three captures in `data/`
+      exactly unchanged, and it recovers a pulse of 0.15 that the fixed-gain
+      detector misses entirely.
 
 - [ ] The north detection threshold has less margin than the sweep that chose
       it showed. That sweep ran with noise carrying a seventh of the in-band

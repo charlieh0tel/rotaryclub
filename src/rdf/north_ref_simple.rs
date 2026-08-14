@@ -2,7 +2,7 @@ use crate::config::{NorthPulseEstimator, NorthTickConfig};
 use crate::constants::FREQUENCY_EPSILON;
 use crate::error::Result;
 use crate::rdf::NorthTick;
-use crate::signal_processing::{FirHighpass, PeakDetector, db_to_amplitude};
+use crate::signal_processing::{FirHighpass, NorthPulseAgc, PeakDetector, db_to_amplitude};
 use std::f32::consts::PI;
 
 use super::north_ref_common::{
@@ -16,6 +16,9 @@ const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
 
 pub struct SimpleNorthTracker {
     gain: f32,
+    /// Slow gain on top of `gain`, driving the detected pulse peak towards
+    /// what the configuration says to expect. None when disabled.
+    agc: Option<NorthPulseAgc>,
     highpass: FirHighpass,
     peak_detector: PeakDetector,
     pulse_reference_offset: f32,
@@ -57,7 +60,15 @@ impl SimpleNorthTracker {
             config.highpass_transition_hz,
         )?;
 
-        let effective_pulse_amplitude = (config.expected_pulse_amplitude * gain).max(f32::EPSILON);
+        // With the AGC running, the level reaching the filter is driven to
+        // the expected amplitude rather than being whatever the receiver
+        // delivers times a static gain, so that is what the peak search
+        // window and the delay compensation should be derived from.
+        let effective_pulse_amplitude = if config.agc.enabled {
+            config.expected_pulse_amplitude.max(f32::EPSILON)
+        } else {
+            (config.expected_pulse_amplitude * gain).max(f32::EPSILON)
+        };
         let nominal_period_samples = sample_rate / config.dpll.initial_frequency_hz.max(1.0);
         let centroid_half_width =
             centroid_half_width(config.estimator, sample_rate, nominal_period_samples);
@@ -76,6 +87,15 @@ impl SimpleNorthTracker {
 
         Ok(Self {
             gain,
+            agc: config.agc.enabled.then(|| {
+                NorthPulseAgc::new(
+                    config.expected_pulse_amplitude * highpass.peak_response(),
+                    config.agc.time_constant_secs,
+                    config.dpll.initial_frequency_hz.max(1.0),
+                    config.agc.min_gain,
+                    config.agc.max_gain,
+                )
+            }),
             highpass,
             peak_detector: {
                 let mut detector = PeakDetector::with_peak_search_window(
@@ -192,14 +212,23 @@ impl SimpleNorthTracker {
     }
 
     pub fn process_buffer(&mut self, buffer: &[f32]) -> Vec<NorthTick> {
-        preprocess_north_buffer(
-            &mut self.filter_buffer,
-            buffer,
-            self.gain,
-            &mut self.highpass,
-        );
+        let gain = self.gain * self.agc.as_ref().map_or(1.0, |agc| agc.gain());
+        preprocess_north_buffer(&mut self.filter_buffer, buffer, gain, &mut self.highpass);
 
         let peaks = self.peak_detector.find_all_peaks(&self.filter_buffer);
+
+        // Adapt only on detections. A peak tracker given a silent channel
+        // raises gain until the noise floor crosses the threshold and then
+        // detects its own noise.
+        if let Some(agc) = self.agc.as_mut() {
+            if peaks.is_empty() {
+                agc.observe_undetected(&self.filter_buffer);
+            } else {
+                for (_, amplitude) in &peaks {
+                    agc.observe(*amplitude);
+                }
+            }
+        }
         let strongest = peaks.iter().fold(0.0f32, |acc, (_, amp)| acc.max(*amp));
         self.quiet_watch
             .note_detections(peaks.len(), strongest, self.threshold);
