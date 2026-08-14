@@ -49,6 +49,34 @@
 
 ## North Tick Tracking
 
+- [ ] The north detection threshold has less margin than the sweep that chose
+      it showed. That sweep ran with noise carrying a seventh of the in-band
+      energy it claimed, so its noise 0.10 column is about noise 0.04 in real
+      terms. Re-run with the generator fixed, at the shipped threshold of 0.15
+      and full pulse amplitude:
+
+        north noise rms   0.05   0.10   0.20   0.40
+        detection         1.00   1.00   0.50   0.49
+
+      and sweeping the threshold at north noise 0.20, where 0.15 fails:
+
+        threshold         0.05   0.10   0.15   0.25   0.40   0.60
+        detection         0.37   0.50   0.50   1.00   1.00   0.23
+
+      Raising the threshold *improves* detection, which says the failure is
+      early triggering on noise followed by the dead time masking the real
+      pulse -- detection pinned at almost exactly one half is every other
+      pulse lost, which is what a dead time slightly longer than a rotation
+      produces when it starts early.
+      Not a reason to move the default on its own. The real captures detect
+      18628 of 18630 and 121073 of 121074, and the pipeline scenario carries
+      north noise near rms 0.1, where 0.15 still takes everything. But the
+      margin above the shipped value is about one doubling of channel noise,
+      not the comfortable band the original sweep implied, and 0.25 holds a
+      factor of four further out at no measured cost in the harness.
+      Worth settling with a capture from a genuinely noisy channel, which is
+      the same thing the highpass question needs.
+
 - [x] Sweep `highpass_cutoff` again, with the current estimator and a finer
       grid. Done, on all three captures, 250 Hz to 3 kHz in fine steps at the
       shipped 63 taps. The shipped 1 kHz is already at the optimum, which is a

@@ -138,7 +138,7 @@ fn main() {
 
     let amplitudes = [1.0f32, 0.8, 0.6, 0.4, 0.3, 0.2, 0.15, 0.1];
 
-    for noise_rms in [0.0f32, 0.02, 0.05, 0.10] {
+    for noise_rms in [0.0f32, 0.05, 0.10, 0.20, 0.40, 0.80] {
         println!("noise rms {noise_rms}");
         print!("{:<12}", "amplitude");
         for a in amplitudes {
@@ -157,20 +157,22 @@ fn main() {
         println!("\n");
     }
 
-    println!("threshold sweep at the shipped amplitude {shipped_amplitude}, noise rms 0.05\n");
+    println!("threshold sweep at the shipped amplitude {shipped_amplitude}, by noise level\n");
     print!("{:<12}", "threshold");
     let thresholds = [0.05f32, 0.10, 0.15, 0.25, 0.40, 0.60, 0.75];
     for t in thresholds {
         print!("{t:>13.2}");
     }
     println!();
-    print!("{:<12}", "detect/fp");
-    for t in thresholds {
-        let r = run(shipped_amplitude, t, 0.05, sample_rate);
-        print!(
-            "{:>13}",
-            format!("{:.2}/{:.2}", r.detection, r.false_positive)
-        );
+    for noise_rms in [0.05f32, 0.20, 0.40, 0.80] {
+        print!("{:<12}", format!("noise {noise_rms}"));
+        for t in thresholds {
+            let r = run(shipped_amplitude, t, noise_rms, sample_rate);
+            print!(
+                "{:>13}",
+                format!("{:.2}/{:.2}", r.detection, r.false_positive)
+            );
+        }
+        println!();
     }
-    println!();
 }
