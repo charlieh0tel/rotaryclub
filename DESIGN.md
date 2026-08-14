@@ -168,17 +168,43 @@ Test file (11.6s, moving radio source):
 previously listed here, are implemented — correlation is the default
 bearing method.)
 
-Note: Adaptive thresholding for north tick detection is not a priority, and
-this is now measured rather than assumed. `examples/north_threshold_sweep`
-sweeps actual pulse amplitude against the detection threshold. At the shipped
-threshold of 0.15, detection stays at 1.00 with no false positives from a
-pulse amplitude of 1.0 all the way down to 0.3 -- a factor of 2.7 below the
-0.8 the configuration expects -- and collapses between 0.3 and 0.2, which is
-where the filtered pulse peak falls to the threshold. Noise up to 0.10 RMS
-widens that cliff rather than moving it. Sweeping the threshold instead, at
-the expected amplitude, detection holds from 0.10 to 0.40 and fails outside.
-The shipped pair therefore sits in the middle of a wide plateau, and an
-adaptive threshold would be tracking a level that has ample margin.
+Note: adaptive thresholding for north tick detection is not a priority, and
+this is measured rather than assumed. `examples/north_threshold_sweep` sweeps
+pulse amplitude and channel noise against the detection threshold, in both
+tracking modes.
+
+Two things decide the threshold and they pull opposite ways.
+
+The amplitude cliff moves with the threshold, at roughly amplitude = 1.6 x
+threshold. The detector threshold is absolute and the filtered pulse peak
+scales with amplitude, so this is what it has to do. In DPLL mode, with no
+noise, detection is total down to these amplitudes and collapses below them:
+
+  threshold  0.10  0.15  0.20  0.25  0.30  0.40
+  cliff      0.15  0.25  0.32  0.42  0.50  0.60
+
+Against the 0.8 the configuration expects, the shipped 0.15 therefore has a
+factor of 3.2 in hand on receiver level.
+
+Noise margin runs the other way. At the expected amplitude, detection and
+false positive rate against true RMS noise on the north channel:
+
+  noise      0.00       0.05       0.10       0.20       0.30       0.40
+  0.15  1.00/0.00  1.00/0.00  0.99/0.00  0.92/0.02  0.67/0.33  0.45/0.55
+  0.25  1.00/0.00  1.00/0.00  0.99/0.00  0.95/0.00  0.79/0.18  0.57/0.41
+
+So a higher threshold buys nothing until the channel carries 0.2 RMS and
+becomes worth having at 0.3, by which point neither value is usable. Raising
+0.15 to 0.25 would trade a factor of 3.2 on level for a factor of 1.9, to gain
+detection in a regime where the false positive rate has already reached 0.18.
+0.25 and 0.20 both also fail `test_north_tick_detection_under_hum_clipping_and_drift`.
+0.15 stays.
+
+An earlier version of this section reported a wide plateau from 0.10 to 0.40
+and a shared amplitude cliff at 0.3 regardless of threshold. Both were wrong.
+The sweep behind them ran in Simple mode, which is not what ships, and scaled
+its noise by a third of the labelled figure, so every noise column was worth
+three times less than it said.
 
 What the sweep does not excuse is silence: below the cliff detection goes to
 zero rather than degrading, and nothing reports it.

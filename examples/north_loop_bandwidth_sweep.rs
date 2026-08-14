@@ -78,12 +78,16 @@ fn build(
 
     if noise_rms > 0.0 {
         for (i, sample) in signal.iter_mut().enumerate() {
-            // Twelve uniform draws approximate a normal.
+            // Twelve uniform draws approximate a normal. Each is uniform on
+            // [-1, 1) and so has variance 1/3, which makes the sum's standard
+            // deviation sqrt(12/3) = 2. Dividing by 6 rather than 2 -- which
+            // is what this did -- delivered a third of the labelled RMS, so
+            // every "noise 0.2" row was measured at 0.067.
             let mut acc = 0.0f32;
             for j in 0..12 {
                 acc += noise_at(i * 12 + j);
             }
-            *sample += acc / 6.0 * noise_rms;
+            *sample += acc / 2.0 * noise_rms;
         }
     }
 

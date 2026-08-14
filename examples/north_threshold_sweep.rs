@@ -66,12 +66,16 @@ fn build(
 
     if noise_rms > 0.0 {
         for (i, sample) in signal.iter_mut().enumerate() {
-            // Twelve uniform draws approximate a normal.
+            // Twelve uniform draws approximate a normal. Each is uniform on
+            // [-1, 1) and so has variance 1/3, which makes the sum's standard
+            // deviation sqrt(12/3) = 2. Dividing by 6 rather than 2 -- which
+            // is what this did -- delivered a third of the labelled RMS, so
+            // every "noise 0.2" row was measured at 0.067.
             let mut acc = 0.0f32;
             for j in 0..12 {
                 acc += noise_at(i * 12 + j, 0xBEEF_1234_5678_9ABC);
             }
-            *sample += acc / 6.0 * noise_rms;
+            *sample += acc / 2.0 * noise_rms;
         }
     }
 
@@ -83,9 +87,19 @@ struct Rates {
     false_positive: f64,
 }
 
-fn run(amplitude: f32, threshold: f32, noise_rms: f32, sample_rate: f32) -> Rates {
+fn run(
+    amplitude: f32,
+    threshold: f32,
+    noise_rms: f32,
+    sample_rate: f32,
+    mode: NorthTrackingMode,
+) -> Rates {
     let mut config = RdfConfig::default();
-    config.north_tick.mode = NorthTrackingMode::Simple;
+    // The mode matters to what a threshold buys. The DPLL gates detections
+    // against its own prediction and coasts over the rotations a rejection
+    // costs, which is exactly the trade a threshold controls, so sweeping in
+    // Simple mode -- which this did -- measures a tracker that does not ship.
+    config.north_tick.mode = mode;
     config.north_tick.threshold = threshold;
     let num_samples = (sample_rate * 1.5) as usize;
     let (signal, truth) = build(num_samples, sample_rate, amplitude, noise_rms);
@@ -128,50 +142,54 @@ fn run(amplitude: f32, threshold: f32, noise_rms: f32, sample_rate: f32) -> Rate
 
 fn main() {
     let sample_rate = RdfConfig::default().audio.sample_rate as f32;
-    let shipped_threshold = RdfConfig::default().north_tick.threshold;
     let shipped_amplitude = RdfConfig::default().north_tick.expected_pulse_amplitude;
 
-    println!(
-        "shipped: threshold {shipped_threshold}, expected_pulse_amplitude {shipped_amplitude}"
-    );
-    println!("cells are detection / false positives, at the shipped threshold\n");
+    let amplitudes = [1.0f32, 0.8, 0.6, 0.5, 0.42, 0.35, 0.3, 0.25, 0.2, 0.15];
+    let thresholds = [0.10f32, 0.15, 0.20, 0.25, 0.30, 0.40];
+    let noises = [0.0f32, 0.05, 0.10, 0.20, 0.30, 0.40];
 
-    let amplitudes = [1.0f32, 0.8, 0.6, 0.4, 0.3, 0.2, 0.15, 0.1];
+    println!("expected_pulse_amplitude {shipped_amplitude}");
+    println!("cells are detection rate; noise is true RMS on the north channel\n");
 
-    for noise_rms in [0.0f32, 0.05, 0.10, 0.20, 0.40, 0.80] {
-        println!("noise rms {noise_rms}");
-        print!("{:<12}", "amplitude");
+    for mode in [NorthTrackingMode::Dpll, NorthTrackingMode::Simple] {
+        println!("=== {mode:?}");
+
+        // Does the amplitude cliff move with the threshold? The detector
+        // threshold is absolute and the filtered peak scales with amplitude,
+        // so it should. That is the cost side of raising the threshold and it
+        // had never been measured.
+        println!("\namplitude cliff, no noise");
+        print!("{:<12}", "thresh\\amp");
         for a in amplitudes {
-            print!("{a:>13.2}");
+            print!("{a:>7.2}");
         }
         println!();
-
-        print!("{:<12}", "detect/fp");
-        for a in amplitudes {
-            let r = run(a, shipped_threshold, noise_rms, sample_rate);
-            print!(
-                "{:>13}",
-                format!("{:.2}/{:.2}", r.detection, r.false_positive)
-            );
-        }
-        println!("\n");
-    }
-
-    println!("threshold sweep at the shipped amplitude {shipped_amplitude}, by noise level\n");
-    print!("{:<12}", "threshold");
-    let thresholds = [0.05f32, 0.10, 0.15, 0.25, 0.40, 0.60, 0.75];
-    for t in thresholds {
-        print!("{t:>13.2}");
-    }
-    println!();
-    for noise_rms in [0.05f32, 0.20, 0.40, 0.80] {
-        print!("{:<12}", format!("noise {noise_rms}"));
         for t in thresholds {
-            let r = run(shipped_amplitude, t, noise_rms, sample_rate);
-            print!(
-                "{:>13}",
-                format!("{:.2}/{:.2}", r.detection, r.false_positive)
-            );
+            print!("{:<12}", format!("{t:.2}"));
+            for a in amplitudes {
+                print!("{:>7.2}", run(a, t, 0.0, sample_rate, mode).detection);
+            }
+            println!();
+        }
+
+        // And what a threshold buys under channel noise, which is the benefit
+        // side. At the shipped pulse amplitude.
+        println!("\nnoise margin at amplitude {shipped_amplitude}");
+        print!("{:<12}", "thresh\\noise");
+        for n in noises {
+            print!("{n:>15.2}");
+        }
+        println!();
+        for t in thresholds {
+            print!("{:<12}", format!("{t:.2}"));
+            for n in noises {
+                let r = run(shipped_amplitude, t, n, sample_rate, mode);
+                print!(
+                    "{:>15}",
+                    format!("{:.2}/{:.2}", r.detection, r.false_positive)
+                );
+            }
+            println!();
         }
         println!();
     }

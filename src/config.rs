@@ -386,6 +386,14 @@ pub struct NorthTickConfig {
     /// Highpass filter transition bandwidth in Hz (default: 500.0)
     pub highpass_transition_hz: f32,
     /// Peak detection threshold (0-1 range)
+    ///
+    /// Raising this was measured and rejected. The amplitude at which
+    /// detection collapses tracks the threshold, at about 1.6 times it, so
+    /// 0.15 detects down to a pulse amplitude of 0.25 and 0.25 only to 0.42.
+    /// Against the 0.8 expected that is a factor of 3.2 on receiver level
+    /// against 1.9. What the higher threshold buys is detection under channel
+    /// noise, and it buys nothing until 0.2 RMS and little until 0.3, by
+    /// which point the false positive rate is 0.18 either way. See DESIGN.md.
     pub threshold: f32,
     /// Expected pulse amplitude for timing compensation (0-1 range)
     /// Used to compute threshold crossing offset on FIR impulse response
