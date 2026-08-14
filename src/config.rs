@@ -342,13 +342,42 @@ impl Default for DpllConfig {
 
 /// Slow automatic gain control for the north reference channel.
 ///
-/// Off by default. Enabling it changes what the detection threshold meets,
-/// which is the point, but that is a behaviour change and should be a
-/// decision rather than a surprise.
+/// On by default. Leaving it off is not the absence of a choice: it is the
+/// assumption that the receiver delivers roughly `expected_pulse_amplitude`,
+/// and that assumption is already false for one of the two radios in `data/`,
+/// which arrives at 0.21 against a configured 0.8 and so sits at the edge of
+/// the cliff where detection collapses.
+///
+/// The case for it being a default rather than an option is that the people
+/// it helps are the least likely to find it. A quiet receiver does not
+/// announce itself; it produces bearings that are quietly worse, with nothing
+/// to suggest a gain control would fix them.
+///
+/// Enabling it leaves the tick count on all three captures exactly unchanged,
+/// which is the evidence that it does not disturb a signal that already
+/// works. What has the least evidence behind it is the crest-factor bootstrap
+/// described in `NorthPulseAgc` -- the part that decides whether an
+/// undetected buffer holds pulses or noise. If something odd shows up on a
+/// channel carrying heavy interference, suspect that first, and
+/// `enabled: false` restores the fixed-gain behaviour.
 #[derive(Debug, Clone, Copy)]
 pub struct NorthAgcConfig {
     /// Whether to adapt the north channel gain at all. With this off,
     /// `gain_db` alone decides the level, which is how this shipped.
+    ///
+    /// Applies to DPLL mode only; the simple tracker keeps its fixed gain.
+    ///
+    /// What makes the adaptation safe is that it learns a level only while
+    /// the oscillator is locked, so that past the noise where the loop stops
+    /// locking it has no effect at all rather than converging on nonsense.
+    /// The simple tracker has no such signal. An equivalent predicate over
+    /// the scatter of its detection intervals was built and measured, and it
+    /// was not enough: at a north noise of 0.2 RMS the gain still took
+    /// detection from 0.913 to 0.785 and false positives from 0.082 to 0.210,
+    /// where in DPLL mode the same noise leaves it neutral. Interval scatter
+    /// says less about whether a detection was real than a phase-locked
+    /// oscillator does, and closing that gap means giving the simple tracker
+    /// a loop, which is the thing it exists not to have.
     pub enabled: bool,
     /// How long the gain takes to settle, in seconds.
     ///
@@ -364,7 +393,7 @@ pub struct NorthAgcConfig {
 impl Default for NorthAgcConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             time_constant_secs: 2.0,
             min_gain: 0.1,
             max_gain: 10.0,

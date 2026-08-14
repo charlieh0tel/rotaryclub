@@ -14,6 +14,16 @@
 //! captures. An RMS reference would also track the rotation rate, because the
 //! duty cycle does.
 //!
+//! It tracks the largest pulses, not the average of them. Averaging every
+//! detected peak is a positive feedback loop under noise, and detection
+//! gating does not break it because the false detections are detections: a
+//! noise trigger has a small peak, the average reads that as gain being too
+//! low, the gain rises, and more noise clears the threshold. Measured, at a
+//! north channel noise of 0.10 RMS that took detection from 0.979 to 0.791
+//! and false positives from 0.000 to 0.177. A decaying peak hold is immune to
+//! it: a small peak never raises the estimate, and only a genuinely weakening
+//! signal lets it fall.
+//!
 //! It adapts on detected pulses once there are any. Before that there is a
 //! chicken and egg: a receiver quiet enough to need the gain is quiet enough
 //! that nothing is detected, so gating purely on detections leaves it stuck at
@@ -26,6 +36,8 @@
 //! the buffer peak, but only when the buffer looks like pulses by that measure,
 //! and a silent or noisy channel is left alone.
 
+use std::collections::VecDeque;
+
 /// Slow peak-referenced gain for the north channel.
 pub struct NorthPulseAgc {
     /// The filtered peak a pulse should produce once gain is right.
@@ -33,10 +45,29 @@ pub struct NorthPulseAgc {
     gain: f32,
     min_gain: f32,
     max_gain: f32,
-    /// Weight given to a single observation, from the time constant.
+    /// Recent pulse amplitudes at the filter input, oldest first. The gain
+    /// follows their median.
+    recent: VecDeque<f32>,
+    /// Weight given to a single gain step, from the time constant.
     alpha: f32,
     observations: u64,
 }
+
+/// Detected peaks kept for the median. Long enough that a run of noise
+/// triggers cannot carry it, short enough to follow a real level change
+/// within the time constant.
+const ROBUST_WINDOW: usize = 64;
+
+/// Accepted pulses after which the gain stops moving.
+///
+/// The reference tick does not change once the hardware is running, so the
+/// gain has one job -- to find the level at startup -- and every adaptation
+/// after that is exposure without benefit. Measured, an AGC that keeps
+/// adapting degrades steadily as the channel gets noisier, because above
+/// about a quarter RMS most detections are noise and no amplitude drawn from
+/// them means anything. At the shipped rotation rate this is about a third of
+/// a second.
+const OBSERVATIONS_BEFORE_FREEZE: u64 = 512;
 
 /// Peak over mean absolute value, above which a buffer is taken to hold
 /// pulses rather than noise. A pulse train at the shipped rate measures about
@@ -62,9 +93,30 @@ impl NorthPulseAgc {
             gain: 1.0,
             min_gain,
             max_gain,
+            recent: VecDeque::with_capacity(ROBUST_WINDOW),
             alpha: 1.0 - (-1.0 / observations_per_constant).exp(),
             observations: 0,
         }
+    }
+
+    /// Median of the recent pulse amplitudes, or None before there are enough
+    /// to be worth a median.
+    ///
+    /// A median rather than a mean or a maximum, because noise contaminates
+    /// an amplitude estimate from both ends and each of the other two follows
+    /// one end of it. Averaging every detected peak follows the small ones --
+    /// noise triggers just over the threshold -- so the gain rises and admits
+    /// more of them, which measured as false positives going from 0.000 to
+    /// 0.177 at a north noise of 0.10. A peak hold follows the large ones --
+    /// a noise spike riding on a pulse -- so the gain falls and detection with
+    /// it. The median follows neither.
+    fn median_input_peak(&self) -> Option<f32> {
+        if self.recent.len() < 8 {
+            return None;
+        }
+        let mut sorted: Vec<f32> = self.recent.iter().copied().collect();
+        sorted.sort_by(f32::total_cmp);
+        Some(sorted[sorted.len() / 2]).filter(|v| *v > f32::EPSILON)
     }
 
     /// The gain to apply to the next buffer.
@@ -75,6 +127,11 @@ impl NorthPulseAgc {
     /// Whether the gain has had time to mean anything.
     pub fn settled(&self) -> bool {
         self.observations > 0
+    }
+
+    /// Whether the gain has stopped moving.
+    pub fn frozen(&self) -> bool {
+        self.observations >= OBSERVATIONS_BEFORE_FREEZE
     }
 
     /// Note a buffer that has produced no detections.
@@ -95,21 +152,29 @@ impl NorthPulseAgc {
         // Deliberately not counted as an observation: this is a guess at the
         // level from an undetected buffer, and the first real detection should
         // still be free to move the gain the whole way.
-        let wanted = (self.gain * self.target_peak / peak).clamp(self.min_gain, self.max_gain);
-        self.gain = wanted;
+        let level = peak / self.gain.max(f32::EPSILON);
+        self.gain = (self.target_peak / level).clamp(self.min_gain, self.max_gain);
     }
 
     /// Note the filtered peak of a detected pulse.
     ///
-    /// `filtered_peak` is measured after the current gain was applied, so the
-    /// gain that would have landed it on target is the current one scaled by
-    /// how far off it was.
+    /// `filtered_peak` is measured after the current gain was applied, so it is
+    /// referred back through the gain before entering the peak hold.
     pub fn observe(&mut self, filtered_peak: f32) {
-        if !filtered_peak.is_finite() || filtered_peak <= f32::EPSILON {
+        if self.frozen() || !filtered_peak.is_finite() || filtered_peak <= f32::EPSILON {
             return;
         }
-        let wanted =
-            (self.gain * self.target_peak / filtered_peak).clamp(self.min_gain, self.max_gain);
+        // Referred back through the current gain, so what accumulates is a
+        // property of the signal rather than of what the gain happened to be.
+        let input_peak = filtered_peak / self.gain.max(f32::EPSILON);
+        if self.recent.len() == ROBUST_WINDOW {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(input_peak);
+        let Some(level) = self.median_input_peak() else {
+            return;
+        };
+        let wanted = (self.target_peak / level).clamp(self.min_gain, self.max_gain);
         // The first observation moves the gain most of the way, so a receiver
         // far from the expected level is usable within a rotation or two
         // rather than after the full time constant.

@@ -100,8 +100,8 @@ pub trait NorthTracker {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub enum NorthReferenceTracker {
-    Simple(SimpleNorthTracker),
-    Dpll(DpllNorthTracker),
+    Simple(Box<SimpleNorthTracker>),
+    Dpll(Box<DpllNorthTracker>),
 }
 
 impl NorthReferenceTracker {
@@ -112,12 +112,12 @@ impl NorthReferenceTracker {
     /// * `sample_rate` - Audio sample rate in Hz
     pub fn new(config: &NorthTickConfig, sample_rate: f32) -> Result<Self> {
         match config.mode {
-            crate::config::NorthTrackingMode::Simple => {
-                Ok(Self::Simple(SimpleNorthTracker::new(config, sample_rate)?))
-            }
-            crate::config::NorthTrackingMode::Dpll => {
-                Ok(Self::Dpll(DpllNorthTracker::new(config, sample_rate)?))
-            }
+            crate::config::NorthTrackingMode::Simple => Ok(Self::Simple(Box::new(
+                SimpleNorthTracker::new(config, sample_rate)?,
+            ))),
+            crate::config::NorthTrackingMode::Dpll => Ok(Self::Dpll(Box::new(
+                DpllNorthTracker::new(config, sample_rate)?,
+            ))),
         }
     }
 }

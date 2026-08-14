@@ -71,8 +71,12 @@ fn detection_rate(config: &RdfConfig, amplitude: f32) -> f64 {
 
 #[test]
 fn test_agc_rescues_a_weak_receiver() {
+    // Both sides state what they are rather than inheriting it. An earlier
+    // version of this took the default for the "off" case, so flipping that
+    // default silently turned this into a comparison of the AGC with itself.
     let mut off = RdfConfig::default();
     off.north_tick.mode = NorthTrackingMode::Dpll;
+    off.north_tick.agc.enabled = false;
     let mut on = off.clone();
     on.north_tick.agc.enabled = true;
 

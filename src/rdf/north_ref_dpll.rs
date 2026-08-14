@@ -687,14 +687,15 @@ impl DpllNorthTracker {
         // Adapt only on detections. A peak tracker given a silent channel
         // raises gain until the noise floor crosses the threshold and then
         // detects its own noise.
-        if let Some(agc) = self.agc.as_mut() {
-            if peaks.is_empty() {
-                agc.observe_undetected(&self.filter_buffer);
-            } else {
-                for (_, amplitude) in &peaks {
-                    agc.observe(*amplitude);
-                }
-            }
+        // Before anything has been detected there is nothing better to go on.
+        // Once there is, the gain learns only from detections the timing gate
+        // accepted, further down: a detection the tracker does not believe is
+        // not evidence about the pulse level, and above about a quarter RMS of
+        // channel noise most detections are of that kind.
+        if let Some(agc) = self.agc.as_mut()
+            && peaks.is_empty()
+        {
+            agc.observe_undetected(&self.filter_buffer);
         }
         let strongest = peaks.iter().fold(0.0f32, |acc, (_, amp)| acc.max(*amp));
         self.quiet_watch
@@ -709,7 +710,7 @@ impl DpllNorthTracker {
         // window completed in this buffer may sit at a small negative index
         // (in the previous buffer); the phase advance is then a rewind.
         let mut last_sample_idx: isize = 0;
-        for &(peak_idx, _amplitude) in &peaks {
+        for &(peak_idx, amplitude) in &peaks {
             // Advance PLL phase from last_sample_idx to peak_idx
             let samples_to_advance = peak_idx - last_sample_idx;
             self.phase += self.frequency * samples_to_advance as f32;
@@ -782,6 +783,19 @@ impl DpllNorthTracker {
             }
             self.consecutive_rejections = 0;
             self.last_rejection_sample = None;
+
+            // The gate believes this one, so it is evidence about the pulse
+            // level -- but only while the oscillator is locked. Above about a
+            // quarter RMS of channel noise the loop does not lock, most
+            // detections are noise, and an amplitude drawn from them is worse
+            // than no adaptation at all: the gain converges on nonsense and
+            // then freezes there.
+            let locked = self.locked();
+            if let Some(agc) = self.agc.as_mut()
+                && locked
+            {
+                agc.observe(amplitude);
+            }
 
             // Track phase error for variance calculation
             self.phase_error_stats.update(phase_error);
@@ -943,6 +957,7 @@ impl DpllNorthTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::NorthAgcConfig;
     use crate::config::{DpllConfig, NorthTickConfig};
 
     #[test]
@@ -983,8 +998,16 @@ mod tests {
     #[test]
     fn test_dpll_north_tick_delay_compensation_with_gain() {
         let sample_rate = 48000.0;
+        // The subject here is the static gain_db path, so the adaptive gain is
+        // turned off rather than left to whatever the default is: with it on
+        // the level reaching the filter is driven to the expected amplitude
+        // and gain_db stops deciding anything.
         let config = NorthTickConfig {
             gain_db: 20.0,
+            agc: NorthAgcConfig {
+                enabled: false,
+                ..Default::default()
+            },
             dpll: DpllConfig {
                 initial_frequency_hz: 480.0,
                 natural_frequency_hz: 10.0,

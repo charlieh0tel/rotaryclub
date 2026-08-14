@@ -828,8 +828,11 @@ fn test_quiet_north_channel_is_observable() {
             tracker.samples_since_detection()
         );
 
-        // Too quiet: below where the filtered pulse crosses the threshold.
-        let quiet = build_north_signal(num_samples, &positions, 0.1);
+        // Too quiet to recover. With the north AGC running, a pulse at 0.1 is
+        // no longer too quiet -- it is lifted to the expected amplitude and
+        // detected, which is the point of it -- so what this needs is a level
+        // below what the gain is allowed to rescue.
+        let quiet = build_north_signal(num_samples, &positions, 0.01);
         let mut tracker = NorthReferenceTracker::new(&healthy.north_tick, sample_rate).unwrap();
         let mut ticks = 0usize;
         for chunk in quiet.chunks(512) {
