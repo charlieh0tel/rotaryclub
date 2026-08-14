@@ -1,4 +1,4 @@
-pub use crate::config::ConfidenceWeights;
+pub use crate::config::ConfidenceConfig;
 pub use crate::constants::MIN_POWER_THRESHOLD;
 
 use super::NorthTick;
@@ -140,12 +140,30 @@ pub struct ConfidenceMetrics {
 }
 
 impl ConfidenceMetrics {
-    /// Calculate combined confidence score from metrics using provided weights
-    pub fn combined_score(&self, weights: &ConfidenceWeights) -> f32 {
-        let snr_score = (self.snr_db / weights.snr_normalization_db).clamp(0.0, 1.0);
-        weights.snr_weight * snr_score
-            + weights.coherence_weight * self.coherence
-            + weights.signal_strength_weight * self.signal_strength
+    /// Confidence in this bearing, from 0 to 1.
+    ///
+    /// A ratio rather than a subtraction, so the score keeps resolution over
+    /// the whole range the uncertainty covers instead of bottoming out. At
+    /// the configured half-confidence uncertainty it reads 0.5; at twice that
+    /// 0.2, at ten times it 0.01. Measured across a noise sweep it runs from
+    /// 0.97 on a clean signal to 0.01 on a bearing forty degrees out, where
+    /// the weighted sum it replaced ran from 0.9999 to 0.76.
+    ///
+    /// An unknown uncertainty scores zero. It is not a claim of a bad
+    /// bearing, it is the absence of a claim, and treating that as confident
+    /// is how a confidence score becomes dangerous.
+    pub fn score(&self, config: &ConfidenceConfig) -> f32 {
+        let Some(sigma) = self
+            .bearing_uncertainty_deg
+            .filter(|s| s.is_finite() && *s >= 0.0)
+        else {
+            return 0.0;
+        };
+        if config.half_confidence_deg <= f32::EPSILON {
+            return 0.0;
+        }
+        let ratio = sigma / config.half_confidence_deg;
+        1.0 / (1.0 + ratio * ratio)
     }
 }
 
@@ -177,60 +195,58 @@ mod tests {
         assert!((phase_to_bearing(3.0 * PI / 2.0) - 270.0).abs() < 0.01);
     }
 
-    #[test]
-    fn test_confidence_metrics_default() {
-        let weights = ConfidenceWeights::default();
-        let metrics = ConfidenceMetrics::default();
-        assert_eq!(metrics.snr_db, 0.0);
-        assert_eq!(metrics.coherence, 0.0);
-        assert_eq!(metrics.signal_strength, 0.0);
-        assert_eq!(metrics.combined_score(&weights), 0.0);
-    }
-
-    #[test]
-    fn test_confidence_metrics_combined_score() {
-        let weights = ConfidenceWeights::default();
-        let metrics = ConfidenceMetrics {
+    fn metrics_with(uncertainty: Option<f32>) -> ConfidenceMetrics {
+        ConfidenceMetrics {
             snr_db: 20.0,
             coherence: 1.0,
             signal_strength: 1.0,
-            bearing_uncertainty_deg: None,
-        };
-        let score = metrics.combined_score(&weights);
-        assert!((score - 1.0).abs() < 0.001);
-
-        let metrics = ConfidenceMetrics {
-            snr_db: 10.0,
-            coherence: 0.5,
-            signal_strength: 0.5,
-            bearing_uncertainty_deg: None,
-        };
-        let score = metrics.combined_score(&weights);
-        let expected = weights.snr_weight * 0.5
-            + weights.coherence_weight * 0.5
-            + weights.signal_strength_weight * 0.5;
-        assert!((score - expected).abs() < 0.001);
+            bearing_uncertainty_deg: uncertainty,
+        }
     }
 
     #[test]
-    fn test_confidence_metrics_snr_clamping() {
-        let weights = ConfidenceWeights::default();
-        let metrics = ConfidenceMetrics {
-            snr_db: 40.0,
-            coherence: 0.0,
-            signal_strength: 0.0,
-            bearing_uncertainty_deg: None,
-        };
-        let score = metrics.combined_score(&weights);
-        assert!((score - 0.4).abs() < 0.001);
+    fn test_unknown_uncertainty_scores_zero() {
+        // Not a claim that the bearing is bad, but the absence of a claim.
+        // The other metrics are set high on purpose: none of them may rescue
+        // a measurement whose uncertainty could not be estimated.
+        let config = ConfidenceConfig::default();
+        assert_eq!(metrics_with(None).score(&config), 0.0);
+        assert_eq!(ConfidenceMetrics::default().score(&config), 0.0);
+    }
 
-        let metrics = ConfidenceMetrics {
-            snr_db: -10.0,
-            coherence: 0.0,
-            signal_strength: 0.0,
-            bearing_uncertainty_deg: None,
-        };
-        let score = metrics.combined_score(&weights);
-        assert_eq!(score, 0.0);
+    #[test]
+    fn test_half_confidence_lands_at_the_configured_uncertainty() {
+        let config = ConfidenceConfig::default();
+        let score = metrics_with(Some(config.half_confidence_deg)).score(&config);
+        assert!(
+            (score - 0.5).abs() < 0.001,
+            "Confidence should read one half at the configured uncertainty, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_confidence_keeps_resolution_across_the_range() {
+        let config = ConfidenceConfig::default();
+        let half = config.half_confidence_deg;
+
+        // The failure this replaced: a score that floors near 0.59 however
+        // bad the bearing gets, because two of its three terms never moved.
+        let ruined = metrics_with(Some(half * 10.0)).score(&config);
+        assert!(
+            ruined < 0.02,
+            "A bearing ten times worse than the half point should score near \
+             zero, got {ruined}"
+        );
+
+        let mut previous = 1.0f32;
+        for sigma in [0.1f32, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0] {
+            let score = metrics_with(Some(sigma)).score(&config);
+            assert!(
+                score < previous,
+                "Confidence must fall as uncertainty grows: {sigma} degrees \
+                 scored {score} against {previous} for the step before it"
+            );
+            previous = score;
+        }
     }
 }

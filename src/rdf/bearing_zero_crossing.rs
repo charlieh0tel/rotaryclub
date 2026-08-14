@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
@@ -39,7 +39,7 @@ impl ZeroCrossingBearingCalculator {
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
-        confidence_weights: ConfidenceWeights,
+        confidence: ConfidenceConfig,
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
@@ -47,7 +47,7 @@ impl ZeroCrossingBearingCalculator {
             base: BearingCalculatorBase::new(
                 doppler_config,
                 agc_config,
-                confidence_weights,
+                confidence,
                 sample_rate,
                 smoothing,
             )?,
@@ -99,10 +99,20 @@ impl ZeroCrossingBearingCalculator {
         let metrics =
             self.calculate_metrics(&self.crossings, samples_per_rotation, north_tick, avg_phase);
 
+        // Signal strength is a validity gate, not a quality term. Here it is
+        // the fraction of the expected crossings that were found, so it does
+        // say whether there was anything to measure, and a buffer holding
+        // almost none of them has nothing to report. It is deliberately not
+        // in the confidence score: the detector keeps finding crossings in
+        // noise, so it reads 0.995 on a bearing six degrees out.
+        if metrics.signal_strength < self.base.confidence().min_signal_strength {
+            return None;
+        }
+
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
-            confidence: metrics.combined_score(self.base.confidence_weights()),
+            confidence: metrics.score(self.base.confidence()),
             metrics,
         })
     }
@@ -238,7 +248,7 @@ mod tests {
         let calc = ZeroCrossingBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         );
@@ -266,7 +276,7 @@ mod tests {
             let calc = ZeroCrossingBearingCalculator::new(
                 &DopplerConfig::default(),
                 &AgcConfig::default(),
-                ConfidenceWeights::default(),
+                ConfidenceConfig::default(),
                 sample_rate,
                 1,
             )

@@ -1,4 +1,4 @@
-use rotaryclub::config::{AgcConfig, ConfidenceWeights, DopplerConfig, RdfConfig};
+use rotaryclub::config::{AgcConfig, ConfidenceConfig, DopplerConfig, RdfConfig};
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthReferenceTracker, NorthTick,
     NorthTracker, ZeroCrossingBearingCalculator,
@@ -129,7 +129,7 @@ fn test_correlation_bearing_with_correct_signal() {
         let mut calc = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -203,7 +203,7 @@ fn test_zero_crossing_bearing_with_correct_signal() {
         let mut calc = ZeroCrossingBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -270,7 +270,7 @@ fn test_full_pipeline_with_north_tracker() {
     let mut bearing_calc = CorrelationBearingCalculator::new(
         &config.doppler,
         &config.agc,
-        config.bearing.confidence_weights,
+        config.bearing.confidence,
         sample_rate,
         1,
     )

@@ -431,32 +431,50 @@ pub struct BearingConfig {
     /// Timeout in seconds before warning about missing north tick (live capture only)
     pub north_tick_warning_timeout_secs: f32,
     /// Weights for combining confidence metrics into overall score
-    pub confidence_weights: ConfidenceWeights,
+    pub confidence: ConfidenceConfig,
 }
 
-/// Weights for combining confidence metrics into an overall score
+/// How a bearing's estimated uncertainty becomes a confidence score.
 ///
-/// The combined confidence score is: `snr_weight * snr_score + coherence_weight * coherence + signal_strength_weight * signal_strength`
-/// where `snr_score = (snr_db / snr_normalization_db).clamp(0, 1)`
+/// Confidence used to be a weighted sum of SNR, coherence and signal
+/// strength. Two of those three barely moved -- coherence changed by 0.0016
+/// across a sweep that took the bearing from a sixth of a degree of error to
+/// forty -- so they acted as a constant offset and floored the score near
+/// 0.59 however bad the bearing was. It is now a function of the estimated
+/// bearing uncertainty, which is the one figure that both moves and makes a
+/// checkable claim.
 #[derive(Debug, Clone, Copy)]
-pub struct ConfidenceWeights {
-    /// Weight for SNR component (default: 0.4)
-    pub snr_weight: f32,
-    /// Weight for coherence component (default: 0.4)
-    pub coherence_weight: f32,
-    /// Weight for signal strength component (default: 0.2)
-    pub signal_strength_weight: f32,
-    /// SNR value in dB that maps to score 1.0 (default: 20.0)
-    pub snr_normalization_db: f32,
+pub struct ConfidenceConfig {
+    /// Bearing uncertainty, in degrees, at which confidence reads one half.
+    ///
+    /// The default is half a sample of north timing at 48 kHz, which is six
+    /// degrees of bearing. That makes a confidence of 0.5 mean something
+    /// stateable: the bearing is as good as the reference timing can be
+    /// resolved to.
+    pub half_confidence_deg: f32,
+    /// Signal strength below which no bearing is reported at all.
+    ///
+    /// This is a validity gate rather than a quality term. Signal strength
+    /// answers whether there was anything to measure, not whether the answer
+    /// is good: the zero-crossing detector keeps finding crossings in noise,
+    /// so it reads 0.995 on a bearing that is six degrees out.
+    ///
+    /// The floor is low on purpose, because the two methods do not measure
+    /// the same thing by this name. Zero crossing reports the fraction of
+    /// expected crossings it found, which is liveness. Correlation reports
+    /// the fraction of power that correlated with its reference, which also
+    /// falls when the reference is merely wrong -- a rotation rate mismatch
+    /// drops it well below a half while the channel is perfectly alive, and
+    /// suppressing the bearing there would hide the mismatch rather than
+    /// report it. Only genuine absence should reach this.
+    pub min_signal_strength: f32,
 }
 
-impl Default for ConfidenceWeights {
+impl Default for ConfidenceConfig {
     fn default() -> Self {
         Self {
-            snr_weight: 0.4,
-            coherence_weight: 0.4,
-            signal_strength_weight: 0.2,
-            snr_normalization_db: 20.0,
+            half_confidence_deg: 6.0,
+            min_signal_strength: 0.05,
         }
     }
 }
@@ -594,7 +612,7 @@ impl Default for BearingConfig {
             output_rate_hz: 10.0,
             north_offset_degrees: 0.0,
             north_tick_warning_timeout_secs: 2.0,
-            confidence_weights: ConfidenceWeights::default(),
+            confidence: ConfidenceConfig::default(),
         }
     }
 }

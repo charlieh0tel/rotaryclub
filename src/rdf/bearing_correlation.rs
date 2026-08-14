@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
@@ -50,7 +50,7 @@ impl CorrelationBearingCalculator {
     pub fn new(
         doppler_config: &DopplerConfig,
         agc_config: &AgcConfig,
-        confidence_weights: ConfidenceWeights,
+        confidence: ConfidenceConfig,
         sample_rate: f32,
         smoothing: usize,
     ) -> Result<Self> {
@@ -58,7 +58,7 @@ impl CorrelationBearingCalculator {
             base: BearingCalculatorBase::new(
                 doppler_config,
                 agc_config,
-                confidence_weights,
+                confidence,
                 sample_rate,
                 smoothing,
             )?,
@@ -113,6 +113,14 @@ impl CorrelationBearingCalculator {
         // Calculate confidence metrics
         let metrics = self.calculate_metrics(north_tick, signal_power, correlation_magnitude);
 
+        // No signal-strength gate here. This method's signal strength is the
+        // fraction of power that correlated with the reference, which falls
+        // when the reference is wrong as readily as when the channel is dead
+        // -- a rotation rate mismatch takes it below a half on a perfectly
+        // live signal, and low SNR takes it low enough to suppress bearings
+        // that are poor rather than absent. Absence is already caught above,
+        // by the correlation magnitude and the signal power floor.
+
         // Extract bearing directly from I/Q
         // Our signal is: A * sin(ω*t - φ) where φ is the bearing (note the minus!)
         // Correlating with sin(ω*t) and cos(ω*t) gives:
@@ -133,7 +141,7 @@ impl CorrelationBearingCalculator {
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
-            confidence: metrics.combined_score(self.base.confidence_weights()),
+            confidence: metrics.score(self.base.confidence()),
             metrics,
         })
     }
@@ -277,7 +285,7 @@ mod tests {
         let calc = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         );
@@ -301,7 +309,7 @@ mod tests {
         let mut calc = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -355,7 +363,7 @@ mod tests {
         let mut calc_uncorrected = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -363,7 +371,7 @@ mod tests {
         let mut calc_corrected = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -447,7 +455,7 @@ mod tests {
         let mut calc = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -494,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn test_correlation_confidence_uses_configured_weights() {
+    fn test_correlation_confidence_uses_the_configured_half_point() {
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
             expected_freq: 480.0,
@@ -502,44 +510,53 @@ mod tests {
             bandpass_high: 560.0,
             ..Default::default()
         };
-        let agc_config = AgcConfig::default();
-        let weights = ConfidenceWeights {
-            snr_weight: 0.0,
-            coherence_weight: 0.0,
-            signal_strength_weight: 0.0,
-            snr_normalization_db: 20.0,
-        };
-        let mut calc = CorrelationBearingCalculator::new(
-            &doppler_config,
-            &agc_config,
-            weights,
-            sample_rate,
-            1,
-        )
-        .unwrap();
-
         let samples_per_rotation = sample_rate / doppler_config.expected_freq;
         let omega = 2.0 * PI / samples_per_rotation;
-        let north_tick = NorthTick {
-            sample_index: 0,
-            period: Some(samples_per_rotation),
-            lock_quality: None,
-            phase_variance: None,
-            fractional_sample_offset: 0.0,
-            phase: 0.0,
-            frequency: omega,
+
+        let confidence_at = |half_confidence_deg: f32| -> f32 {
+            let mut calc = CorrelationBearingCalculator::new(
+                &doppler_config,
+                &AgcConfig::default(),
+                ConfidenceConfig {
+                    half_confidence_deg,
+                    ..Default::default()
+                },
+                sample_rate,
+                1,
+            )
+            .unwrap();
+
+            let north_tick = NorthTick {
+                sample_index: 0,
+                period: Some(samples_per_rotation),
+                lock_quality: None,
+                phase_variance: None,
+                fractional_sample_offset: 0.0,
+                phase: 0.0,
+                frequency: omega,
+            };
+            let bearing_radians = 45.0f32.to_radians();
+            let buffer: Vec<f32> = (0..4800)
+                .map(|i| (omega * i as f32 - bearing_radians).sin())
+                .collect();
+            calc.process_buffer(&buffer, &north_tick)
+                .unwrap()
+                .confidence
         };
 
-        let bearing_radians = 45.0f32.to_radians();
-        let buffer: Vec<f32> = (0..4800)
-            .map(|i| (omega * i as f32 - bearing_radians).sin())
-            .collect();
-
-        let measurement = calc.process_buffer(&buffer, &north_tick).unwrap();
+        // The same clean signal, judged against a demanding standard and a
+        // lax one. Confidence is a statement about the uncertainty relative
+        // to what the caller asked for, so it has to move with that.
+        let lax = confidence_at(30.0);
+        let strict = confidence_at(0.01);
         assert!(
-            measurement.confidence.abs() < 1e-6,
-            "Expected confidence to respect zero weights, got {}",
-            measurement.confidence
+            lax > 0.9,
+            "A clean signal judged against 30 degrees should score high, got {lax}"
+        );
+        assert!(
+            strict < 0.1,
+            "The same signal judged against a hundredth of a degree should \
+             score low, got {strict}"
         );
     }
 
@@ -556,7 +573,7 @@ mod tests {
         let mut calc = CorrelationBearingCalculator::new(
             &doppler_config,
             &agc_config,
-            ConfidenceWeights::default(),
+            ConfidenceConfig::default(),
             sample_rate,
             1,
         )
@@ -629,7 +646,7 @@ mod tests {
             let mut calc = CorrelationBearingCalculator::new(
                 &doppler_config,
                 &AgcConfig::default(),
-                ConfidenceWeights::default(),
+                ConfidenceConfig::default(),
                 sample_rate,
                 1,
             )

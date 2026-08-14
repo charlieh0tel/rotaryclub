@@ -1,4 +1,4 @@
-use rotaryclub::config::{AgcConfig, ConfidenceWeights, DopplerConfig};
+use rotaryclub::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthTick, ZeroCrossingBearingCalculator,
 };
@@ -300,7 +300,7 @@ fn new_calculator(
             CorrelationBearingCalculator::new(
                 doppler_config,
                 agc_config,
-                ConfidenceWeights::default(),
+                ConfidenceConfig::default(),
                 sample_rate,
                 1,
             )
@@ -310,7 +310,7 @@ fn new_calculator(
             ZeroCrossingBearingCalculator::new(
                 doppler_config,
                 agc_config,
-                ConfidenceWeights::default(),
+                ConfidenceConfig::default(),
                 sample_rate,
                 1,
             )
@@ -327,7 +327,7 @@ fn test_correlation_returns_none_for_empty_buffer() {
     let mut calc = CorrelationBearingCalculator::new(
         &doppler_config,
         &agc_config,
-        ConfidenceWeights::default(),
+        ConfidenceConfig::default(),
         sample_rate,
         1,
     )
@@ -355,7 +355,7 @@ fn test_correlation_returns_none_for_non_finite_frequency() {
     let mut calc = CorrelationBearingCalculator::new(
         &doppler_config,
         &agc_config,
-        ConfidenceWeights::default(),
+        ConfidenceConfig::default(),
         sample_rate,
         1,
     )
@@ -385,7 +385,7 @@ fn test_zero_crossing_returns_none_for_non_finite_period() {
     let mut calc = ZeroCrossingBearingCalculator::new(
         &doppler_config,
         &agc_config,
-        ConfidenceWeights::default(),
+        ConfidenceConfig::default(),
         sample_rate,
         1,
     )
@@ -418,7 +418,7 @@ fn test_bearing_metrics_are_finite_and_bounded() {
     let mut corr = CorrelationBearingCalculator::new(
         &doppler_config,
         &agc_config,
-        ConfidenceWeights::default(),
+        ConfidenceConfig::default(),
         sample_rate,
         1,
     )
@@ -436,7 +436,7 @@ fn test_bearing_metrics_are_finite_and_bounded() {
     let mut zc = ZeroCrossingBearingCalculator::new(
         &doppler_config,
         &agc_config,
-        ConfidenceWeights::default(),
+        ConfidenceConfig::default(),
         sample_rate,
         1,
     )

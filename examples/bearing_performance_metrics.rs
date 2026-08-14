@@ -125,7 +125,7 @@ fn run_case(
             CorrelationBearingCalculator::new(
                 &config.doppler,
                 &config.agc,
-                config.bearing.confidence_weights,
+                config.bearing.confidence,
                 sample_rate,
                 smoothing,
             )
@@ -135,7 +135,7 @@ fn run_case(
             ZeroCrossingBearingCalculator::new(
                 &config.doppler,
                 &config.agc,
-                config.bearing.confidence_weights,
+                config.bearing.confidence,
                 sample_rate,
                 smoothing,
             )

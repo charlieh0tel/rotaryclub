@@ -68,14 +68,14 @@ fn calculate_bearing_from_synthetic(
     let mut zc_calc = ZeroCrossingBearingCalculator::new(
         &config.doppler,
         &config.agc,
-        config.bearing.confidence_weights,
+        config.bearing.confidence,
         sample_rate,
         3,
     )?;
     let mut corr_calc = CorrelationBearingCalculator::new(
         &config.doppler,
         &config.agc,
-        config.bearing.confidence_weights,
+        config.bearing.confidence,
         sample_rate,
         3,
     )?;
@@ -164,7 +164,7 @@ fn test_bearing_with_perfect_north_tick() {
         let mut zc_calc = ZeroCrossingBearingCalculator::new(
             &config.doppler,
             &config.agc,
-            config.bearing.confidence_weights,
+            config.bearing.confidence,
             sample_rate,
             1,
         )
@@ -174,7 +174,7 @@ fn test_bearing_with_perfect_north_tick() {
         let mut corr_calc = CorrelationBearingCalculator::new(
             &config.doppler,
             &config.agc,
-            config.bearing.confidence_weights,
+            config.bearing.confidence,
             sample_rate,
             1,
         )
@@ -246,7 +246,7 @@ fn test_real_wav_file() {
     let mut correlation_calc = CorrelationBearingCalculator::new(
         &config.doppler,
         &config.agc,
-        config.bearing.confidence_weights,
+        config.bearing.confidence,
         sample_rate,
         3,
     )
@@ -422,7 +422,7 @@ fn test_rotating_bearing_through_zero() {
     let mut corr_calc = CorrelationBearingCalculator::new(
         &config.doppler,
         &config.agc,
-        config.bearing.confidence_weights,
+        config.bearing.confidence,
         sample_rate,
         1,
     )
@@ -512,7 +512,7 @@ fn test_dc_offset_removal() {
             let mut corr_calc = CorrelationBearingCalculator::new(
                 &config.doppler,
                 &config.agc,
-                config.bearing.confidence_weights,
+                config.bearing.confidence,
                 sample_rate,
                 3,
             )
@@ -565,7 +565,7 @@ fn test_dc_offset_removal() {
             let mut corr_calc = CorrelationBearingCalculator::new(
                 &config.doppler,
                 &config.agc,
-                config.bearing.confidence_weights,
+                config.bearing.confidence,
                 sample_rate,
                 3,
             )

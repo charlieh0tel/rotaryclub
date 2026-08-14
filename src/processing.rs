@@ -34,14 +34,14 @@ impl RdfProcessor {
                 BearingMethod::ZeroCrossing => Box::new(ZeroCrossingBearingCalculator::new(
                     &config.doppler,
                     &config.agc,
-                    config.bearing.confidence_weights,
+                    config.bearing.confidence,
                     sample_rate,
                     config.bearing.smoothing_window,
                 )?),
                 BearingMethod::Correlation => Box::new(CorrelationBearingCalculator::new(
                     &config.doppler,
                     &config.agc,
-                    config.bearing.confidence_weights,
+                    config.bearing.confidence,
                     sample_rate,
                     config.bearing.smoothing_window,
                 )?),

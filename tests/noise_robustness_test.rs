@@ -41,7 +41,7 @@ fn measure_bearing_with_noise(
     let mut corr_calc = CorrelationBearingCalculator::new(
         &config.doppler,
         &config.agc,
-        config.bearing.confidence_weights,
+        config.bearing.confidence,
         sample_rate,
         3,
     )
