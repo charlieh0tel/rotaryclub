@@ -51,7 +51,18 @@
       north tracker is not the source either -- its own bias measures 0.001
       samples, and the residual is identical in the correlation and
       zero-crossing methods, so it is in the path they share.
-      What it looks like: a fixed delay of about two microseconds. Roughly
-      constant in time rather than in samples, which is why 96 kHz shows a
-      similar angle instead of half of one. Look for something in the doppler
-      path with a time constant -- the AGC is the obvious candidate.
+      Also ruled out: the AGC, whose gain pinned to unity moves the residual
+      by 0.001 degrees; and the correlation's forward extrapolation of the
+      reference across a buffer, since a sixteenfold sweep of buffer size
+      moves it by 0.07 degrees.
+      It splits in two. `examples/bearing_convention_probe` now times the
+      north tracker alone against the same signal: it reports ticks +0.048
+      samples late, which is +0.57 degrees, independent of whether the pulse
+      is impulsive or band-limited. That accounts for a little over half of
+      the -1.07, leaving about -0.5 degrees in the bearing path proper.
+      The tracker half is the sharper lead, because it should be zero: for an
+      impulse the estimator's centroid and the delay compensation's reference
+      are computed the same way over the same window, so they ought to cancel
+      exactly. Start by checking whether the detected peak index is the
+      response's maximum tap -- the peak-search window and threshold crossing
+      are what could pick a different sample.

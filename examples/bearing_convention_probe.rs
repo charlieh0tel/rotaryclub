@@ -205,6 +205,93 @@ fn main() {
         measure(&signal, &config, truth)
     };
 
+    // Split the residual: how much of it is the north tracker mis-timing the
+    // pulse, and how much is the bearing path mis-using a correct tick?
+    for (shape_name, probe_shape) in [
+        ("band-limited", Shape::BandLimited),
+        ("impulse", Shape::Impulse),
+    ] {
+        let mut config = RdfConfig::default();
+        config.audio.sample_rate = sample_rate;
+        config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
+        let period = sample_rate as f64 / rotation_hz as f64;
+        let signal = build_signal(
+            num_samples,
+            sample_rate as f32,
+            rotation_hz,
+            truth,
+            Placement::Rounded,
+            probe_shape,
+            config.north_tick.expected_pulse_amplitude,
+            0,
+            0.0,
+        );
+        let north: Vec<f32> = signal.iter().skip(1).step_by(2).copied().collect();
+
+        let mut tracker =
+            rotaryclub::rdf::NorthReferenceTracker::new(&config.north_tick, sample_rate as f32)
+                .unwrap();
+        let mut ticks = Vec::new();
+        for chunk in north.chunks(512) {
+            for tick in rotaryclub::rdf::NorthTracker::process_buffer(&mut tracker, chunk) {
+                ticks.push(tick.sample_index as f64 + tick.fractional_sample_offset as f64);
+            }
+        }
+
+        let mut errors = Vec::new();
+        for tick in ticks.iter().skip(200) {
+            let k = (tick / period).round();
+            errors.push(tick - k * period);
+        }
+        let mean = errors.iter().sum::<f64>() / errors.len().max(1) as f64;
+        println!(
+            "north tracker alone, {shape_name:<13}: {:+.4} samples = {:+.3} deg, over {} ticks",
+            mean,
+            mean / period * 360.0,
+            errors.len()
+        );
+    }
+
+    println!("\nresidual at trim 0, against buffer size and AGC");
+    println!(
+        "{:<12} {:>14} {:>16}",
+        "buffer", "agc on (deg)", "agc pinned (deg)"
+    );
+    for buffer_size in [128usize, 256, 512, 1024, 2048] {
+        let mut cells = Vec::new();
+        for pin_agc in [false, true] {
+            let mut config = RdfConfig::default();
+            config.audio.sample_rate = sample_rate;
+            config.audio.buffer_size = buffer_size;
+            config.apply_rotation(RotationFrequency::from_hz(rotation_hz));
+            config.doppler.method = BearingMethod::Correlation;
+            config.doppler.north_tick_timing_adjustment_us = 0.0;
+            if pin_agc {
+                // Fix the gain, so the only thing left in the doppler path is
+                // the bandpass and the correlation itself.
+                config.agc.min_gain = 1.0;
+                config.agc.max_gain = 1.0;
+            }
+            let signal = build_signal(
+                num_samples,
+                sample_rate as f32,
+                rotation_hz,
+                truth,
+                Placement::TrueEpoch,
+                Shape::BandLimited,
+                config.north_tick.expected_pulse_amplitude,
+                0,
+                0.0,
+            );
+            cells.push(match measure(&signal, &config, truth) {
+                Some(v) => format!("{v:+.3}"),
+                None => "none".into(),
+            });
+        }
+        println!("{:<12} {:>14} {:>16}", buffer_size, cells[0], cells[1]);
+    }
+    println!();
+
     println!("\nresidual at trim 0, against doppler bandpass length");
     println!(
         "{:<10} {:>10} {:>12} {:>12}",
