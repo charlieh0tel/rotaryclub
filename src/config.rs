@@ -260,8 +260,24 @@ pub enum NorthTrackingMode {
 /// weight is spread across the pulse. Amplitude weighting gives the skirts
 /// more say, which suits a narrow pulse whose neighbours carry the
 /// interpolation; energy weighting concentrates on the peak, which suits a
-/// wider pulse with skirts worth down-weighting and is measurably better at
-/// the shipped highpass cutoff.
+/// wider pulse with skirts worth down-weighting.
+///
+/// Which is better was measured over twelve noise realisations with common
+/// random numbers. On tick timing the amplitude centroid wins at the noise
+/// levels the recordings actually sit at -- 0.0022 samples against 0.0037 at
+/// a 0.0006 RMS north channel, twelve times out of twelve -- and the two are
+/// indistinguishable above that. On bearing, which is what any of this is
+/// for, they are indistinguishable everywhere: the difference in scatter is
+/// under 0.02 degrees against a scatter of 10.9, and its confidence interval
+/// spans zero at every noise level tried.
+///
+/// So the shipped default is not the better estimator on the metric where
+/// either is measurably better, and it does not matter, which is why it has
+/// not changed. Both are far inside anything a bearing can see -- 0.0037
+/// samples is 0.04 degrees. An earlier note here claimed energy weighting was
+/// measurably better at the shipped cutoff, and a reversal between the two at
+/// 0.05 RMS; neither survives replication. Both came from a single noise draw
+/// that sat outside the spread of the twelve that followed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum NorthPulseEstimator {
     /// Index of the largest filtered sample, quantized to whole samples

@@ -95,16 +95,40 @@ for on every sweep.
       is not enough to say what real interference does to it. Wants more
       recordings, ideally at known bearings.
 
-- [ ] The estimator and the highpass cutoff trade against each other and the
-      answer depends on noise. On a clean channel the amplitude centroid beats
-      the shipped energy centroid on tick error at 1000 and 1250 Hz, 0.0022
-      samples against 0.0037. Add 0.05 RMS of north noise and it reverses,
-      0.0141 against 0.0130. Both are far inside anything that matters for a
-      bearing -- 0.0037 samples is 0.04 degrees -- so this is not a reason to
-      move, but it does mean the estimator comparison has no answer that is
-      independent of the channel.
-      750 Hz and 2000 Hz are worse than 1000 and 1250 for both estimators,
-      which agrees with the cutoff sweep on the real captures.
+- [x] The estimator and the highpass cutoff were thought to trade against
+      each other, with an answer that depended on the noise. Measured over
+      twelve independent noise realisations with common random numbers, there
+      is no trade and no dependence.
+
+      On tick timing the amplitude centroid wins where the recordings sit,
+      0.0022 samples against 0.0037 at a 0.0006 RMS north channel, twelve
+      times out of twelve, and by 0.0004 at 0.01. Above that the two are
+      indistinguishable: at 0.05 the difference is 0.0004 samples with a
+      confidence interval of -0.0007 to 0.0015, and at 0.2 it is 0.049 with an
+      interval of -0.086 to 0.184.
+
+      On bearing they are indistinguishable everywhere. The scatter difference
+      is under 0.02 degrees against a scatter of 10.9, and its interval spans
+      zero at every noise level. So the shipped energy centroid is not the
+      better estimator on the one metric where either is measurably better,
+      and it does not matter; it has not been changed.
+
+      The reversal this item was built on -- 0.0141 against 0.0130 at 0.05 --
+      does not exist. It was one noise draw, and it sat outside the spread of
+      the twelve that followed.
+
+      The cutoff half is settled the same way. 1250 Hz looked to dominate the
+      shipped 1000, never worse and 13 percent better on bearing scatter at
+      0.2 RMS; across six realisations that becomes 0.604 against 0.624 with a
+      seed-to-seed spread of 0.37 to 0.79, which is a draw. 1000 stays.
+
+      Two harness defects had to be fixed before any of this could be
+      measured, and they are the real result of this item. `config_sweep` had
+      no way to vary the noise at all, so every row it had ever printed was
+      one realisation; and the generator's seed was folded in before the
+      finalizer, so nearby seeds produced correlated streams -- 0.97 between
+      seeds 1 and 2. Sweeping `bearing` does not substitute for a seed: it
+      redraws the doppler noise and leaves the north channel identical.
 
 - [ ] `gate_sigma` has never had a default chosen by measurement, and the
       shipped 3.0 is not obviously the best. At 0.20 RMS of north noise a
@@ -209,6 +233,18 @@ for on every sweep.
       threshold should follow the tracking mode, or be expressed as a fraction
       of `expected_pulse_amplitude` now that the AGC makes that meaningful, is
       the question this leaves behind.
+
+- [ ] Decide how the detection threshold should be expressed. The sweep that
+      settled 0.15 left this behind rather than answering it, and two options
+      are open. It could follow the tracking mode: 0.25 is available to a
+      DPLL-only deployment and is worth about a quarter of the detection rate
+      at 0.3 RMS of channel noise, but is not safe for the simple tracker,
+      which is what holds the shipped value down. Or it could be a fraction of
+      `expected_pulse_amplitude` rather than an absolute level, which was not
+      a real option before the north AGC and is now, because the AGC is what
+      makes that field mean something on a channel whose level nobody set.
+      An absolute threshold is a level margin that quietly depends on the
+      receiver's audio gain, and the AGC removes exactly that dependence.
 
 - [ ] Price what the highpass is for, with a capture that bleeds audio into
       the north channel. That is the only argument for filtering high, and no
