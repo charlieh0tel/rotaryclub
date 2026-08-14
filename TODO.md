@@ -128,17 +128,16 @@
       `test_coasting_stops_before_its_error_escapes_the_bound` now pins the
       bound itself, and fails against the change described above.
 
-- [ ] Extend the comparison to N configurations, not two. `config_compare`
-      takes an A and a B, but most real questions are grids: the threshold
-      needed threshold against amplitude against noise against tracking mode,
-      and the loop bandwidth needed bandwidth against noise. Both were
-      hand-rolled into one-off examples, and that is exactly how the same
-      mislabelled noise axis came to live in two of them independently, and
-      how one of them came to sweep in a tracking mode that does not ship.
-      A framework that takes a set of axes, runs the cross product against one
-      generator, and prints the table would have made both errors visible at
-      the point they were written, because the generator and the axis labels
-      would be in one place instead of copied.
+- [x] Extend the comparison to N configurations, not two. `src/bin/config_sweep.rs`
+      takes any number of `--axis key=v1,v2,...` and runs the cross product,
+      over configuration keys and stimulus alike. `--list-axes` lists both.
+      The stimulus axes name the physical quantity rather than a knob:
+      `doppler_noise` is passband noise power against the tone, which the
+      recordings measure at 0.199, 0.793 and 6.579, and `north_noise` is an
+      RMS against their floor of about 0.0006. That naming is the point of the
+      exercise. One signal is built per distinct stimulus and shared across
+      the configuration axes, so two configurations are never compared against
+      different noise.
 
 - [x] Add a mode that runs two configurations over the same signal and reports
       the difference. `src/bin/config_compare.rs`: both sides start from the

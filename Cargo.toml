@@ -38,6 +38,10 @@ approx = "0.5"
 rotaryclub = { path = ".", features = ["simulation"] }
 
 [[bin]]
+name = "config_sweep"
+required-features = ["simulation"]
+
+[[bin]]
 name = "generate_wav"
 required-features = ["simulation"]
 

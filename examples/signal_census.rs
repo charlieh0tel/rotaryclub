@@ -36,7 +36,7 @@
 
 use rotaryclub::audio::WavFileSource;
 use rotaryclub::config::RdfConfig;
-use rotaryclub::simulation::{DopplerImpairment, generate_impaired_signal, generate_test_signal};
+use rotaryclub::simulation::{SignalImpairment, generate_impaired_signal, generate_test_signal};
 use std::f32::consts::PI;
 
 struct Census {
@@ -272,7 +272,7 @@ fn main() {
         config.audio.sample_rate,
         rotation_hz,
         |_| 200.0,
-        DopplerImpairment::representative(),
+        SignalImpairment::representative(),
     );
     let c = census(&impaired, config.audio.sample_rate as f32, rotation_hz);
     row("synthetic, representative", &c);

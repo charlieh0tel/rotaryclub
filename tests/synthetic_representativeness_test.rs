@@ -14,7 +14,7 @@
 //! the gap cannot quietly reopen.
 
 use rotaryclub::config::RdfConfig;
-use rotaryclub::simulation::{DopplerImpairment, generate_impaired_signal, generate_test_signal};
+use rotaryclub::simulation::{SignalImpairment, generate_impaired_signal, generate_test_signal};
 use std::f32::consts::PI;
 
 /// Power at one frequency, by direct correlation.
@@ -58,7 +58,7 @@ fn test_impaired_generator_matches_the_recordings() {
         rate,
         rotation_hz,
         |_| 200.0,
-        DopplerImpairment::representative(),
+        SignalImpairment::representative(),
     );
     let m = measure(&signal, rate as f32, rotation_hz);
 

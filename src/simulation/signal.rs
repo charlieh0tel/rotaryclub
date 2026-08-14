@@ -43,7 +43,7 @@ fn add_north_pulse(channel: &mut [f32], epoch: f64, amplitude: f32) {
     }
 }
 
-/// What the Doppler channel carries besides the rotation tone.
+/// What the channels carry besides the signal.
 ///
 /// The synthetic Doppler channel was the rotation tone and nothing else,
 /// which is not what a receiver delivers. Measured against the captures in
@@ -57,7 +57,7 @@ fn add_north_pulse(channel: &mut [f32], epoch: f64, amplitude: f32) {
 /// independent count plus the reference term, and with no interference there
 /// is no phase spread, so only the reference term was ever exercised.
 #[derive(Debug, Clone, Copy)]
-pub struct DopplerImpairment {
+pub struct SignalImpairment {
     /// Interfering audio power *inside the Doppler passband*, relative to the
     /// rotation tone. Measured on the recordings in `data/`: 0.199, 0.793 and
     /// 6.579.
@@ -79,17 +79,26 @@ pub struct DopplerImpairment {
     /// without ever having been a nuisance.
     pub audio_low_hz: f32,
     pub audio_high_hz: f32,
+    /// RMS of the white noise added to the north channel.
+    ///
+    /// White rather than band-limited, unlike the doppler side: the north
+    /// highpass at 1 kHz passes most of the spectrum, so what is generated is
+    /// close to what the detector meets. The recordings in `data/` measure a
+    /// north floor around 0.0006, so anything above about 0.01 here is beyond
+    /// what has ever been observed.
+    pub north_noise_rms: f32,
     /// Seed, so a run is repeatable.
     pub seed: u64,
 }
 
-impl DopplerImpairment {
+impl SignalImpairment {
     /// Nothing but the tone, which is what this generator used to produce.
     pub fn none() -> Self {
         Self {
             passband_noise_to_tone: 0.0,
             second_harmonic: 0.0,
             third_harmonic: 0.0,
+            north_noise_rms: 0.0,
             audio_low_hz: 300.0,
             audio_high_hz: 3400.0,
             seed: 0x51D3_7A19_C0DE_2B4F,
@@ -159,7 +168,7 @@ where
         sample_rate,
         rotation_hz,
         bearing_fn,
-        DopplerImpairment::none(),
+        SignalImpairment::none(),
     )
 }
 
@@ -170,7 +179,7 @@ pub fn generate_impaired_signal<F>(
     sample_rate: u32,
     rotation_hz: f32,
     bearing_fn: F,
-    impairment: DopplerImpairment,
+    impairment: SignalImpairment,
 ) -> Vec<f32>
 where
     F: Fn(f32) -> f32,
@@ -237,6 +246,21 @@ where
         vec![0.0f32; num_samples]
     };
 
+    // North channel noise, twelve uniform draws for a rough normal. Each draw
+    // is uniform on [-1, 1) with variance 1/3, so twelve of them have a
+    // standard deviation of 2 and the divisor is 2, not 6. Getting that wrong
+    // is how two sweeps came to run at a third of the noise they claimed.
+    let north_noise = |index: usize| -> f32 {
+        if impairment.north_noise_rms <= 0.0 {
+            return 0.0;
+        }
+        let mut acc = 0.0f32;
+        for j in 0..12 {
+            acc += noise_at(index * 12 + j, impairment.seed ^ 0x4E4F_5254_4831);
+        }
+        acc / 2.0 * impairment.north_noise_rms
+    };
+
     let mut samples = Vec::with_capacity(num_samples * 2);
     for (i, &north_tick) in north.iter().enumerate() {
         let t = i as f32 / sample_rate as f32;
@@ -246,7 +270,7 @@ where
             + impairment.second_harmonic * (2.0 * doppler_phase).sin()
             + impairment.third_harmonic * (3.0 * doppler_phase).sin();
         samples.push(tone + audio[i]);
-        samples.push(north_tick);
+        samples.push(north_tick + north_noise(i));
     }
 
     samples

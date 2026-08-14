@@ -24,7 +24,7 @@ use rotaryclub::audio::AudioSource;
 use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
-use rotaryclub::simulation::{DopplerImpairment, generate_impaired_signal};
+use rotaryclub::simulation::{SignalImpairment, generate_impaired_signal};
 
 const PULSE_HALF_WIDTH: i64 = 12;
 
@@ -522,7 +522,7 @@ fn test_uncertainty_is_calibrated_across_impairment() {
             config.audio.sample_rate,
             config.doppler.expected_freq,
             |_| truth,
-            DopplerImpairment::at_passband_ratio(ratio),
+            SignalImpairment::at_passband_ratio(ratio),
         );
 
         let mut run = RdfConfig::default();
