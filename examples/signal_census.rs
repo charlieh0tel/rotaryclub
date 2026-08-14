@@ -23,7 +23,7 @@
 
 use rotaryclub::audio::WavFileSource;
 use rotaryclub::config::RdfConfig;
-use rotaryclub::simulation::generate_test_signal;
+use rotaryclub::simulation::{DopplerImpairment, generate_impaired_signal, generate_test_signal};
 use std::f32::consts::PI;
 
 struct Census {
@@ -195,7 +195,17 @@ fn main() {
     // The generator the tests and sweeps use, clean.
     let synthetic = generate_test_signal(6.0, config.audio.sample_rate, rotation_hz, 200.0);
     let c = census(&synthetic, config.audio.sample_rate as f32, rotation_hz);
-    row("synthetic (simulation/signal)", &c);
+    row("synthetic, clean", &c);
+
+    let impaired = generate_impaired_signal(
+        6.0,
+        config.audio.sample_rate,
+        rotation_hz,
+        |_| 200.0,
+        DopplerImpairment::representative(),
+    );
+    let c = census(&impaired, config.audio.sample_rate as f32, rotation_hz);
+    row("synthetic, representative", &c);
 
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir("data")
         .map(|entries| {

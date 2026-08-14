@@ -12,6 +12,7 @@ pub use noise::{
     generate_noisy_test_signal, signal_power,
 };
 pub use signal::{
-    NORTH_TICK_AMPLITUDE, NORTH_TICK_PULSE_WIDTH_RADIANS, generate_doppler_signal_for_bearing,
-    generate_test_signal, generate_test_signal_with_bearing_fn,
+    DopplerImpairment, NORTH_TICK_AMPLITUDE, NORTH_TICK_PULSE_WIDTH_RADIANS,
+    generate_doppler_signal_for_bearing, generate_impaired_signal, generate_test_signal,
+    generate_test_signal_with_bearing_fn,
 };
