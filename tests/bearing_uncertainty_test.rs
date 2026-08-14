@@ -24,6 +24,7 @@ use rotaryclub::audio::AudioSource;
 use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
+use rotaryclub::simulation::{DopplerImpairment, generate_impaired_signal};
 
 const PULSE_HALF_WIDTH: i64 = 12;
 
@@ -484,6 +485,119 @@ fn test_uncertainty_is_calibrated_against_real_captures() {
              bearing scatter of {actual:.2}, a ratio of {ratio:.2}. Far below \
              1 the figure claims better than it delivers; far above it, it is \
              so cautious it carries no information."
+        );
+    }
+}
+
+/// The same calibration, on synthetic signal at the three impairment levels
+/// the recordings sit at.
+///
+/// Weaker evidence than the captures, and deliberately kept alongside them
+/// rather than instead of them: here the noise is one we chose, so the test
+/// can only confirm the model against an assumption. What it adds is a sweep
+/// -- the captures give three fixed points and no control -- and a check that
+/// runs without `data/` present.
+///
+/// It is only worth anything because the synthetic doppler channel now carries
+/// interference at all. It used to be the rotation tone and nothing else, so
+/// the phase spread that dominates this figure on real signal was absent, and
+/// every synthetic measurement of it was measuring the reference term alone.
+///
+/// The figure reads more conservative here than on the recordings -- 1.5 to
+/// 2.3 against 0.6 to 1.0 -- for the same reason the perf scenarios are
+/// harsher than the captures at matched passband power: flat noise scatters a
+/// per-rotation phase estimate more than shaped audio does. Treat the capture
+/// test as the calibration and this as the sweep.
+#[test]
+fn test_uncertainty_is_calibrated_across_impairment() {
+    let config = RdfConfig::default();
+    let truth = 200.0f32;
+
+    let mut previous_uncertainty = 0.0f64;
+
+    // The three recordings measure 0.199, 0.793 and 6.579.
+    for ratio in [0.2f32, 0.8, 6.5] {
+        let signal = generate_impaired_signal(
+            6.0,
+            config.audio.sample_rate,
+            config.doppler.expected_freq,
+            |_| truth,
+            DopplerImpairment::at_passband_ratio(ratio),
+        );
+
+        let mut run = RdfConfig::default();
+        run.bearing.smoothing_window = 1;
+        let mut processor = RdfProcessor::new(&run, false, true).expect("processor");
+        let results = processor.process_signal(&signal);
+
+        let mut raw = Vec::new();
+        let mut stated = Vec::new();
+        for result in &results {
+            if let Some(bearing) = result.bearing
+                && let Some(u) = bearing.metrics.bearing_uncertainty_deg
+            {
+                raw.push(bearing.raw_bearing as f64);
+                stated.push(u as f64);
+            }
+        }
+        assert!(
+            raw.len() > 2000,
+            "expected a run of bearings at ratio {ratio}, got {}",
+            raw.len()
+        );
+
+        // Scatter about a local mean, the same estimator the capture test
+        // uses, so the two are comparable.
+        let window = 64usize;
+        let mut scatter = Vec::new();
+        for chunk in raw.chunks(window) {
+            if chunk.len() < window {
+                break;
+            }
+            let (mut c, mut s) = (0.0f64, 0.0f64);
+            for b in chunk {
+                let r = b.to_radians();
+                c += r.cos();
+                s += r.sin();
+            }
+            let mean = s.atan2(c);
+            let variance = chunk
+                .iter()
+                .map(|b| {
+                    let d = (b.to_radians() - mean)
+                        .sin()
+                        .atan2((b.to_radians() - mean).cos());
+                    d * d
+                })
+                .sum::<f64>()
+                / chunk.len() as f64;
+            scatter.push(variance.sqrt().to_degrees());
+        }
+
+        let median = |v: &mut Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2]
+        };
+        let actual = median(&mut scatter);
+        let claimed = median(&mut stated);
+
+        assert!(
+            claimed > previous_uncertainty,
+            "the stated uncertainty should grow with impairment: {claimed:.2} at \
+             a passband ratio of {ratio} against {previous_uncertainty:.2} at the \
+             level below"
+        );
+        previous_uncertainty = claimed;
+
+        let calibration = claimed / actual;
+        eprintln!(
+            "SWEEP ratio {ratio}: actual {actual:.2} stated {claimed:.2} calib {calibration:.2}"
+        );
+        assert!(
+            (0.5..2.5).contains(&calibration),
+            "at a passband noise ratio of {ratio}: stated {claimed:.2} deg \
+             against an actual bearing scatter of {actual:.2}, a ratio of \
+             {calibration:.2}"
         );
     }
 }
