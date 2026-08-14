@@ -99,9 +99,18 @@ METHOD_SCENARIO_OVERRIDES: Dict[Tuple[str, str], Dict[str, float]] = {
         "p95_abs_bearing_error_deg": 10.0,
         "max_abs_bearing_error_deg": 12.0,
     },
+    # The zero-crossing limits here are raised because the scenario got
+    # harder, not because the method got worse. Its noise generator produced a
+    # half DC offset carrying a seventh of the in-band energy it claimed --
+    # `(x >> 33) as u32` leaves 31 bits against a 32-bit divisor -- so every
+    # noise column in this harness was worth about a seventh of its label.
+    # Correcting it took zero crossing at low SNR from inside these limits to
+    # p95 9.0-11.3 and max 13.5-16.5. Correlation is unaffected at 3.4/7.6
+    # because it uses every sample rather than the crossing instants, which is
+    # the expected difference between the two methods under noise.
     ("zero_crossing", "low_snr_dc"): {
-        "p95_abs_bearing_error_deg": 9.5,
-        "max_abs_bearing_error_deg": 12.5,
+        "p95_abs_bearing_error_deg": 13.0,
+        "max_abs_bearing_error_deg": 19.0,
     },
 }
 
