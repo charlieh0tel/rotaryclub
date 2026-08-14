@@ -50,19 +50,22 @@ where
 {
     let num_samples = (duration_secs * sample_rate) as usize;
     let mut positions = Vec::new();
-    let mut t = start_time_secs;
+    // Accumulated in f64: over ten seconds this steps sixteen thousand times,
+    // and in f32 the rounding drifts the pulse train several samples off the
+    // rate it is supposed to be running at.
+    let mut t = start_time_secs as f64;
     let mut pulse_index = 0usize;
 
-    while t < duration_secs {
-        let freq_hz = freq_hz_at_time(t).max(1.0);
-        if keep_pulse_at_time(t) {
+    while t < duration_secs as f64 {
+        let freq_hz = freq_hz_at_time(t as f32).max(1.0);
+        if keep_pulse_at_time(t as f32) {
             let jitter = deterministic_jitter_samples(pulse_index, jitter_samples) as isize;
-            let idx = (t * sample_rate).round() as isize + jitter;
+            let idx = (t * sample_rate as f64).round() as isize + jitter;
             if idx >= 0 && (idx as usize) < num_samples {
                 positions.push(idx as usize);
             }
         }
-        t += 1.0 / freq_hz;
+        t += 1.0 / freq_hz as f64;
         pulse_index += 1;
     }
 
@@ -801,6 +804,78 @@ fn test_quiet_north_channel_is_observable() {
             tracker.samples_since_detection() >= num_samples - 512,
             "{mode:?}: silent channel reports only {} samples since a detection",
             tracker.samples_since_detection()
+        );
+    }
+}
+
+/// Coasting must stop before its accumulated timing error escapes the bound
+/// the budget is derived from.
+///
+/// The budget exists to hold predicted ticks inside
+/// `MAX_COAST_TIMING_ERROR_SAMPLES`, half a sample. What it has to work from
+/// is indirect -- the scatter of the frequency estimate and the mean phase
+/// error -- so the way to test it is not to assert which of those it consults
+/// but to let it coast as far as it will and measure where the last tick
+/// lands.
+///
+/// This matters most at the narrow bandwidths. A slow loop keeps a standing
+/// phase offset because its integrator has not finished converging, which is
+/// to say its rate is still slightly wrong; the per-rotation error is tiny,
+/// but coasting multiplies it by every rotation predicted. At 0.5 Hz the rate
+/// is wrong by 0.0004 samples per rotation, invisible over the four rotations
+/// the budget allows and worth three samples over five seconds.
+#[test]
+fn test_coasting_stops_before_its_error_escapes_the_bound() {
+    let sample_rate = 48_000.0f32;
+    let coast_secs = 5.0f32;
+    let settle_secs = 10.0f32;
+    let nominal_hz = RdfConfig::default().doppler.expected_freq;
+
+    for bandwidth in [0.25f32, 0.5, 1.0, 2.0, 4.0, 8.0] {
+        let mut config = RdfConfig::default();
+        config.north_tick.mode = NorthTrackingMode::Dpll;
+        config.north_tick.dpll.natural_frequency_hz = bandwidth;
+        // Let the earned budget bind rather than the shipped one second cap,
+        // so what is under test is the budget and not the ceiling.
+        config.north_tick.max_coast_ms = coast_secs * 1000.0;
+
+        let settle_samples = (sample_rate * settle_secs) as usize;
+        let total = settle_samples + (sample_rate * coast_secs) as usize;
+        let positions =
+            generate_pulse_positions(0.0, settle_secs, sample_rate, |_| nominal_hz, |_| true, 0);
+        let signal = build_north_signal(
+            total,
+            &positions,
+            config.north_tick.expected_pulse_amplitude,
+        );
+        let (ticks, _) = run_north_tracker(&config, &signal);
+
+        let last_coasted = ticks
+            .iter()
+            .rfind(|tick| tick.sample_index > settle_samples);
+        let Some(tick) = last_coasted else {
+            // Declining to coast at all is always within the bound.
+            continue;
+        };
+
+        // The generator steps its time in f32, so its pulses drift off an
+        // ideal grid over ten seconds. Take the period from the pulses
+        // themselves, which is what the tracker was tracking.
+        let first = *positions.first().expect("pulses") as f64;
+        let last = *positions.last().expect("pulses") as f64;
+        let actual_period = (last - first) / (positions.len() - 1) as f64;
+        let time = tick.sample_index as f64 + tick.fractional_sample_offset as f64;
+        let nearest = first + ((time - first) / actual_period).round() * actual_period;
+        let error = (time - nearest) as f32;
+        // The pulses sit on whole samples, so the tick the coast started from
+        // already carries up to half a sample that is the generator's, not the
+        // tracker's. The bound here is the budget's half sample plus that.
+        assert!(
+            error.abs() <= 1.0,
+            "At {bandwidth} Hz coasting ran to {:.0} rotations and the last \
+             predicted tick was {error:+.3} samples out, past the half sample \
+             the budget is supposed to hold it to",
+            (time - settle_samples as f64) / actual_period
         );
     }
 }
