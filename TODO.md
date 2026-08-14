@@ -7,21 +7,34 @@
 
 ## North Tick Tracking
 
-- [ ] Sweep `highpass_cutoff` again, with the current estimator and a finer
-      grid. The sweep that chose 1 kHz predates both the unclipped energy
-      centroid and the estimator-window fix, and sampled nothing between 500
-      and 2000 Hz. There is a hint the filter still costs timing even at
-      1 kHz: fitting a band-limited impulse to the *unfiltered* north channel
-      gives 0.37 degrees against 0.78 for a matched filter on the highpassed
-      signal. One `north_hpf_sweep` run answers it.
-      Moving back to 5 kHz has already been tried and measured worse on every
-      axis: timing 0.52 degrees against 0.44, simple-tracker jitter doubling
-      to 0.20 samples, coast coverage falling from 700 rotations to 568, and
-      the `low_snr_dc` false-positive rate rising past its gate limit. 3 kHz
-      measures the lowest false-positive rate of any tried, 0.046.
-      Whatever moves, move both: the cutoff sets how wide the filter leaves
-      the pulse, which is what decides the weighting, so the cutoff and the
-      estimator are one choice rather than two.
+- [x] Sweep `highpass_cutoff` again, with the current estimator and a finer
+      grid. Done, on all three captures, 250 Hz to 3 kHz in fine steps at the
+      shipped 63 taps. The shipped 1 kHz is already at the optimum, which is a
+      broad basin from 1000 to 1250 Hz. Fit residual for the shipped energy
+      centroid, in degrees:
+
+        cutoff   none   500   750  1000  1250  1500  2000  3000
+        ft-70d  3.576 3.506 3.478 3.472 3.472 3.484 3.503 3.512
+        wouxun1 0.460 0.535 0.494 0.441 0.438 0.453 0.536 0.562
+        wouxun3 0.358 0.422 0.378 0.337 0.335 0.356 0.451 0.507
+
+      1250 Hz beats 1000 by 0.002 to 0.003 degrees, which is not a reason to
+      move. The hint that the filter still costs timing at 1 kHz is refuted:
+      filtering at 1 kHz beats not filtering at all on every capture.
+      Filter length was swept with it. 63 taps is the right choice: 31 is
+      worse everywhere, and 127 helps ft-70d by 0.1 degrees while hurting the
+      wouxun captures by 0.01.
+      The estimator and cutoff do interact, as expected. The amplitude
+      centroid at 2 kHz beats the energy centroid at 1250 on both wouxun
+      captures, 0.367 against 0.438 and 0.290 against 0.335, and ties on
+      ft-70d. That pairing is worth knowing but not worth taking: it is half a
+      percent of a sample, it is measured on three captures from two radios,
+      and the amplitude centroid is markedly worse than the energy centroid
+      everywhere below 1500 Hz, so the pair is sharp where the current one is
+      flat.
+      Note what this metric is. Residuals are scored against a fitted constant
+      rate, so it measures jitter and absorbs any constant delay, and it
+      includes whatever the radio itself contributes.
 
 - [ ] Price what the highpass is for, with a capture that bleeds audio into
       the north channel. That is the only argument for filtering high, and no
