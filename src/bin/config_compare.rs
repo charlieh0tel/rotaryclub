@@ -227,6 +227,8 @@ struct Measurement {
     bearing_mean: f64,
     bearing_p95: f64,
     bearing_offset: f64,
+    coherence: f64,
+    confidence: f64,
     ticks: usize,
     bearings: usize,
 }
@@ -256,6 +258,8 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
 
     let mut tick_errors = Vec::new();
     let mut bearing_errors = Vec::new();
+    let mut coherences = Vec::new();
+    let mut confidences = Vec::new();
     let mut components = (0.0f64, 0.0f64);
     for result in &results {
         let time = result.north_tick.sample_index as f64
@@ -271,6 +275,8 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
             let error =
                 (((bearing.bearing_degrees - truth) + 540.0).rem_euclid(360.0) - 180.0) as f64;
             bearing_errors.push(error.abs());
+            coherences.push(bearing.metrics.coherence as f64);
+            confidences.push(bearing.confidence as f64);
             let radians = error.to_radians();
             components.0 += radians.cos();
             components.1 += radians.sin();
@@ -287,12 +293,17 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
         }
     };
 
+    let coherence_tail = tail(&coherences, 0.2).to_vec();
+    let confidence_tail = tail(&confidences, 0.2).to_vec();
+
     Ok(Measurement {
         tick_mean: mean(&tick_tail),
         tick_p95: percentile(&mut tick_tail, 0.95),
         bearing_mean: mean(&bearing_tail),
         bearing_p95: percentile(&mut bearing_tail, 0.95),
         bearing_offset: components.1.atan2(components.0).to_degrees(),
+        coherence: mean(&coherence_tail),
+        confidence: mean(&confidence_tail),
         ticks: tick_errors.len(),
         bearings: bearing_errors.len(),
     })
@@ -368,6 +379,8 @@ fn main() -> Result<()> {
     row("bearing error mean (deg)", a.bearing_mean, b.bearing_mean);
     row("bearing error p95 (deg)", a.bearing_p95, b.bearing_p95);
     row("bearing offset (deg)", a.bearing_offset, b.bearing_offset);
+    row("coherence", a.coherence, b.coherence);
+    row("confidence", a.confidence, b.confidence);
     println!(
         "{:<28} {:>12} {:>12} {:>+12}",
         "ticks matched",
