@@ -95,26 +95,36 @@ fn mean_f64(values: &[f64]) -> f64 {
     }
 }
 
+/// Half-width, in samples, of the synthesized north pulse.
+const NORTH_PULSE_HALF_WIDTH: i64 = 12;
+
+/// Rotation epochs, which are generally fractional.
+///
+/// Rounding these to the nearest sample would put the reference up to half a
+/// sample from where the rotation actually crosses north, which is six degrees
+/// of bearing. It would also make the two metrics here disagree about truth: a
+/// tracker that recovers the true epoch would score as half a sample of tick
+/// error while producing the better bearing.
 fn expected_tick_positions(
     total_samples: usize,
-    samples_per_rotation: f32,
+    samples_per_rotation: f64,
     scenario: Scenario,
-) -> Vec<usize> {
-    let mut base = Vec::new();
-    let mut t = 0.0f32;
-    while t < total_samples as f32 {
-        base.push(t.round() as usize);
-        t += samples_per_rotation;
+) -> Vec<f64> {
+    let mut jittered = Vec::new();
+    let mut k = 0usize;
+    loop {
+        let epoch = k as f64 * samples_per_rotation;
+        if epoch >= total_samples as f64 {
+            break;
+        }
+        let jitter = deterministic_jitter_samples(k, scenario.north_jitter_samples) as f64;
+        jittered.push((epoch + jitter).clamp(0.0, total_samples as f64 - 1.0));
+        k += 1;
     }
-
-    let mut jittered = Vec::with_capacity(base.len());
-    for (i, p) in base.iter().enumerate() {
-        let j = deterministic_jitter_samples(i, scenario.north_jitter_samples) as isize;
-        let idx = (*p as isize + j).clamp(0, total_samples.saturating_sub(1) as isize) as usize;
-        jittered.push(idx);
-    }
-    jittered.sort_unstable();
-    jittered.dedup();
+    jittered.sort_by(f64::total_cmp);
+    // Jitter can push two epochs together; the detector's dead time means a
+    // pair closer than a sample is one pulse, not two.
+    jittered.dedup_by(|a, b| (*a - *b).abs() < 1.0);
 
     if let Some(stride) = scenario.north_dropout_stride
         && stride > 1
@@ -129,6 +139,21 @@ fn expected_tick_positions(
     jittered
 }
 
+/// A band-limited impulse at a fractional sample position, as an anti-aliased
+/// converter records a pulse far shorter than a sample.
+fn north_pulse_at(global: usize, epoch: f64) -> f32 {
+    let x = global as f64 - epoch;
+    if x.abs() > NORTH_PULSE_HALF_WIDTH as f64 {
+        return 0.0;
+    }
+    if x.abs() < f64::EPSILON {
+        return 1.0;
+    }
+    let px = std::f64::consts::PI * x;
+    let window = px / NORTH_PULSE_HALF_WIDTH as f64;
+    ((px.sin() / px) * (window.sin() / window)) as f32
+}
+
 fn build_chunk(
     scenario: Scenario,
     chunk_start: usize,
@@ -136,11 +161,18 @@ fn build_chunk(
     expected_bearing_deg: f32,
     sample_rate: f32,
     rotation_hz: f32,
-    tick_positions: &[usize],
+    tick_positions: &[f64],
 ) -> Vec<f32> {
     let omega = 2.0 * PI * rotation_hz / sample_rate;
     let bearing_rad = expected_bearing_deg.to_radians();
     let mut out = Vec::with_capacity(chunk_size * 2);
+
+    // A pulse centred outside this chunk still reaches into it, so the window
+    // of epochs to render is wider than the chunk.
+    let reach = NORTH_PULSE_HALF_WIDTH as f64;
+    let low = tick_positions.partition_point(|&e| e < chunk_start as f64 - reach);
+    let high = tick_positions.partition_point(|&e| e <= (chunk_start + chunk_size) as f64 + reach);
+    let nearby = &tick_positions[low..high];
 
     for i in 0..chunk_size {
         let global = chunk_start + i;
@@ -157,11 +189,11 @@ fn build_chunk(
             + scenario.noise_peak * noise
             + scenario.dc_offset;
 
-        let mut north = if tick_positions.binary_search(&global).is_ok() {
-            0.8
-        } else {
-            0.0
-        };
+        let mut north = 0.8
+            * nearby
+                .iter()
+                .map(|&epoch| north_pulse_at(global, epoch))
+                .sum::<f32>();
         north +=
             deterministic_noise_at(global, 0xFEED_9876_5432_1001) * (scenario.noise_peak * 0.35);
         north += scenario.dc_offset * 0.25;
@@ -220,7 +252,7 @@ fn run_case(
 
     let sample_rate = config.audio.sample_rate as f32;
     let rotation_hz = config.doppler.expected_freq;
-    let samples_per_rotation = sample_rate / rotation_hz;
+    let samples_per_rotation = sample_rate as f64 / rotation_hz as f64;
 
     let total_chunks = WARMUP_ITERATIONS + ITERATIONS;
     let total_samples = total_chunks * buffer_size;
@@ -263,7 +295,7 @@ fn run_case(
     let measurement_start = WARMUP_ITERATIONS * buffer_size;
     let expected_ticks: Vec<f32> = tick_positions
         .iter()
-        .filter(|&&x| x >= measurement_start)
+        .filter(|&&x| x >= measurement_start as f64)
         .map(|&x| x as f32)
         .collect();
     let (detection_rate, false_positive_rate, tick_errors) =
