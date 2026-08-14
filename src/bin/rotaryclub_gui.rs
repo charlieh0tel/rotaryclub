@@ -983,8 +983,12 @@ impl RdfGuiApp {
         // Uncertainty is in degrees and reads the other way round from the
         // rest of this plot, so it is shown as the certainty it implies: the
         // same number the needle's sharpness is drawn from.
-        let certainty_pts: Vec<[f64; 2]> = in_window(&self.history.uncertainty)
-            .into_iter()
+        let certainty_pts: PlotPoints = self
+            .history
+            .uncertainty
+            .iter()
+            .copied()
+            .filter(|p| p[0] >= x_min)
             .map(|[t, u]| [t, 1.0 - blur_from(Some(u as f32)) as f64])
             .collect();
         let str_pts = in_window(&self.history.signal_strength);

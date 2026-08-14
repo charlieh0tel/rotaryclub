@@ -651,7 +651,11 @@ fn test_dead_time_rejects_noise_triggers() {
             state = state
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
-            acc += (((state >> 33) as u32) as f32) / (u32::MAX as f32);
+            // Shift by 32, not 33. A 33-bit shift leaves 31 bits against a
+            // 32-bit divisor, so each draw lands in [0, 0.5): the sum is
+            // centred on 3 rather than 6, and what this adds is a -0.6 DC
+            // offset carrying a tenth of the intended noise.
+            acc += (((state >> 32) as u32) as f32) / (u32::MAX as f32);
         }
         *sample += (acc - 6.0) * 0.2;
     }
