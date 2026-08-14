@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
-use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg, wrap_phase_diff};
+use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg};
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
@@ -132,28 +132,6 @@ impl ZeroCrossingBearingCalculator {
             0.0
         };
 
-        // Spread of the per-crossing phases about the bearing they were
-        // averaged into, which is what the uncertainty figure is built from.
-        // One crossing gives no spread. Leaving this at zero, as it did,
-        // reported an uncertainty of zero degrees and a confidence of one on
-        // a bearing resting on a single noise-triggered crossing.
-        let mut phase_variance = None;
-        if crossings.len() >= 2 {
-            phase_variance = Some(
-                crossings
-                    .iter()
-                    .map(|&crossing_idx| {
-                        let samples_since_tick =
-                            self.base.samples_since_tick(north_tick, crossing_idx);
-                        let angle = samples_since_tick / samples_per_rotation * 2.0 * PI;
-                        let deviation = wrap_phase_diff(angle, avg_phase);
-                        deviation * deviation
-                    })
-                    .sum::<f32>()
-                    / crossings.len() as f32,
-            );
-        }
-
         // --- SNR Estimation via projection onto ideal Doppler sine ---
         // Reconstruct an ideal sine wave at the known bearing phase and north tick
         // frequency, then measure how much of the actual signal correlates with it.
@@ -187,8 +165,8 @@ impl ZeroCrossingBearingCalculator {
             snr_db,
             signal_strength,
             bearing_uncertainty_deg: bearing_uncertainty_deg(
-                phase_variance,
-                self.base.independent_estimates(),
+                snr_db,
+                self.base.independent_looks(),
                 north_tick,
             ),
         }
@@ -248,87 +226,52 @@ mod tests {
         );
     }
 
-    /// The uncertainty must grow as the per-crossing phases disagree.
+    /// An unknown reference must suppress the figure entirely.
     ///
-    /// This method's phase spread is what its uncertainty figure is built
-    /// from, so driving the crossings apart is the direct way to see the
-    /// figure respond. It also pins the spread being measured about the
-    /// bearing the crossings were averaged into, rather than about the
-    /// regularity of the intervals between them, which is what an earlier
-    /// version of this measured and is a different quantity entirely.
+    /// The doppler term can always be computed from the SNR, so this is the
+    /// only thing that can withhold it, and it must: an unknown reference is
+    /// not a perfect one.
     #[test]
-    fn test_uncertainty_grows_as_crossing_phases_disagree() {
+    fn test_unknown_reference_suppresses_the_uncertainty() {
         let sample_rate = 48_000.0f32;
         let doppler_config = DopplerConfig::default();
         let period = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / period;
 
-        let uncertainty_with_scatter = |scatter_fraction: f32| -> f32 {
-            let calc = ZeroCrossingBearingCalculator::new(
-                &DopplerConfig::default(),
+        let measure = |reference: Option<f32>| -> Option<f32> {
+            let mut calc = ZeroCrossingBearingCalculator::new(
+                &doppler_config,
                 &AgcConfig::default(),
                 ConfidenceConfig::default(),
                 sample_rate,
                 1,
             )
             .expect("calculator");
-
-            // Crossings one rotation apart, each displaced from where the
-            // rotation says it belongs by an alternating fraction of a turn.
-            let crossings: Vec<f32> = (0..16)
-                .map(|k| {
-                    let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
-                    k as f32 * period + sign * scatter_fraction * period
-                })
-                .collect();
-
             let tick = NorthTick {
                 sample_index: 0,
                 period: Some(period),
                 lock_quality: Some(1.0),
-                // A reference of known-zero scatter, so what these measure is
-                // the phase spread alone. None would mean "not estimable" and
-                // suppress the figure entirely, which is its own test.
-                phase_variance: Some(0.0),
+                phase_variance: reference,
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
-                frequency: 2.0 * PI / period,
+                frequency: omega,
             };
-
-            let (sum_x, sum_y) = crossings
-                .iter()
-                .map(|&c| {
-                    let angle = calc.base.samples_since_tick(&tick, c) / period * 2.0 * PI;
-                    (angle.cos(), angle.sin())
-                })
-                .fold((0.0f32, 0.0f32), |(ax, ay), (x, y)| (ax + x, ay + y));
-            let avg_phase = sum_y.atan2(sum_x);
-
-            calc.calculate_metrics(&crossings, period, &tick, avg_phase)
+            let buffer: Vec<f32> = (0..4096)
+                .map(|i| (omega * i as f32 - 45.0f32.to_radians()).sin())
+                .collect();
+            calc.process_buffer(&buffer, &tick)
+                .expect("a bearing")
+                .metrics
                 .bearing_uncertainty_deg
-                .expect("an uncertainty")
         };
 
-        let agreed = uncertainty_with_scatter(0.0);
-        let spread = uncertainty_with_scatter(0.1);
-        let scattered = uncertainty_with_scatter(0.25);
-
         assert!(
-            agreed < 0.01,
-            "Crossings all at the same phase should claim no uncertainty, got {agreed}"
+            measure(None).is_none(),
+            "an unknown reference must give none"
         );
         assert!(
-            spread > agreed,
-            "A tenth of a turn of scatter should show up: {spread} against {agreed}"
-        );
-        assert!(
-            scattered > spread,
-            "A quarter turn of scatter should show more still: {scattered} against {spread}"
-        );
-        // A tenth of a turn either way is 36 degrees of spread.
-        assert!(
-            (30.0..42.0).contains(&spread),
-            "A tenth of a turn either side is 36 degrees of spread, so the \
-             figure should land near that, got {spread}"
+            measure(Some(0.0)).is_some(),
+            "a known reference must give a figure"
         );
     }
 }

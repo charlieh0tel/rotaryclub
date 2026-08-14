@@ -15,49 +15,61 @@ applied; and the generator took its pulse amplitude from a constant rather
 than from the impairment. Identical rows are the tell, and worth checking
 for on every sweep.
 
-- [ ] The uncertainty should come from the SNR, not from the phase spread.
-      Diagnosed. The figure is built as the spread of the per-rotation phase
-      estimates over an independent count, and it understates the bearing
-      scatter everywhere: measured against a standard deviation, the ratio
-      runs 0.53 to 0.91 and centres on 0.69.
+- [x] The uncertainty should come from the SNR, not from the phase spread.
+      Done. The figure was the spread of the per-rotation phase estimates over
+      an independent count, and it understated the bearing scatter everywhere:
+      measured against a standard deviation the ratio ran 0.53 to 0.91 and
+      centred on 0.69.
 
-      The independent count is not the fault. Set the buffer to one filter
+      The independent count was not the fault. Set the buffer to one filter
       length so the count is 1.01 and the averaging term disappears, and the
-      figure still understates by 40 to 47 percent. So the spread itself is
-      too small: the per-window phases agree with each other more closely than
-      the bearing agrees with truth.
+      figure still understated by 40 to 47 percent. The spread itself was too
+      small: the per-window phases agreed with each other more closely than
+      the bearing agreed with truth, because the interference is common-mode
+      within a buffer. The doppler passband is 500 Hz, so in-band noise
+      decorrelates over about 96 samples -- at a 128-sample buffer that is 1.3
+      independent realisations, one coherent perturbation shifting every
+      window together. A spread taken within the buffer cannot see it, and it
+      varies buffer to buffer, so it landed in the bearing scatter instead.
+      That also explains why it was mistaken for a bias question: the
+      perturbation is shared, but it is not constant, so the mean bias stayed
+      small.
 
-      They do so because the interference is common-mode within a buffer. The
-      doppler passband is 500 Hz, so in-band noise decorrelates over about 96
-      samples -- at a 128-sample buffer that is 1.3 independent realisations,
-      one coherent perturbation shifting every window together. A spread taken
-      within the buffer cannot see it, and it varies buffer to buffer, so it
-      lands in the bearing scatter instead. That also explains why it was
-      mistaken for a bias question: the perturbation is shared, but it is not
-      constant, so the mean bias stays small.
+      It now composes two terms in quadrature: 1 / sqrt(r n) for the doppler
+      tone at a signal-to-noise power ratio r over n independent looks, and
+      the reference timing variance the tick reports. All of the sub-window
+      phase machinery is gone, along with `circular_mean_phase`,
+      `wrap_phase_diff` and `MAX_PHASE_VARIANCE`.
 
-      A physically derived figure does much better. For additive noise at a
-      signal-to-noise power ratio S/N averaged over N independent
-      realisations, sigma is 1 / sqrt(2 (S/N) N):
+      Not 1 / sqrt(2 r n), which is what the analysis above predicted and what
+      is usually quoted: that is the complex-exponential result, and a real
+      sinusoid carries its power at both +f and -f. Implemented with the two
+      it read 0.73 against the scatter across a sixteenfold buffer range and a
+      thirtyfold noise range -- flat, which is what says a constant is wrong
+      rather than a model. Without it the same sweep reads 0.87 to 1.20,
+      centred on 1.02.
 
-        buffer  noise   actual   spread  ratio   from SNR  ratio
-           128    0.2    12.60     7.61   0.60      15.69   1.25
-           128    6.5    63.65    33.88   0.53      89.45   1.41
-           512    0.2     7.09     6.47   0.91       7.85   1.11
-           512    6.5    44.56    30.25   0.68      44.73   1.00
-          2048    0.2     4.78     3.78   0.79       3.92   0.82
-          2048    6.5    31.71    16.84   0.53      22.36   0.71
+      Calibration ended up at about 1.3 on synthetic signal and about 0.65 on
+      the recordings, against 0.53 to 0.91 centred on 0.69 before. It errs
+      cautious where the noise is flat and slightly optimistic where it is
+      shaped, which is the same direction the perf scenarios differ from the
+      captures.
 
-      Centred on 1.08 against 0.69, and it errs high at small buffers where
-      the current one errs low. Its own residual drift -- overstating at small
-      buffers, understating at large -- says the effective independence grows
-      more slowly than buffer over correlation length, which is the next
-      thing to pin down if this is taken further.
+      Two measurement traps found on the way, both in the calibration tests
+      rather than the code. They took the scatter inside 64-report windows
+      about the window mean, which subtracts the reference term off with the
+      mean -- an error in the north epoch displaces a whole run of bearings
+      together -- and so measured the doppler term alone, reading 2.2 times
+      low against known truth. And they divided a median over all reports by a
+      median over windows; both distributions are strongly skewed on real
+      signal, so that landed in the quiet part of the run and read 0.16 where
+      pairing the two inside each window reads 0.6 to 0.7.
+      `examples/uncertainty_reference_probe` prints all of these side by side.
 
-      `snr_db` is already computed and already discriminates well, 58.8 dB to
-      8.8 across a noise sweep, and is currently reported and unused. Changing
-      the composition is another change to what every confidence number means,
-      so it wants deciding rather than doing.
+      One thing left open: the figure still drifts a little with buffer
+      length, overstating at small buffers and understating at large, which
+      says the effective independence grows more slowly than buffer over
+      correlation length.
 
 - [ ] The estimator and the highpass cutoff trade against each other and the
       answer depends on noise. On a clean channel the amplitude centroid beats

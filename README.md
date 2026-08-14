@@ -87,10 +87,13 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
   `1 / (1 + (uncertainty / half_confidence_deg)^2)`. It reads 0.5 at the configured
   half-confidence point, six degrees by default, and 0 when the uncertainty could not
   be estimated at all — which is the absence of a claim, not a claim of a bad bearing.
-- `bearing_uncertainty_deg`: Estimated one-sigma uncertainty of this bearing, in degrees,
-  from the spread of the individual phase estimates and the timing scatter of the north
-  reference they were measured against. Empty when it cannot be estimated. This is
-  precision rather than accuracy: a displacement every estimate shares is invisible to it.
+- `bearing_uncertainty_deg`: Estimated one-sigma uncertainty of this bearing, in degrees.
+  Two terms in quadrature: the doppler tone against the noise it sits in, as
+  `1 / sqrt(snr * looks)` where `looks` is the buffer length over the noise correlation
+  time, and the timing scatter of the north reference it was measured against. Empty when
+  it cannot be estimated. This is precision rather than accuracy: a displacement every
+  estimate shares is invisible to it. Measured against the bearing scatter actually seen,
+  it runs at about 1.3 on synthetic signal and about 0.65 on the recordings.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
 

@@ -3,17 +3,9 @@ use crate::error::Result;
 use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
-use super::bearing::{
-    MIN_POWER_THRESHOLD, bearing_uncertainty_deg, circular_mean_phase, wrap_phase_diff,
-};
-/// Fewest windows the coherence estimate will use. Two is the least that has
-/// a spread at all; it is reached only when the buffer is shorter than two
-/// rotations.
-const MIN_COHERENCE_WINDOWS: usize = 2;
-/// Most windows it will use, which caps the per-tick work on long buffers.
-/// Beyond this each window covers more than one rotation again, which is the
-/// old behaviour but with enough points to be a variance.
-const MAX_COHERENCE_WINDOWS: usize = 64;
+use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg};
+/// Below this the buffer is too short to say anything at all.
+const MIN_BUFFER_SAMPLES: usize = 2;
 const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
 // Below this normalized correlation magnitude there is no Doppler tone to
 // measure (a dead channel yields i = q = 0 and atan2(0, 0) would report a
@@ -152,7 +144,7 @@ impl CorrelationBearingCalculator {
         correlation_magnitude: f32,
     ) -> ConfidenceMetrics {
         let n = self.base.work_buffer.len();
-        if n < MIN_COHERENCE_WINDOWS
+        if n < MIN_BUFFER_SAMPLES
             || !signal_power.is_finite()
             || !correlation_magnitude.is_finite()
             || signal_power < MIN_POWER_THRESHOLD
@@ -169,67 +161,8 @@ impl CorrelationBearingCalculator {
         let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
         let snr_db = power_to_db(correlated_power / noise_power);
 
-        // --- Phase spread ---
-        // One window per rotation, so the spread being measured is the spread
-        // of independent bearing estimates. It feeds the uncertainty figure.
-        //
-        // This used to cut the buffer into four regardless of its length. At
-        // the shipped buffer size that made each window average some four
-        // rotations, which averages away most of the noise the metric exists
-        // to detect, and four points is thin evidence for a variance besides.
-        // Worse, four windows that agree with each other can be wrong
-        // together: with the tone buried in noise the quarters still matched
-        // to a couple of degrees while the bearing was forty degrees out, so
-        // the metric read fully coherent on a measurement that was useless.
-        let samples_per_rotation = north_tick
-            .period
-            .filter(|p| p.is_finite() && *p >= 1.0)
-            .unwrap_or_else(|| 2.0 * PI / north_tick.frequency.max(f32::EPSILON));
-        let window_count = ((n as f32 / samples_per_rotation) as usize)
-            .clamp(MIN_COHERENCE_WINDOWS, MAX_COHERENCE_WINDOWS);
-        let window_size = n / window_count;
-        if window_size == 0 {
-            return ConfidenceMetrics::default();
-        }
-
-        let omega = north_tick.frequency;
-        let mut phases = [0.0f32; MAX_COHERENCE_WINDOWS];
-        let phases = &mut phases[..window_count];
-        for (win_idx, phase) in phases.iter_mut().enumerate() {
-            let start = win_idx * window_size;
-            let end = start + window_size;
-
-            let mut i_win = 0.0;
-            let mut q_win = 0.0;
-
-            for (idx, &sample) in self.base.work_buffer[start..end].iter().enumerate() {
-                let samples_since_tick = self
-                    .base
-                    .samples_since_tick(north_tick, (start + idx) as f32);
-                let p = north_tick.phase + samples_since_tick * omega;
-                i_win += sample * p.cos();
-                q_win += sample * p.sin();
-            }
-
-            *phase = (-i_win).atan2(q_win);
-        }
-
-        // Calculate phase variance (circular variance)
-        let mean_phase = circular_mean_phase(phases);
-        let phase_variance: f32 = phases
-            .iter()
-            .map(|p| {
-                let wrapped = wrap_phase_diff(*p, mean_phase);
-                wrapped * wrapped
-            })
-            .sum::<f32>()
-            / window_count as f32;
-
-        let bearing_uncertainty_deg = bearing_uncertainty_deg(
-            Some(phase_variance),
-            self.base.independent_estimates(),
-            north_tick,
-        );
+        let bearing_uncertainty_deg =
+            bearing_uncertainty_deg(snr_db, self.base.independent_looks(), north_tick);
 
         // --- Signal Strength ---
         let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
@@ -481,25 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn test_circular_phase_mean_wraparound() {
-        let phases = [
-            179.0_f32.to_radians(),
-            -179.0_f32.to_radians(),
-            178.0_f32.to_radians(),
-            -178.0_f32.to_radians(),
-        ];
-
-        let mean = circular_mean_phase(&phases);
-        let error_to_pi = wrap_phase_diff(mean, PI).abs();
-        assert!(
-            error_to_pi < 0.1,
-            "Expected circular mean near pi, got {} rad (error {})",
-            mean,
-            error_to_pi
-        );
-    }
-
-    #[test]
     fn test_correlation_confidence_uses_the_configured_half_point() {
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
@@ -610,41 +524,22 @@ mod tests {
         );
     }
 
-    /// The phase spread must see noise that varies rotation to rotation.
+    /// The uncertainty must follow the signal-to-noise ratio and the number
+    /// of independent looks, because that is what it is now built from.
     ///
-    /// The windows used to be four regardless of buffer length, each covering
-    /// many rotations. Per-rotation wobble averages to nothing inside such a
-    /// window, so the four agreed with each other and the metric reported a
-    /// clean signal. Driving the phase alternately either side of the true
-    /// bearing is that case exactly: every window mean is the true bearing,
-    /// and no individual rotation is. The spread now feeds the uncertainty
-    /// figure, so that is what this asserts on.
-    ///
-    /// The metric is driven directly rather than through `process_buffer`
-    /// because the Doppler bandpass would filter the wobble back out before
-    /// coherence ever saw it.
+    /// It used to be built from the spread of the per-rotation phase
+    /// estimates, which understated the bearing scatter everywhere: the
+    /// interference decorrelates over about ninety samples, so within one
+    /// buffer it is close to a single coherent perturbation that shifts every
+    /// window together and leaves the spread blind to it.
     #[test]
-    fn test_uncertainty_sees_rotation_to_rotation_phase_noise() {
+    fn test_uncertainty_follows_snr_and_buffer_length() {
         let sample_rate = 48000.0;
-        let doppler_config = DopplerConfig {
-            expected_freq: 480.0,
-            bandpass_low: 400.0,
-            bandpass_high: 560.0,
-            ..Default::default()
-        };
-        let samples_per_rotation = sample_rate / doppler_config.expected_freq;
-        let omega = 2.0 * PI / samples_per_rotation;
-        let north_tick = NorthTick {
-            sample_index: 0,
-            period: Some(samples_per_rotation),
-            lock_quality: None,
-            phase_variance: Some(0.0),
-            fractional_sample_offset: 0.0,
-            phase: 0.0,
-            frequency: omega,
-        };
+        let doppler_config = DopplerConfig::default();
+        let period = sample_rate / doppler_config.expected_freq;
+        let omega = 2.0 * PI / period;
 
-        let uncertainty_with_wobble = |wobble: f32| -> f32 {
+        let uncertainty = |noise: f32, samples: usize| -> f32 {
             let mut calc = CorrelationBearingCalculator::new(
                 &doppler_config,
                 &AgcConfig::default(),
@@ -654,52 +549,53 @@ mod tests {
             )
             .unwrap();
 
+            let north_tick = NorthTick {
+                sample_index: 0,
+                period: Some(period),
+                lock_quality: None,
+                // A reference of known-zero scatter, so what this measures is
+                // the doppler term alone.
+                phase_variance: Some(0.0),
+                fractional_sample_offset: 0.0,
+                phase: 0.0,
+                frequency: omega,
+            };
+
             let bearing_radians = 45.0f32.to_radians();
-            let per_rotation = samples_per_rotation as usize;
-            calc.base.work_buffer = (0..4800)
+            let buffer: Vec<f32> = (0..samples)
                 .map(|i| {
-                    let sign = if (i / per_rotation).is_multiple_of(2) {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    (omega * i as f32 - bearing_radians + sign * wobble).sin()
+                    let mut x = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x51D3;
+                    x ^= x >> 33;
+                    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+                    x ^= x >> 29;
+                    let n = ((x >> 32) as u32) as f32 / (u32::MAX as f32) * 2.0 - 1.0;
+                    (omega * i as f32 - bearing_radians).sin() + noise * n
                 })
                 .collect();
 
-            let (mut i_sum, mut q_sum, mut power_sum) = (0.0f32, 0.0f32, 0.0f32);
-            for (idx, &sample) in calc.base.work_buffer.iter().enumerate() {
-                let phase = north_tick.phase
-                    + calc.base.samples_since_tick(&north_tick, idx as f32) * omega;
-                i_sum += sample * phase.cos();
-                q_sum += sample * phase.sin();
-                power_sum += sample * sample;
-            }
-            let n = calc.base.work_buffer.len() as f32;
-            let (i, q) = (i_sum / n, q_sum / n);
-
-            calc.calculate_metrics(&north_tick, power_sum / n, (i * i + q * q).sqrt())
+            calc.process_buffer(&buffer, &north_tick)
+                .expect("a bearing")
+                .metrics
                 .bearing_uncertainty_deg
                 .expect("an uncertainty")
         };
 
-        let steady = uncertainty_with_wobble(0.0);
-        let wobbling = uncertainty_with_wobble(0.5);
-
+        let quiet = uncertainty(0.0, 4096);
+        let noisy = uncertainty(2.0, 4096);
         assert!(
-            steady < 1.0,
-            "A tone held at one phase should claim little uncertainty, got {steady}"
+            noisy > quiet * 2.0,
+            "more noise must mean more claimed uncertainty: {noisy} against {quiet}"
         );
-        // Half a radian either side is 28.6 degrees of per-estimate spread.
-        // The figure reports the uncertainty of their average, so it is that
-        // over the root of the independent count: 4800 samples of buffer over
-        // 127 taps of filter is 37.8 independent looks, and 28.6 over the root
-        // of 37.8 is 4.7.
+
+        // Twice the buffer is twice the independent looks, so the figure
+        // should fall by about the root of two.
+        let short = uncertainty(2.0, 2048);
+        let long = uncertainty(2.0, 4096);
+        let ratio = short / long;
         assert!(
-            (3.0..7.0).contains(&wobbling),
-            "Half a radian of per-rotation phase noise, averaged over about \
-             38 independent looks, should land near 4.7 degrees: got \
-             {wobbling} against {steady} for the same tone held steady"
+            (1.2..1.7).contains(&ratio),
+            "doubling the buffer should divide the uncertainty by about root \
+             two: {short} against {long} is a ratio of {ratio}"
         );
     }
 }

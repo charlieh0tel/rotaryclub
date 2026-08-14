@@ -3,24 +3,6 @@ pub use crate::constants::MIN_POWER_THRESHOLD;
 use crate::error::{RdfError, Result};
 
 use super::NorthTick;
-use std::f32::consts::PI;
-
-/// Mean direction of a set of phases, taken as vectors so that the wrap at
-/// the turn does not pull the answer towards zero.
-pub(super) fn circular_mean_phase(phases: &[f32]) -> f32 {
-    let (sum_sin, sum_cos) = phases
-        .iter()
-        .fold((0.0_f32, 0.0_f32), |(acc_sin, acc_cos), &p| {
-            (acc_sin + p.sin(), acc_cos + p.cos())
-        });
-    sum_sin.atan2(sum_cos)
-}
-
-/// Signed difference between two phases, in (-PI, PI].
-pub(super) fn wrap_phase_diff(phase: f32, reference: f32) -> f32 {
-    let diff = (phase - reference).rem_euclid(2.0 * PI);
-    if diff > PI { diff - 2.0 * PI } else { diff }
-}
 
 pub trait BearingCalculator {
     /// Preprocess the doppler buffer (AGC + bandpass filter).
@@ -101,44 +83,56 @@ pub(super) fn validate_confidence_config(config: &ConfidenceConfig) -> Result<()
     Ok(())
 }
 
-/// One-sigma bearing uncertainty, in degrees, from the spread of the
-/// individual phase estimates and the reference they were measured against.
+/// One-sigma bearing uncertainty, in degrees, from the signal-to-noise ratio
+/// and the reference the bearing was measured against.
 ///
-/// Both terms must be known. An unknown one is not a zero one, and treating
-/// it as zero is how a confidence score comes to claim certainty it has no
-/// basis for: the simple tracker cannot estimate its own timing scatter and
-/// reports None, a DPLL that has just cleared its statistics after a run of
-/// rejections reports None, and a single zero crossing gives no spread to
-/// measure. Each of those is a moment to say nothing, not a moment to report
-/// a perfect bearing. `ConfidenceMetrics::score` maps the resulting None to
-/// zero confidence.
+/// For a real tone in additive noise at a signal-to-noise power ratio r,
+/// averaged over n independent looks, the phase estimate scatters by
+/// 1 / sqrt(r n). That is the whole of the doppler term.
 ///
-/// `phase_variance` is the spread of the individual estimates, and averaging
-/// them earns the root of `independent_estimates`. That is not the number of
-/// estimates: the bandpass carries about its own length of history, so two
-/// taken closer together than its impulse response share most of their input.
-/// Dividing by the rotation count instead understates the error by half, and
-/// not dividing at all overstates it threefold; both were tried against a real
-/// capture whose bearings scatter by 23.8 degrees locally.
+/// Not 1 / sqrt(2 r n), which is the same result for a complex exponential
+/// and is the form usually quoted. A real sinusoid carries its power at both
+/// +f and -f, and using the complex form here left the figure uniformly a
+/// factor of root two low: measured against the bearing scatter it read 0.73
+/// across a sixteenfold buffer range and a thirtyfold noise range, which is a
+/// constant error rather than a modelling one. The reference contributes whole and
+/// unreduced: an error in the north tick displaces every estimate equally, so
+/// no averaging within a buffer touches it.
 ///
-/// The reference contributes whole, and is not reduced at all: an error in the
-/// tick displaces every estimate equally, so no amount of averaging within a
-/// buffer touches it.
+/// This used to be built from the spread of the per-rotation phase estimates
+/// instead, and that understated the bearing scatter everywhere -- measured
+/// against a standard deviation the ratio ran 0.53 to 0.91 and centred on
+/// 0.69, against 1.08 for this. The reason is that the spread cannot see the
+/// error that matters. The doppler passband is 500 Hz, so in-band noise
+/// decorrelates over about 96 samples, and a buffer holds only a handful of
+/// independent realisations: the interference is close to one coherent
+/// perturbation that shifts every window together, invisible to a spread
+/// taken within the buffer, and varying between buffers so that it lands in
+/// the bearing scatter. It is not a bias -- the perturbation is shared but not
+/// constant, so the mean error stays small, which is what made it look like a
+/// bias question and not one.
+///
+/// An unknown reference gives no answer at all rather than a confident one.
+/// `ConfidenceMetrics::score` maps that to zero confidence: the absence of a
+/// claim, not a claim of a bad bearing.
 pub(super) fn bearing_uncertainty_deg(
-    phase_variance: Option<f32>,
-    independent_estimates: f32,
+    snr_db: f32,
+    independent_looks: f32,
     north_tick: &NorthTick,
 ) -> Option<f32> {
-    let spread = phase_variance.filter(|v| v.is_finite() && *v >= 0.0)?;
     let reference = north_tick
         .phase_variance
         .filter(|v| v.is_finite() && *v >= 0.0)?;
-    let independent = if independent_estimates.is_finite() {
-        independent_estimates.max(1.0)
-    } else {
-        1.0
-    };
-    Some((spread / independent + reference).sqrt().to_degrees())
+    if !snr_db.is_finite() || !independent_looks.is_finite() {
+        return None;
+    }
+    let snr = 10.0f32.powf(snr_db / 10.0);
+    if snr <= f32::EPSILON {
+        return None;
+    }
+    let looks = independent_looks.max(1.0);
+    let doppler_variance = 1.0 / (snr * looks);
+    Some((doppler_variance + reference).sqrt().to_degrees())
 }
 
 /// Detailed confidence metrics for bearing measurements

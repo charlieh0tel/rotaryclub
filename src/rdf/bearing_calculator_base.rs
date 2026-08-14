@@ -13,6 +13,9 @@ pub struct BearingCalculatorBase {
     agc: AutomaticGainControl,
     bandpass: FirBandpass,
     filter_group_delay: usize,
+    /// Samples over which in-band noise decorrelates, which is the sample rate
+    /// over the passband width. See `independent_looks`.
+    noise_correlation_samples: f32,
     /// The configured trim, converted from microseconds to samples once.
     north_tick_timing_adjustment: f32,
     confidence: ConfidenceConfig,
@@ -47,11 +50,15 @@ impl BearingCalculatorBase {
             doppler_config.bandpass_transition_hz,
         )?;
         let filter_group_delay = bandpass.group_delay_samples();
+        let passband_width =
+            (doppler_config.bandpass_high - doppler_config.bandpass_low).max(f32::EPSILON);
+        let noise_correlation_samples = (sample_rate / passband_width).max(1.0);
 
         Ok(Self {
             agc: AutomaticGainControl::new(agc_config, sample_rate),
             bandpass,
             filter_group_delay,
+            noise_correlation_samples,
             north_tick_timing_adjustment: doppler_config.north_tick_timing_adjustment_us
                 * 1e-6
                 * sample_rate,
@@ -64,21 +71,15 @@ impl BearingCalculatorBase {
         })
     }
 
-    /// How many independent estimates the last preprocessed buffer can yield.
+    /// How many independent looks at the bearing the last buffer holds.
     ///
-    /// Not the number of rotations in it. The bandpass carries roughly its own
-    /// length of signal history, so two estimates taken closer together than
-    /// the filter's impulse response share most of their input and are not
-    /// separate looks at the bearing. What averaging earns is the root of this
-    /// count, not the root of the rotation count.
-    ///
-    /// Measured against a real capture: the reported bearings scatter by 23.8
-    /// degrees locally, the per-rotation spread is 78.3, and 78.3 over the
-    /// root of this count is 27.6 -- against 13.4 if every rotation were
-    /// counted independent, which would understate the error by half.
-    pub fn independent_estimates(&self) -> f32 {
-        let filter_len = (2 * self.filter_group_delay + 1) as f32;
-        (self.work_buffer.len() as f32 / filter_len).max(1.0)
+    /// Not the number of rotations in it. What limits independence is how fast
+    /// the interference decorrelates, and the doppler bandpass makes that
+    /// slow: a 500 Hz passband at 48 kHz decorrelates over about 96 samples,
+    /// so a 512-sample buffer holds five independent looks rather than the
+    /// seventeen rotations it contains.
+    pub fn independent_looks(&self) -> f32 {
+        (self.work_buffer.len() as f32 / self.noise_correlation_samples).max(1.0)
     }
 
     /// Get the confidence weights for combining metrics
