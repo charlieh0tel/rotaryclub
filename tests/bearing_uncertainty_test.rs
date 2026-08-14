@@ -20,6 +20,7 @@
 
 use std::f32::consts::PI;
 
+use rotaryclub::audio::AudioSource;
 use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
@@ -374,4 +375,115 @@ fn test_coasted_ticks_report_growing_uncertainty() {
         "the reported variance should grow as the coast lengthens: {last} at \
          the end against {first} at the start"
     );
+}
+
+/// The stated uncertainty must bracket the scatter of the reported bearings,
+/// without wild over-caution, on real captures.
+///
+/// The synthetic tests above check the shape of the figure. This checks its
+/// calibration against signal nobody synthesized, which is the only place the
+/// independence assumption can be judged: the bandpass carries about its own
+/// length of history, so estimates taken closer together than its impulse
+/// response are not separate looks at the bearing.
+///
+/// Getting that wrong is not subtle. Counting every rotation as independent
+/// understates the scatter by half; counting none of them overstates it
+/// threefold. Both were shipped at different points, the second because the
+/// evidence against the first came from a noise generator that turned out to
+/// be half a DC offset.
+///
+/// Measured, stated against actual: 1.04 and 0.97 on the two wouxun captures,
+/// and 0.60 on the ft-70d one. The last is the badly degraded capture, whose
+/// bearings scatter by 55 degrees, and it understates. That is the reference
+/// term's known limit rather than the independence model's: as a signal
+/// degrades the tick's error stops being scatter and becomes a displacement
+/// the loop follows, which nothing inside the tracker can see. Both numbers
+/// say the same thing about that capture -- 33 degrees and 55 degrees are
+/// each far past usable -- but the direction of the error is the unsafe one
+/// and it is worth knowing where it sets in.
+#[test]
+fn test_uncertainty_is_calibrated_against_real_captures() {
+    let captures: Vec<std::path::PathBuf> = match std::fs::read_dir("data") {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "wav"))
+            .collect(),
+        // The captures are not redistributed with every checkout.
+        Err(_) => return,
+    };
+    if captures.is_empty() {
+        return;
+    }
+
+    for capture in captures {
+        let mut config = RdfConfig::default();
+        config.bearing.smoothing_window = 1;
+        let Ok(mut source) =
+            rotaryclub::audio::WavFileSource::new(&capture, config.audio.buffer_size)
+        else {
+            continue;
+        };
+
+        let mut processor = RdfProcessor::new(&config, false, true).expect("processor");
+        let mut raw = Vec::new();
+        let mut stated = Vec::new();
+        while let Ok(Some(buffer)) = AudioSource::next_buffer(&mut source) {
+            for result in processor.process_audio(&buffer) {
+                if let Some(bearing) = result.bearing
+                    && let Some(u) = bearing.metrics.bearing_uncertainty_deg
+                {
+                    raw.push(bearing.raw_bearing as f64);
+                    stated.push(u as f64);
+                }
+            }
+        }
+        if raw.len() < 2000 {
+            continue;
+        }
+
+        // Local scatter of the reported bearings, about their own local mean,
+        // so a slowly moving true bearing does not read as error.
+        let window = 64usize;
+        let mut scatter = Vec::new();
+        for chunk in raw.chunks(window) {
+            if chunk.len() < window {
+                break;
+            }
+            let (mut c, mut s) = (0.0f64, 0.0f64);
+            for b in chunk {
+                let r = b.to_radians();
+                c += r.cos();
+                s += r.sin();
+            }
+            let mean = s.atan2(c);
+            let variance = chunk
+                .iter()
+                .map(|b| {
+                    let d = (b.to_radians() - mean)
+                        .sin()
+                        .atan2((b.to_radians() - mean).cos());
+                    d * d
+                })
+                .sum::<f64>()
+                / chunk.len() as f64;
+            scatter.push(variance.sqrt().to_degrees());
+        }
+
+        let median = |v: &mut Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2]
+        };
+        let actual = median(&mut scatter);
+        let claimed = median(&mut stated);
+        let ratio = claimed / actual;
+
+        let name = capture.file_name().unwrap_or_default().to_string_lossy();
+        assert!(
+            (0.5..2.0).contains(&ratio),
+            "{name}: stated uncertainty {claimed:.2} deg against an actual \
+             bearing scatter of {actual:.2}, a ratio of {ratio:.2}. Far below \
+             1 the figure claims better than it delivers; far above it, it is \
+             so cautious it carries no information."
+        );
+    }
 }

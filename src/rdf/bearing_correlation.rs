@@ -225,7 +225,11 @@ impl CorrelationBearingCalculator {
             .sum::<f32>()
             / window_count as f32;
 
-        let bearing_uncertainty_deg = bearing_uncertainty_deg(Some(phase_variance), north_tick);
+        let bearing_uncertainty_deg = bearing_uncertainty_deg(
+            Some(phase_variance),
+            self.base.independent_estimates(),
+            north_tick,
+        );
 
         // --- Signal Strength ---
         let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
@@ -686,12 +690,15 @@ mod tests {
             steady < 1.0,
             "A tone held at one phase should claim little uncertainty, got {steady}"
         );
-        // Half a radian either side is 28.6 degrees of spread, and the figure
-        // is the root of the variance, so it should land near that.
+        // Half a radian either side is 28.6 degrees of per-estimate spread.
+        // The figure reports the uncertainty of their average, so it is that
+        // over the root of the independent count: 4800 samples of buffer over
+        // 127 taps of filter is 37.8 independent looks, and 28.6 over the root
+        // of 37.8 is 4.7.
         assert!(
-            wobbling > 20.0,
-            "Half a radian of per-rotation phase noise is 28 degrees of \
-             spread, so the uncertainty should be of that order: got \
+            (3.0..7.0).contains(&wobbling),
+            "Half a radian of per-rotation phase noise, averaged over about \
+             38 independent looks, should land near 4.7 degrees: got \
              {wobbling} against {steady} for the same tone held steady"
         );
     }

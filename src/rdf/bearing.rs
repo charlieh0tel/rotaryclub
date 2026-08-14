@@ -113,25 +113,32 @@ pub(super) fn validate_confidence_config(config: &ConfidenceConfig) -> Result<()
 /// a perfect bearing. `ConfidenceMetrics::score` maps the resulting None to
 /// zero confidence.
 ///
-/// `phase_variance` is deliberately not reduced by the root of the number of
-/// estimates that went into it. Averaging would earn that reduction only if
-/// they were independent, and they are not: every one is measured against the
-/// same north tick, through the same filter state, at the same AGC gain, so
-/// whatever those contribute lands on all of them together. Taking the
-/// reduction anyway made the zero-crossing method claim 1.26 degrees where it
-/// was 1.95 degrees out.
+/// `phase_variance` is the spread of the individual estimates, and averaging
+/// them earns the root of `independent_estimates`. That is not the number of
+/// estimates: the bandpass carries about its own length of history, so two
+/// taken closer together than its impulse response share most of their input.
+/// Dividing by the rotation count instead understates the error by half, and
+/// not dividing at all overstates it threefold; both were tried against a real
+/// capture whose bearings scatter by 23.8 degrees locally.
 ///
-/// The reference contributes whole for the same reason, more obviously: an
-/// error in the tick displaces every estimate equally.
+/// The reference contributes whole, and is not reduced at all: an error in the
+/// tick displaces every estimate equally, so no amount of averaging within a
+/// buffer touches it.
 pub(super) fn bearing_uncertainty_deg(
     phase_variance: Option<f32>,
+    independent_estimates: f32,
     north_tick: &NorthTick,
 ) -> Option<f32> {
     let spread = phase_variance.filter(|v| v.is_finite() && *v >= 0.0)?;
     let reference = north_tick
         .phase_variance
         .filter(|v| v.is_finite() && *v >= 0.0)?;
-    Some((spread + reference).sqrt().to_degrees())
+    let independent = if independent_estimates.is_finite() {
+        independent_estimates.max(1.0)
+    } else {
+        1.0
+    };
+    Some((spread / independent + reference).sqrt().to_degrees())
 }
 
 /// Detailed confidence metrics for bearing measurements

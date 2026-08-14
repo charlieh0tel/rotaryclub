@@ -186,7 +186,11 @@ impl ZeroCrossingBearingCalculator {
         ConfidenceMetrics {
             snr_db,
             signal_strength,
-            bearing_uncertainty_deg: bearing_uncertainty_deg(phase_variance, north_tick),
+            bearing_uncertainty_deg: bearing_uncertainty_deg(
+                phase_variance,
+                self.base.independent_estimates(),
+                north_tick,
+            ),
         }
     }
 }
