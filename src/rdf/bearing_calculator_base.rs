@@ -3,6 +3,7 @@ use crate::error::{RdfError, Result};
 use crate::signal_processing::{AutomaticGainControl, FirBandpass, MovingAverage};
 
 use super::NorthTick;
+use super::bearing::validate_confidence_config;
 
 /// Shared signal processing components for bearing calculators
 ///
@@ -36,6 +37,7 @@ impl BearingCalculatorBase {
                 "bearing smoothing_window must be at least 1".to_string(),
             ));
         }
+        validate_confidence_config(&confidence)?;
 
         let bandpass = FirBandpass::new(
             doppler_config.bandpass_low,

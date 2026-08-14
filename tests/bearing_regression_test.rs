@@ -1,4 +1,4 @@
-use rotaryclub::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
+use rotaryclub::config::{AgcConfig, ConfidenceConfig, DopplerConfig, RdfConfig};
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthTick, ZeroCrossingBearingCalculator,
 };
@@ -174,7 +174,7 @@ fn angular_error_deg(measured: f32, expected: f32) -> f32 {
     err
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Method {
     Correlation,
     ZeroCrossing,
@@ -1260,4 +1260,105 @@ fn test_bearing_accuracy_across_rotation_and_sample_rates() {
             }
         }
     }
+}
+
+/// A confidence configuration that cannot produce a meaningful score must be
+/// rejected at construction, not discovered in the output.
+///
+/// Every one of these failed silently before. NaN slips past a `<= EPSILON`
+/// guard because no comparison with NaN is true, so a NaN half point produced
+/// a NaN confidence that the JSON formatter emitted as a bare `NaN` -- not
+/// valid JSON, so it broke the consumer rather than the producer. A NaN
+/// minimum signal strength disabled the validity gate for the same reason,
+/// and one above full scale closed it permanently, so the zero-crossing
+/// method emitted nothing at all with no diagnostic.
+#[test]
+fn test_confidence_config_guardrails() {
+    let sample_rate = 48_000.0f32;
+
+    type BadConfig = (&'static str, fn(&mut ConfidenceConfig), &'static str);
+    let cases: [BadConfig; 6] = [
+        (
+            "half point at NaN",
+            |c| c.half_confidence_deg = f32::NAN,
+            "half_confidence_deg",
+        ),
+        (
+            "half point at zero",
+            |c| c.half_confidence_deg = 0.0,
+            "half_confidence_deg",
+        ),
+        (
+            "negative half point",
+            |c| c.half_confidence_deg = -6.0,
+            "half_confidence_deg",
+        ),
+        (
+            "minimum signal strength at NaN",
+            |c| c.min_signal_strength = f32::NAN,
+            "min_signal_strength",
+        ),
+        (
+            "minimum signal strength above full scale",
+            |c| c.min_signal_strength = 1.5,
+            "min_signal_strength",
+        ),
+        (
+            "negative minimum signal strength",
+            |c| c.min_signal_strength = -0.1,
+            "min_signal_strength",
+        ),
+    ];
+
+    for (name, break_it, expected_fragment) in cases {
+        let mut config = RdfConfig::default();
+        break_it(&mut config.bearing.confidence);
+
+        for method in [Method::Correlation, Method::ZeroCrossing] {
+            let built = match method {
+                Method::Correlation => CorrelationBearingCalculator::new(
+                    &config.doppler,
+                    &config.agc,
+                    config.bearing.confidence,
+                    sample_rate,
+                    1,
+                )
+                .map(|_| ()),
+                Method::ZeroCrossing => ZeroCrossingBearingCalculator::new(
+                    &config.doppler,
+                    &config.agc,
+                    config.bearing.confidence,
+                    sample_rate,
+                    1,
+                )
+                .map(|_| ()),
+            };
+
+            match built {
+                Ok(()) => panic!("{method:?} accepted a config with {name}"),
+                Err(error) => {
+                    let text = error.to_string();
+                    assert!(
+                        text.contains(expected_fragment),
+                        "{method:?} rejected {name} but the message does not mention \
+                         '{expected_fragment}': {text}"
+                    );
+                }
+            }
+        }
+    }
+
+    // And the defaults must survive their own guardrails.
+    let config = RdfConfig::default();
+    assert!(
+        CorrelationBearingCalculator::new(
+            &config.doppler,
+            &config.agc,
+            config.bearing.confidence,
+            sample_rate,
+            1,
+        )
+        .is_ok(),
+        "default confidence config rejected"
+    );
 }

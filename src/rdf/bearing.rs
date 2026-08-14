@@ -1,5 +1,6 @@
 pub use crate::config::ConfidenceConfig;
 pub use crate::constants::MIN_POWER_THRESHOLD;
+use crate::error::{RdfError, Result};
 
 use super::NorthTick;
 use std::f32::consts::PI;
@@ -68,6 +69,36 @@ pub fn phase_to_bearing(phase_radians: f32) -> f32 {
     let degrees = phase_radians.to_degrees();
     // Normalize to 0-360 using rem_euclid for proper modular arithmetic
     degrees.rem_euclid(360.0)
+}
+
+/// Reject a confidence configuration that cannot produce a meaningful score.
+///
+/// Every one of these fails silently rather than loudly. A NaN half point
+/// slips past a `<= EPSILON` guard, because no comparison with NaN is ever
+/// true, and yields a NaN confidence that the JSON formatter emits as a bare
+/// `NaN` -- which is not valid JSON, so it breaks the consumer rather than the
+/// producer. A zero or negative half point scores every bearing zero, so a
+/// perfect fix reads as worthless and the GUI needle goes black. A NaN
+/// `min_signal_strength` disables the validity gate, since `x < NaN` is also
+/// always false, and one above 1.0 closes it permanently, so the zero-crossing
+/// method emits nothing at all with no diagnostic.
+pub(super) fn validate_confidence_config(config: &ConfidenceConfig) -> Result<()> {
+    if !config.half_confidence_deg.is_finite() || config.half_confidence_deg <= 0.0 {
+        return Err(RdfError::Config(format!(
+            "bearing.confidence.half_confidence_deg is {}, must be a finite number greater \
+             than 0; it is the uncertainty at which confidence reads one half",
+            config.half_confidence_deg
+        )));
+    }
+    if !config.min_signal_strength.is_finite() || !(0.0..=1.0).contains(&config.min_signal_strength)
+    {
+        return Err(RdfError::Config(format!(
+            "bearing.confidence.min_signal_strength is {}, must be a finite number within \
+             [0, 1]; it is the fraction of expected signal below which no bearing is reported",
+            config.min_signal_strength
+        )));
+    }
+    Ok(())
 }
 
 /// One-sigma bearing uncertainty, in degrees, from the spread of the

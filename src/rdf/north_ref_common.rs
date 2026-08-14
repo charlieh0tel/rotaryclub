@@ -5,6 +5,7 @@ use crate::config::{NorthPulseEstimator, NorthTickConfig};
 const MAX_CENTROID_HALF_WIDTH_FRACTION: f32 = 0.2;
 use crate::error::{RdfError, Result};
 use crate::signal_processing::FirHighpass;
+use crate::signal_processing::db_to_amplitude;
 
 /// Validate the settings both trackers share.
 ///
@@ -45,10 +46,18 @@ pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: 
             config.threshold
         )));
     }
-    if config.threshold >= config.expected_pulse_amplitude {
+    // The gain is applied to the buffer before the threshold is compared
+    // against it, so what a pulse has to clear is the amplitude after gain.
+    // Checking the raw amplitude, as this did, passes a configuration that
+    // cannot detect anything: 0.8 expected with -20 dB of gain presents 0.08
+    // to a threshold of 0.15, and the tracker silently emits no ticks.
+    let effective_amplitude = config.expected_pulse_amplitude * db_to_amplitude(config.gain_db);
+    if config.threshold >= effective_amplitude {
         return Err(RdfError::Config(format!(
-            "north_tick.threshold ({}) is at or above expected_pulse_amplitude ({}), so no              pulse can ever cross it; lower the threshold or raise gain_db",
-            config.threshold, config.expected_pulse_amplitude
+            "north_tick.threshold ({}) is at or above the expected pulse amplitude after \
+             gain ({} at {} dB gives {}), so no pulse can ever cross it; lower the \
+             threshold or raise gain_db",
+            config.threshold, config.expected_pulse_amplitude, config.gain_db, effective_amplitude
         )));
     }
 

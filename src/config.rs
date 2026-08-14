@@ -395,8 +395,12 @@ pub struct NorthTickConfig {
     /// noise, and it buys nothing until 0.2 RMS and little until 0.3, by
     /// which point the false positive rate is 0.18 either way. See DESIGN.md.
     pub threshold: f32,
-    /// Expected pulse amplitude for timing compensation (0-1 range)
-    /// Used to compute threshold crossing offset on FIR impulse response
+    /// Expected pulse amplitude in the north channel, before `gain_db`.
+    ///
+    /// Used to compute where the filtered pulse crosses the threshold, which
+    /// sets the peak search window. The gain is applied to the buffer first,
+    /// so what the threshold actually meets is this times the gain, and the
+    /// two are validated together.
     pub expected_pulse_amplitude: f32,
     /// Minimum interval between pulses in milliseconds. Must be shorter
     /// than the period at dpll.frequency_max_hz (0.6 ms supports up to

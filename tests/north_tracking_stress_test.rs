@@ -685,11 +685,20 @@ fn test_north_tick_config_guardrails() {
     let sample_rate = RdfConfig::default().audio.sample_rate as f32;
 
     type BadConfig = (&'static str, fn(&mut RdfConfig), &'static str);
-    let cases: [BadConfig; 8] = [
+    let cases: [BadConfig; 9] = [
         (
             "threshold above pulse amplitude",
             |c| c.north_tick.threshold = 0.9,
-            "expected_pulse_amplitude",
+            "after gain",
+        ),
+        (
+            // The gain is applied before the threshold is compared, so a
+            // large attenuation puts the pulse under a threshold that looks
+            // fine against the raw amplitude. This was accepted, and the
+            // tracker then silently emitted nothing.
+            "threshold above the pulse amplitude once gain is applied",
+            |c| c.north_tick.gain_db = -20.0,
+            "after gain",
         ),
         (
             "threshold at zero",
