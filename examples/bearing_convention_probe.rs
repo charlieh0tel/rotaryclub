@@ -207,6 +207,10 @@ fn main() {
 
     // Split the residual: how much of it is the north tracker mis-timing the
     // pulse, and how much is the bearing path mis-using a correct tick?
+    //
+    // Both rows place the pulse at the true epoch, but Shape::Impulse rounds it
+    // to a whole sample on the way in. The gap between the rows is that
+    // rounding, not anything the tracker does.
     for (shape_name, probe_shape) in [
         ("band-limited", Shape::BandLimited),
         ("impulse", Shape::Impulse),
@@ -220,7 +224,7 @@ fn main() {
             sample_rate as f32,
             rotation_hz,
             truth,
-            Placement::Rounded,
+            Placement::TrueEpoch,
             probe_shape,
             config.north_tick.expected_pulse_amplitude,
             0,
