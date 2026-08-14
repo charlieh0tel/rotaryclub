@@ -271,7 +271,7 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
     let mut strengths = Vec::new();
     let mut stated = Vec::new();
     let mut confidences = Vec::new();
-    let mut components = (0.0f64, 0.0f64);
+    let mut signed_errors = Vec::new();
     for result in &results {
         let time = result.north_tick.sample_index as f64
             + result.north_tick.fractional_sample_offset as f64;
@@ -292,10 +292,20 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
                 stated.push(u as f64);
             }
             confidences.push(bearing.confidence as f64);
-            let radians = error.to_radians();
-            components.0 += radians.cos();
-            components.1 += radians.sin();
+            signed_errors.push(error);
         }
+    }
+
+    // The offset is taken over the same tail as everything else. Computing it
+    // over the whole run, which this did, folded each side's acquisition
+    // transient into it -- so comparing two loop bandwidths reported a
+    // difference in offset that was mostly a difference in how long each took
+    // to acquire, the exact confound the tail exists to remove.
+    let (mut cos_sum, mut sin_sum) = (0.0f64, 0.0f64);
+    for error in tail(&signed_errors, 0.2) {
+        let radians = error.to_radians();
+        cos_sum += radians.cos();
+        sin_sum += radians.sin();
     }
 
     let mut tick_tail = tail(&tick_errors, 0.2).to_vec();
@@ -318,7 +328,7 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
         tick_p95: percentile(&mut tick_tail, 0.95),
         bearing_mean: mean(&bearing_tail),
         bearing_p95: percentile(&mut bearing_tail, 0.95),
-        bearing_offset: components.1.atan2(components.0).to_degrees(),
+        bearing_offset: sin_sum.atan2(cos_sum).to_degrees(),
         snr_db: mean(&snr_tail),
         signal_strength: mean(&strength_tail),
         confidence: mean(&confidence_tail),
@@ -366,6 +376,29 @@ fn main() -> Result<()> {
 
     if args.a == args.b {
         eprintln!("warning: both sides are the same configuration\n");
+    }
+
+    // One signal is built, from A, and both sides are measured on it. Any key
+    // that changes what the signal *is* therefore has to agree between the
+    // two, or B is being scored against a stimulus built for A: setting
+    // A to 48 kHz and B to 96 would hand B a tone at twice the frequency,
+    // outside its own passband, and report that as a configuration
+    // difference. Overriding them together is fine and still meaningful.
+    for key in ["audio.sample_rate", "north_tick.expected_pulse_amplitude"] {
+        let value_of = |side: &[String]| {
+            side.iter()
+                .filter_map(|a| a.split_once('='))
+                .filter(|(k, _)| *k == key)
+                .map(|(_, v)| v.to_string())
+                .next_back()
+        };
+        if value_of(&args.a) != value_of(&args.b) {
+            bail!(
+                "{key} differs between the two sides. It decides what the signal is, and \
+                 one signal is built for both, so the comparison would not mean what it \
+                 looks like. Set it the same on both sides, or leave it off both."
+            );
+        }
     }
 
     // One signal, both configurations, so nothing but the configuration

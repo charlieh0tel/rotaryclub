@@ -135,6 +135,18 @@
       `test_coasting_stops_before_its_error_escapes_the_bound` now pins the
       bound itself, and fails against the change described above.
 
+- [ ] Extend the comparison to N configurations, not two. `config_compare`
+      takes an A and a B, but most real questions are grids: the threshold
+      needed threshold against amplitude against noise against tracking mode,
+      and the loop bandwidth needed bandwidth against noise. Both were
+      hand-rolled into one-off examples, and that is exactly how the same
+      mislabelled noise axis came to live in two of them independently, and
+      how one of them came to sweep in a tracking mode that does not ship.
+      A framework that takes a set of axes, runs the cross product against one
+      generator, and prints the table would have made both errors visible at
+      the point they were written, because the generator and the axis labels
+      would be in one place instead of copied.
+
 - [x] Add a mode that runs two configurations over the same signal and reports
       the difference. `src/bin/config_compare.rs`: both sides start from the
       shipped defaults and take dotted `key=value` overrides, so a comparison

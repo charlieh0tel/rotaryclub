@@ -171,9 +171,21 @@ fn measure(
 /// The tracker must not report a different tick time depending on where the
 /// pulse happens to fall between two samples. Any such dependence shows up as
 /// a bearing error that changes with the rotation rate.
+///
+/// The rate here is commensurate -- exactly 30 samples per rotation at 48 kHz
+/// -- so every pulse in a run sits at the same sub-sample offset and the run's
+/// mean bias is that offset's bias. Sweeping the start phase then sweeps the
+/// quantity named.
+///
+/// At the shipped 1602.564 Hz this measured nothing. The period is 29.952
+/// samples, so within a single run the pulse already walks every sub-sample
+/// phase thousands of times and the mean is taken across all of them;
+/// changing the start phase only rotated a sequence whose mean was already
+/// fixed. A phase-dependent bias of any size would have left the spread at
+/// zero and passed.
 #[test]
 fn test_subsample_phase_sweep() {
-    let rotation_hz = 1602.564f32;
+    let rotation_hz = 1600.0f32;
 
     for &mode in &[NorthTrackingMode::Dpll, NorthTrackingMode::Simple] {
         let mut biases = Vec::new();
@@ -200,10 +212,16 @@ fn test_subsample_phase_sweep() {
         // as the pulse walks across a sample interval.
         let spread = biases.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
             - biases.iter().cloned().fold(f64::INFINITY, f64::min);
-        let spread_bound = match mode {
-            NorthTrackingMode::Dpll => 0.1,
-            NorthTrackingMode::Simple => 0.6,
-        };
+        // Both modes measure 0.246 samples, identically, because this is the
+        // estimator's phase dependence and not the tracker's. That is 3
+        // degrees of bearing, and it is the price of a commensurate rate: the
+        // pulse sits at the same sub-sample offset every rotation, so nothing
+        // dithers the estimator's bias away. At the shipped 1602.564 Hz the
+        // pulse walks all phases and it averages out, which is why the same
+        // sweep there measures nothing at all -- see
+        // test_commensurate_rate_produces_constant_offset for the other face
+        // of this.
+        let spread_bound = 0.30;
         assert!(
             spread <= spread_bound,
             "mode={mode:?} bias varies by {spread:.4} samples across sub-sample phase"

@@ -43,7 +43,7 @@ fn generate_pulse_positions<F, G>(
     mut freq_hz_at_time: F,
     mut keep_pulse_at_time: G,
     jitter_samples: i32,
-) -> Vec<usize>
+) -> Vec<f64>
 where
     F: FnMut(f32) -> f32,
     G: FnMut(f32) -> bool,
@@ -59,26 +59,52 @@ where
     while t < duration_secs as f64 {
         let freq_hz = freq_hz_at_time(t as f32).max(1.0);
         if keep_pulse_at_time(t as f32) {
-            let jitter = deterministic_jitter_samples(pulse_index, jitter_samples) as isize;
-            let idx = (t * sample_rate as f64).round() as isize + jitter;
-            if idx >= 0 && (idx as usize) < num_samples {
-                positions.push(idx as usize);
+            let jitter = deterministic_jitter_samples(pulse_index, jitter_samples) as f64;
+            let epoch = t * sample_rate as f64 + jitter;
+            if epoch >= 0.0 && epoch < num_samples as f64 {
+                positions.push(epoch);
             }
         }
         t += 1.0 / freq_hz as f64;
         pulse_index += 1;
     }
 
-    positions.sort_unstable();
-    positions.dedup();
+    positions.sort_by(f64::total_cmp);
+    // Jitter can push two epochs together; closer than a sample is one pulse.
+    positions.dedup_by(|a, b| (*a - *b).abs() < 1.0);
     positions
 }
 
-fn build_north_signal(num_samples: usize, pulse_positions: &[usize], amplitude: f32) -> Vec<f32> {
+/// Half-width, in samples, of the synthesized north pulse.
+const PULSE_HALF_WIDTH: i64 = 12;
+
+/// Band-limited impulses at their true, generally fractional, epochs.
+///
+/// This used to write a single non-zero sample at a rounded position. Two
+/// things went wrong with that. The stimulus and the truth were quantised the
+/// same way, so every timing assertion in this file was satisfiable by a
+/// whole-sample peak index and a regression deleting the sub-sample estimator
+/// entirely would have passed. And with a period of 29.952 samples the
+/// rounding injected up to half a sample of pulse-position jitter that the
+/// tracker saw as real, which is the artifact already fixed in the perf
+/// harness and the convention probe.
+fn build_north_signal(num_samples: usize, pulse_positions: &[f64], amplitude: f32) -> Vec<f32> {
     let mut signal = vec![0.0f32; num_samples];
-    for &idx in pulse_positions {
-        if idx < signal.len() {
-            signal[idx] = amplitude;
+    for &epoch in pulse_positions {
+        let center = epoch.round() as i64;
+        for n in (center - PULSE_HALF_WIDTH)..=(center + PULSE_HALF_WIDTH) {
+            if n < 0 || n as usize >= num_samples {
+                continue;
+            }
+            let x = n as f64 - epoch;
+            let value = if x.abs() < f64::EPSILON {
+                1.0
+            } else {
+                let px = std::f64::consts::PI * x;
+                let window = px / PULSE_HALF_WIDTH as f64;
+                (px.sin() / px) * (window.sin() / window)
+            };
+            signal[n as usize] += amplitude * value as f32;
         }
     }
     signal
@@ -106,7 +132,7 @@ fn percentile(values: &[f32], p: f32) -> f32 {
 }
 
 fn detection_metrics(
-    expected_pulses: &[usize],
+    expected_pulses: &[f64],
     ticks: &[NorthTick],
     match_tolerance_samples: f32,
 ) -> DetectionMetrics {
@@ -863,28 +889,32 @@ fn test_coasting_stops_before_its_error_escapes_the_bound() {
         );
         let (ticks, _) = run_north_tracker(&config, &signal);
 
-        let last_coasted = ticks
+        let coasted: Vec<&NorthTick> = ticks
             .iter()
-            .rfind(|tick| tick.sample_index > settle_samples);
-        let Some(tick) = last_coasted else {
-            // Declining to coast at all is always within the bound.
-            continue;
-        };
+            .filter(|tick| tick.sample_index > settle_samples)
+            .collect();
+        // Not coasting at all used to satisfy this test, at every bandwidth,
+        // so a regression disabling holdover entirely passed it silently.
+        assert!(
+            !coasted.is_empty(),
+            "at {bandwidth} Hz the tracker coasted over none of the dropout"
+        );
+        let tick = coasted.last().expect("a coasted tick");
 
-        // The generator steps its time in f32, so its pulses drift off an
-        // ideal grid over ten seconds. Take the period from the pulses
-        // themselves, which is what the tracker was tracking.
-        let first = *positions.first().expect("pulses") as f64;
-        let last = *positions.last().expect("pulses") as f64;
+        // Take the period from the pulses themselves, which is what the
+        // tracker was tracking.
+        let first = *positions.first().expect("pulses");
+        let last = *positions.last().expect("pulses");
         let actual_period = (last - first) / (positions.len() - 1) as f64;
         let time = tick.sample_index as f64 + tick.fractional_sample_offset as f64;
         let nearest = first + ((time - first) / actual_period).round() * actual_period;
         let error = (time - nearest) as f32;
-        // The pulses sit on whole samples, so the tick the coast started from
-        // already carries up to half a sample that is the generator's, not the
-        // tracker's. The bound here is the budget's half sample plus that.
+        // The budget's own contract, with nothing added. The pulses are now
+        // band-limited at their true epochs, so the coast no longer starts
+        // from a tick carrying half a sample of the generator's rounding, and
+        // the bound this test names is the bound it can hold.
         assert!(
-            error.abs() <= 1.0,
+            error.abs() <= 0.5,
             "At {bandwidth} Hz coasting ran to {:.0} rotations and the last \
              predicted tick was {error:+.3} samples out, past the half sample \
              the budget is supposed to hold it to",
