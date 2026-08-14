@@ -207,8 +207,8 @@ fn main() {
     );
 
     println!(
-        "{:>8} {:>10} {:>10} {:>10} {:>10} {:>10} {:>12}",
-        "bw (Hz)", "acq (s)", "clean", "noise .05", "noise .15", "coast rot", "coast err"
+        "{:>8} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>12}",
+        "bw (Hz)", "acq (s)", "clean", "n .05", "n .15", "n .30", "coast rot", "coast err"
     );
 
     for bandwidth in [0.25f32, 0.5, 1.0, 2.0, 4.0, 8.0] {
@@ -224,7 +224,7 @@ fn main() {
 
         // Steady state at the nominal rate, against three noise levels.
         let mut steady = Vec::new();
-        for noise in [0.0f32, 0.05, 0.15] {
+        for noise in [0.0f32, 0.05, 0.15, 0.30] {
             let (sig, eps) = build(n, nominal_period, amplitude, noise, n);
             steady.push(mean_abs_tail(
                 &errors_against(&run(&config, &sig, sample_rate), &eps),
@@ -260,10 +260,11 @@ fn main() {
             None => "never".into(),
         };
         println!(
-            "{bandwidth:>8.2} {acq_text:>10} {:>10.4} {:>10.4} {:>10.4} {:>10} {:>12.3}",
+            "{bandwidth:>8.2} {acq_text:>10} {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>10} {:>12.3}",
             steady[0],
             steady[1],
             steady[2],
+            steady[3],
             coasted.len(),
             coast_error
         );
@@ -278,7 +279,7 @@ fn main() {
         let config = config_at(bandwidth);
         let n = (sample_rate * 10.0) as usize;
         let mut steady = Vec::new();
-        for noise in [0.0f32, 0.05, 0.15] {
+        for noise in [0.0f32, 0.05, 0.15, 0.30] {
             let (sig, eps) = build(n, nominal_period, amplitude, noise, n);
             steady.push(mean_abs_tail(
                 &errors_against(&run(&config, &sig, sample_rate), &eps),
