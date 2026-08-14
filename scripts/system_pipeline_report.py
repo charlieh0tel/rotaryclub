@@ -161,14 +161,18 @@ for north_mode in ("dpll", "simple"):
             {
                 "bearing_success_rate": 0.95,
                 "detection_rate": 0.97,
-                # 0.06 rather than 0.05 because the scenario got harder, not
-                # because the detector got worse. The generator's noise was
-                # half a DC offset and carried a seventh of the in-band energy
-                # white noise would; correcting it gives this scenario the
-                # broadband noise it always claimed to have, and the north
-                # detector answers with a few more false positives. The DPLL
-                # rows read 0.049 to 0.054 against 0.048 before.
-                "false_positive_rate": 0.06,
+                # 0.03, down from 0.06, because almost none of what this
+                # scenario was calling a false positive was one. It drops
+                # every 17th pulse, and the harness scored the DPLL's
+                # holdover prediction over each gap as a false alarm -- one
+                # per sixteen pulses, 5.9%, which was the whole of the rate
+                # the limit had been raised to accommodate. Scoring a
+                # prediction over a dropped rotation as neither a detection
+                # nor a false positive takes the DPLL rows from 0.049 to
+                # 0.001 and the simple rows from 0.029 to 0.017. The limit is
+                # set above the simple tracker, which is the higher of the
+                # two and genuinely triggers on noise.
+                "false_positive_rate": 0.03,
             }
         )
 

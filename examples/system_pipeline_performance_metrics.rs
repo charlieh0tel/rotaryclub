@@ -105,11 +105,20 @@ const NORTH_PULSE_HALF_WIDTH: i64 = 12;
 /// of bearing. It would also make the two metrics here disagree about truth: a
 /// tracker that recovers the true epoch would score as half a sample of tick
 /// error while producing the better bearing.
+/// Returns the epochs a pulse is rendered at, and every rotation epoch.
+///
+/// These differ when a scenario drops pulses. A tracker cannot detect a pulse
+/// that was never emitted, so detection is scored against the first. But a
+/// DPLL predicting a tick where a dropped pulse belonged is doing exactly what
+/// holdover is for, and scoring that as a false positive -- which this did,
+/// because it kept only one list -- charges the loop for working. At a dropout
+/// stride of 17 that is one spurious false positive per 16 pulses, 5.9%,
+/// which is most of the low SNR false positive rate the gate was tuned around.
 fn expected_tick_positions(
     total_samples: usize,
     samples_per_rotation: f64,
     scenario: Scenario,
-) -> Vec<f64> {
+) -> (Vec<f64>, Vec<f64>) {
     let mut jittered = Vec::new();
     let mut k = 0usize;
     loop {
@@ -129,14 +138,15 @@ fn expected_tick_positions(
     if let Some(stride) = scenario.north_dropout_stride
         && stride > 1
     {
-        return jittered
+        let rendered = jittered
             .iter()
             .enumerate()
             .filter_map(|(i, p)| if i % stride == 0 { None } else { Some(*p) })
             .collect();
+        return (rendered, jittered);
     }
 
-    jittered
+    (jittered.clone(), jittered)
 }
 
 /// A band-limited impulse at a fractional sample position, as an anti-aliased
@@ -211,7 +221,16 @@ fn build_chunk(
     out
 }
 
-fn compute_detection_metrics(expected: &[f32], detected: &[f32]) -> (f32, f32, Vec<f32>) {
+/// Detection and false positive rates.
+///
+/// `expected` are the pulses actually rendered; `predictable` additionally
+/// includes rotations whose pulse was dropped, where a predicted tick is
+/// correct behaviour rather than a false alarm.
+fn compute_detection_metrics(
+    expected: &[f32],
+    predictable: &[f32],
+    detected: &[f32],
+) -> (f32, f32, Vec<f32>) {
     let mut i = 0usize;
     let mut j = 0usize;
     let mut matched = 0usize;
@@ -231,8 +250,22 @@ fn compute_detection_metrics(expected: &[f32], detected: &[f32]) -> (f32, f32, V
         }
     }
 
+    // An unmatched detection sitting on a rotation whose pulse was dropped is
+    // holdover doing its job, not a false alarm.
+    let unmatched = detected.len().saturating_sub(matched);
+    let over_dropouts = detected
+        .iter()
+        .filter(|d| {
+            let near = |set: &[f32]| {
+                set.iter()
+                    .any(|e| (e - **d).abs() <= TICK_MATCH_TOLERANCE_SAMPLES)
+            };
+            !near(expected) && near(predictable)
+        })
+        .count();
+
     let denom = expected.len().max(1) as f32;
-    let false_pos = detected.len().saturating_sub(matched) as f32 / denom;
+    let false_pos = unmatched.saturating_sub(over_dropouts) as f32 / denom;
     let det_rate = matched as f32 / denom;
     (det_rate, false_pos, errors)
 }
@@ -256,7 +289,8 @@ fn run_case(
 
     let total_chunks = WARMUP_ITERATIONS + ITERATIONS;
     let total_samples = total_chunks * buffer_size;
-    let tick_positions = expected_tick_positions(total_samples, samples_per_rotation, scenario);
+    let (tick_positions, predictable_positions) =
+        expected_tick_positions(total_samples, samples_per_rotation, scenario);
 
     let mut processor = RdfProcessor::new(&config, true, true).expect("rdf processor creation");
 
@@ -298,8 +332,13 @@ fn run_case(
         .filter(|&&x| x >= measurement_start as f64)
         .map(|&x| x as f32)
         .collect();
+    let predictable_ticks: Vec<f32> = predictable_positions
+        .iter()
+        .filter(|&&x| x >= measurement_start as f64)
+        .map(|&x| x as f32)
+        .collect();
     let (detection_rate, false_positive_rate, tick_errors) =
-        compute_detection_metrics(&expected_ticks, &detected_ticks);
+        compute_detection_metrics(&expected_ticks, &predictable_ticks, &detected_ticks);
 
     let bearing_success_rate = if expected_ticks.is_empty() {
         0.0
