@@ -54,30 +54,21 @@
 
 ## Bearing Calculator
 
-- [ ] Chase the residual bearing error that remains with the timing trim at
-      zero: -1.09 degrees at 48 kHz and -1.33 at 96, which is 0.08 samples and
-      0.22 respectively. Same sign at both rates; an earlier note claiming the
-      sign flipped was measured before the estimator and cutoff changes and no
-      longer holds.
-      `examples/bearing_convention_probe` measures it directly. Ruled out so
-      far: pulse placement, pulse shape, tick jitter and noise, none of which
-      move it by more than half a degree; and the doppler bandpass length,
-      where a 4x sweep from 0.7 ms to 5.3 ms moves it by 0.05 degrees. The
-      north tracker is not the source either -- its own bias measures 0.001
-      samples, and the residual is identical in the correlation and
-      zero-crossing methods, so it is in the path they share.
-      Also ruled out: the AGC, whose gain pinned to unity moves the residual
-      by 0.001 degrees; and the correlation's forward extrapolation of the
-      reference across a buffer, since a sixteenfold sweep of buffer size
-      moves it by 0.07 degrees.
-      It splits in two. `examples/bearing_convention_probe` now times the
-      north tracker alone against the same signal: it reports ticks +0.048
-      samples late, which is +0.57 degrees, independent of whether the pulse
-      is impulsive or band-limited. That accounts for a little over half of
-      the -1.07, leaving about -0.5 degrees in the bearing path proper.
-      The tracker half is the sharper lead, because it should be zero: for an
-      impulse the estimator's centroid and the delay compensation's reference
-      are computed the same way over the same window, so they ought to cancel
-      exactly. Start by checking whether the detected peak index is the
-      response's maximum tap -- the peak-search window and threshold crossing
-      are what could pick a different sample.
+- [x] Chase the residual bearing error that remains with the timing trim at
+      zero. Closed: it was mostly the measurement, not the pipeline.
+      Two artifacts were stacked on top of each other. The perf harness placed
+      each north pulse at `round(k * period)`, up to half a sample from where
+      the rotation crosses north, which is six degrees of bearing injected per
+      rotation before any code ran; and both probes ran for half a second
+      against a loop whose bandwidth was 1 Hz, so they spent most of their
+      length acquiring and reported the transient as steady-state error.
+      With pulses at their true epochs the clean scenarios fell from about ten
+      degrees of mean bearing error to under two. Sweeping run length takes
+      the residual from -1.07 degrees at half a second to -0.28 at two and
+      about -0.2 from five seconds on, and the tracker's mean tick error over
+      ten seconds falls from -0.017 samples in the first third to -0.000 in
+      the last.
+      The earlier split of the residual between the north tracker and the
+      bearing path does not survive: it was scored against the rounded pulses,
+      and there is no separate bearing-path bias to find. What remains at five
+      to ten seconds is about 0.2 degrees, at the correlation floor.
