@@ -43,11 +43,19 @@ fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
     2.0 * u - 1.0
 }
 
-fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32) -> i32 {
+/// Per-pulse timing jitter, in samples, as a fraction of `max_abs_jitter`.
+///
+/// White and fractional. It used to be `sin(0.37 k).round()`, which repeats
+/// every 17 rotations: a coherent 94 Hz modulation, forty-seven times the
+/// loop bandwidth, which any second-order loop rejects by construction. The
+/// scenario therefore measured the stimulus being out of band rather than the
+/// tracker doing anything, and the DPLL's advantage in it was not earned.
+/// Real jitter has in-band content the loop has to follow.
+fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32) -> f64 {
     if max_abs_jitter <= 0 {
-        0
+        0.0
     } else {
-        ((index as f32 * 0.37).sin() * max_abs_jitter as f32).round() as i32
+        deterministic_noise_at(index, 0x51D3_7A19_C0DE_2B4Fu64) as f64 * max_abs_jitter as f64
     }
 }
 
@@ -126,7 +134,7 @@ fn expected_tick_positions(
         if epoch >= total_samples as f64 {
             break;
         }
-        let jitter = deterministic_jitter_samples(k, scenario.north_jitter_samples) as f64;
+        let jitter = deterministic_jitter_samples(k, scenario.north_jitter_samples);
         jittered.push((epoch + jitter).clamp(0.0, total_samples as f64 - 1.0));
         k += 1;
     }

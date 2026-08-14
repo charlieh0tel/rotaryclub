@@ -179,23 +179,31 @@ for north_mode in ("dpll", "simple"):
 # noisy_jittered injects a sample of deliberate tick jitter, so the tick error
 # columns there measure the stimulus, not the tracker. The DPLL averages that
 # jitter away -- which is the point of a loop -- and so reads a larger tick
-# error than the simple tracker while producing half its bearing error. Bearing
-# is the metric that means something in this scenario.
+# error than the simple tracker while producing a third of its bearing error.
+# Bearing is the metric that means something in this scenario.
+#
+# That claim used to rest on nothing. The jitter was sin(0.37 k), a coherent
+# 94 Hz modulation that a 2 Hz loop rejects by construction, so the DPLL's
+# advantage was the stimulus being out of band rather than the loop working.
+# With white fractional jitter, which has in-band content the loop must
+# actually follow, the advantage is not merely intact but wider: 2.07 degrees
+# against 5.92 where it had been 4.35 against 8.17.
 for bearing_method in ("correlation", "zero_crossing"):
     BASELINE_LIMITS[("dpll", bearing_method, "noisy_jittered")].update(
         {
-            "mean_abs_bearing_error_deg": 8.0,
-            "p95_abs_bearing_error_deg": 16.0,
-            "max_abs_bearing_error_deg": 20.0,
+            "mean_abs_bearing_error_deg": 4.0,
+            "p95_abs_bearing_error_deg": 10.0,
+            "max_abs_bearing_error_deg": 16.0,
             "mean_abs_tick_error_samples": 0.5,
             "p95_abs_tick_error_samples": 1.0,
         }
     )
     BASELINE_LIMITS[("simple", bearing_method, "noisy_jittered")].update(
         {
-            "mean_abs_bearing_error_deg": 14.0,
-            "p95_abs_bearing_error_deg": 30.0,
-            "max_abs_bearing_error_deg": 45.0,
+            "mean_abs_bearing_error_deg": 9.0,
+            "p95_abs_bearing_error_deg": 22.0,
+            "max_abs_bearing_error_deg": 40.0,
+            "mean_abs_tick_error_samples": 0.3,
         }
     )
 
