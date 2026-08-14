@@ -46,6 +46,26 @@
       at all. It is the obvious candidate for the term that covers what
       coherence structurally cannot see.
 
+- [ ] The zero-crossing bearing method has a systematic bias that grows with
+      noise, and it is the whole of that method's error. Measured with
+      `config_compare` against a known bearing, the mean signed error and the
+      mean absolute error are the same number:
+
+        noise        0.3    1.0
+        mean |error| 1.89   6.26   degrees
+        signed mean -1.98  -6.49
+        p95          2.34   7.85
+
+      An error that is almost all offset is not noise, it is the method
+      answering the wrong question as the signal degrades, and the obvious
+      suspect is the detector hysteresis moving the rising-edge crossing one
+      way. Correlation does not do this: its error stays scattered about zero
+      until the north tick itself goes, at which point the offset it shows is
+      the tick's, not its own.
+      Worth fixing on its own account, and it also blocks the uncertainty
+      figure from covering that method's real error: a number built from the
+      spread of estimates cannot see a displacement they all share.
+
 ## North Tick Tracking
 
 - [x] Sweep `highpass_cutoff` again, with the current estimator and a finer
