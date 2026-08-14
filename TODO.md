@@ -52,11 +52,10 @@
       `test_coasting_stops_before_its_error_escapes_the_bound` now pins the
       bound itself, and fails against the change described above.
 
-- [ ] Add a mode that runs two configurations over the same signal and reports
-      the difference. Every comparison so far -- estimator, highpass cutoff,
-      loop bandwidth, phase correction on and off -- has meant editing a
-      default, rebuilding, and diffing two report files by hand, which is slow
-      and has twice produced numbers from a build that was one iteration stale.
+- [x] Add a mode that runs two configurations over the same signal and reports
+      the difference. `src/bin/config_compare.rs`: both sides start from the
+      shipped defaults and take dotted `key=value` overrides, so a comparison
+      records exactly what it changed. `--list-keys` lists what it accepts.
 
 ## Bearing Calculator
 
