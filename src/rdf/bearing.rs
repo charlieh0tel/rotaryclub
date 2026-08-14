@@ -77,6 +77,36 @@ pub fn phase_to_bearing(phase_radians: f32) -> f32 {
     degrees.rem_euclid(360.0)
 }
 
+/// One-sigma bearing uncertainty, in degrees, from the spread of the
+/// individual phase estimates and the reference they were measured against.
+///
+/// `phase_variance` is the spread of the `count` estimates that were averaged
+/// into this bearing. It is deliberately not reduced by the root of that
+/// count. Averaging would earn that reduction only if the estimates were
+/// independent, and they are not: every one of them is measured against the
+/// same north tick, through the same filter state, at the same AGC gain, so
+/// whatever those contribute lands on all of them together. Taking the
+/// reduction anyway makes the zero-crossing method claim 1.26 degrees where
+/// it is 1.95 degrees out.
+///
+/// The reference contributes whole for the same reason, more obviously: an
+/// error in the tick displaces every estimate equally.
+pub(super) fn bearing_uncertainty_deg(
+    phase_variance: f32,
+    count: usize,
+    north_tick: &NorthTick,
+) -> Option<f32> {
+    if count == 0 || !phase_variance.is_finite() || phase_variance < 0.0 {
+        return None;
+    }
+    let reference_variance = north_tick
+        .phase_variance
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .unwrap_or(0.0);
+    let variance = phase_variance + reference_variance;
+    variance.sqrt().to_degrees().into()
+}
+
 /// Detailed confidence metrics for bearing measurements
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ConfidenceMetrics {
@@ -86,6 +116,27 @@ pub struct ConfidenceMetrics {
     pub coherence: f32,
     /// Normalized signal power (0-1)
     pub signal_strength: f32,
+    /// Estimated one-sigma uncertainty of this bearing, in degrees, or None
+    /// where it cannot be estimated.
+    ///
+    /// Two things move a bearing off the truth and this is meant to carry
+    /// both. The Doppler phase scatters from rotation to rotation, and
+    /// averaging N rotations divides that scatter by the root of N. The north
+    /// reference has a timing error of its own, and that one does not average
+    /// away: the bearing is measured against the tick, so the tick's error is
+    /// the bearing's error, whole.
+    ///
+    /// This is precision, not accuracy, and cannot be otherwise: it is built
+    /// from how much the estimates disagree, so a displacement they all share
+    /// is invisible to it. The zero-crossing method's error is almost entirely
+    /// such a displacement, growing to six degrees of offset under noise, and
+    /// no spread-derived figure will ever see it.
+    ///
+    /// Unlike `coherence` it is still a claim that can be checked, and
+    /// `tests/bearing_uncertainty_test.rs` checks it: it must grow as the
+    /// signal degrades, and it must not read lower than the scatter it
+    /// describes.
+    pub bearing_uncertainty_deg: Option<f32>,
 }
 
 impl ConfidenceMetrics {
@@ -143,6 +194,7 @@ mod tests {
             snr_db: 20.0,
             coherence: 1.0,
             signal_strength: 1.0,
+            bearing_uncertainty_deg: None,
         };
         let score = metrics.combined_score(&weights);
         assert!((score - 1.0).abs() < 0.001);
@@ -151,6 +203,7 @@ mod tests {
             snr_db: 10.0,
             coherence: 0.5,
             signal_strength: 0.5,
+            bearing_uncertainty_deg: None,
         };
         let score = metrics.combined_score(&weights);
         let expected = weights.snr_weight * 0.5
@@ -166,6 +219,7 @@ mod tests {
             snr_db: 40.0,
             coherence: 0.0,
             signal_strength: 0.0,
+            bearing_uncertainty_deg: None,
         };
         let score = metrics.combined_score(&weights);
         assert!((score - 0.4).abs() < 0.001);
@@ -174,6 +228,7 @@ mod tests {
             snr_db: -10.0,
             coherence: 0.0,
             signal_strength: 0.0,
+            bearing_uncertainty_deg: None,
         };
         let score = metrics.combined_score(&weights);
         assert_eq!(score, 0.0);

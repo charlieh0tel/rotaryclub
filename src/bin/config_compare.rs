@@ -232,6 +232,7 @@ struct Measurement {
     signal_strength: f64,
     confidence: f64,
     reference_phase_sigma_deg: f64,
+    stated_sigma_deg: f64,
     ticks: usize,
     bearings: usize,
 }
@@ -270,6 +271,7 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
     let mut coherences = Vec::new();
     let mut snrs = Vec::new();
     let mut strengths = Vec::new();
+    let mut stated = Vec::new();
     let mut confidences = Vec::new();
     let mut components = (0.0f64, 0.0f64);
     for result in &results {
@@ -289,6 +291,9 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
             coherences.push(bearing.metrics.coherence as f64);
             snrs.push(bearing.metrics.snr_db as f64);
             strengths.push(bearing.metrics.signal_strength as f64);
+            if let Some(u) = bearing.metrics.bearing_uncertainty_deg {
+                stated.push(u as f64);
+            }
             confidences.push(bearing.confidence as f64);
             let radians = error.to_radians();
             components.0 += radians.cos();
@@ -309,6 +314,7 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
     let coherence_tail = tail(&coherences, 0.2).to_vec();
     let snr_tail = tail(&snrs, 0.2).to_vec();
     let strength_tail = tail(&strengths, 0.2).to_vec();
+    let stated_tail = tail(&stated, 0.2).to_vec();
     let confidence_tail = tail(&confidences, 0.2).to_vec();
 
     Ok(Measurement {
@@ -322,6 +328,7 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
         signal_strength: mean(&strength_tail),
         confidence: mean(&confidence_tail),
         reference_phase_sigma_deg,
+        stated_sigma_deg: mean(&stated_tail),
         ticks: tick_errors.len(),
         bearings: bearing_errors.len(),
     })
@@ -400,6 +407,7 @@ fn main() -> Result<()> {
     row("coherence", a.coherence, b.coherence);
     row("snr (dB)", a.snr_db, b.snr_db);
     row("signal strength", a.signal_strength, b.signal_strength);
+    row("stated sigma (deg)", a.stated_sigma_deg, b.stated_sigma_deg);
     row(
         "reference sigma (deg)",
         a.reference_phase_sigma_deg,

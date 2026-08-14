@@ -16,6 +16,15 @@ pub struct NorthTick {
     pub period: Option<f32>,
     /// DPLL lock quality (0-1, higher is better lock)
     pub lock_quality: Option<f32>,
+    /// Variance of this reference's own timing, in radians squared of
+    /// rotation phase, or None if the tracker cannot estimate it.
+    ///
+    /// A bearing is measured against this tick, so whatever the tick's timing
+    /// scatters by, the bearing scatters by too. Phase agreement within the
+    /// Doppler tone cannot see this: a reference that is late by the same
+    /// amount every rotation moves every bearing equally and leaves the tone
+    /// looking perfectly coherent.
+    pub phase_variance: Option<f32>,
     /// Fractional timing offset (samples) relative to `sample_index`.
     /// Positive means the effective tick time is after `sample_index`.
     pub fractional_sample_offset: f32,

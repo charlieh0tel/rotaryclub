@@ -3,7 +3,9 @@ use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
-use super::bearing::{MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, wrap_phase_diff};
+use super::bearing::{
+    MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, bearing_uncertainty_deg, wrap_phase_diff,
+};
 
 const DEFAULT_SINGLE_CROSSING_COHERENCE: f32 = 0.5;
 
@@ -134,6 +136,7 @@ impl ZeroCrossingBearingCalculator {
         // with each other. Both calculators report `coherence` into the same
         // confidence weighting, so the two have to mean the same thing or the
         // score changes meaning when the method is switched.
+        let mut phase_variance = 0.0f32;
         let coherence = if crossings.len() >= 2 {
             let variance = crossings
                 .iter()
@@ -145,6 +148,7 @@ impl ZeroCrossingBearingCalculator {
                 })
                 .sum::<f32>()
                 / crossings.len() as f32;
+            phase_variance = variance;
             (1.0 - variance / MAX_PHASE_VARIANCE).clamp(0.0, 1.0)
         } else {
             DEFAULT_SINGLE_CROSSING_COHERENCE
@@ -183,6 +187,11 @@ impl ZeroCrossingBearingCalculator {
             snr_db,
             coherence,
             signal_strength,
+            bearing_uncertainty_deg: bearing_uncertainty_deg(
+                phase_variance,
+                crossings.len(),
+                north_tick,
+            ),
         }
     }
 }
@@ -276,6 +285,7 @@ mod tests {
                 sample_index: 0,
                 period: Some(period),
                 lock_quality: Some(1.0),
+                phase_variance: None,
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: 2.0 * PI / period,

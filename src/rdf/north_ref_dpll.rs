@@ -211,6 +211,30 @@ impl DpllNorthTracker {
         self.phase_error_stats.count() >= MIN_PHASE_CORRECTION_SAMPLES
     }
 
+    /// Variance of the reported tick's own timing, in radians squared of
+    /// rotation phase.
+    ///
+    /// This is the scatter of the detections, deliberately not reduced by the
+    /// averaging the loop performs on top of them. The reduction is real --
+    /// while the phase correction runs, the reported time is pulled onto an
+    /// oscillator estimate resting on the whole of the loop's memory, which
+    /// at the shipped bandwidth is 755 ticks, so the scatter of the reported
+    /// tick is some twenty-seven times smaller than this. Dividing by it was
+    /// tried and measured, and it makes the figure worse where it matters.
+    ///
+    /// The reason is that the tick's error stops being scatter. As the signal
+    /// degrades the detections are displaced rather than merely noisy: at the
+    /// point where the bearing falls apart the tick is late by three quarters
+    /// of a sample on average, and the loop follows that displacement rather
+    /// than averaging it away. Nothing inside the tracker sees it, because
+    /// the oscillator agrees with the detections it is being dragged by, and
+    /// the phase error stays small throughout.
+    ///
+    /// So the honest reduction turns a figure that brackets the true error
+    /// into one that understates it sixteenfold exactly when a bearing is
+    /// worthless. The undivided scatter has no such claim on correctness, but
+    /// it grows when conditions degrade, which is when the unobservable bias
+    /// grows too, and it errs high rather than low.
     /// Whether the oscillator is tracking well enough to be trusted over the
     /// detector: to reject a detection that disagrees with it, or to predict
     /// a tick where no detection happened.
@@ -445,6 +469,7 @@ impl DpllNorthTracker {
             sample_index: reported_sample,
             period: Some(2.0 * PI / self.frequency),
             lock_quality: self.lock_quality(),
+            phase_variance: self.phase_error_stats.variance(),
             fractional_sample_offset,
             phase: 0.0,
             frequency: self.frequency,
@@ -626,6 +651,7 @@ impl DpllNorthTracker {
                 lock_quality: self
                     .lock_quality()
                     .map(|q| q * self.coast_quality_scale(next)),
+                phase_variance: self.phase_error_stats.variance(),
                 fractional_sample_offset: self.last_tick_fraction,
                 phase: 0.0,
                 frequency,
@@ -803,6 +829,7 @@ impl DpllNorthTracker {
                 sample_index: reported_sample,
                 period: Some(period),
                 lock_quality: self.lock_quality(),
+                phase_variance: self.phase_error_stats.variance(),
                 fractional_sample_offset,
                 phase: 0.0,
                 frequency: self.frequency,

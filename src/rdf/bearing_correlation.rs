@@ -4,7 +4,8 @@ use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
 use super::bearing::{
-    MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, circular_mean_phase, wrap_phase_diff,
+    MAX_PHASE_VARIANCE, MIN_POWER_THRESHOLD, bearing_uncertainty_deg, circular_mean_phase,
+    wrap_phase_diff,
 };
 /// Fewest windows the coherence estimate will use. Two is the least that has
 /// a spread at all; it is reached only when the buffer is shorter than two
@@ -220,6 +221,9 @@ impl CorrelationBearingCalculator {
         let max_variance = MAX_PHASE_VARIANCE;
         let coherence = (1.0 - phase_variance / max_variance).clamp(0.0, 1.0);
 
+        let bearing_uncertainty_deg =
+            bearing_uncertainty_deg(phase_variance, window_count, north_tick);
+
         // --- Signal Strength ---
         let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
             (correlated_power / signal_power).sqrt().clamp(0.0, 1.0)
@@ -231,6 +235,7 @@ impl CorrelationBearingCalculator {
             snr_db,
             coherence,
             signal_strength,
+            bearing_uncertainty_deg,
         }
     }
 }
@@ -308,6 +313,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -378,6 +384,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -386,6 +393,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: true_fractional_offset,
             phase: 0.0,
             frequency: omega,
@@ -451,6 +459,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -515,6 +524,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -558,6 +568,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -608,6 +619,7 @@ mod tests {
             sample_index: 0,
             period: Some(samples_per_rotation),
             lock_quality: None,
+            phase_variance: None,
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
