@@ -26,25 +26,26 @@
       spread by the root of the estimate count (they share a tick, a filter
       state and an AGC gain, so they are not independent).
 
-- [ ] The zero-crossing bearing method has a systematic bias that grows with
-      noise, and it is the whole of that method's error. Measured with
-      `config_compare` against a known bearing, the mean signed error and the
-      mean absolute error are the same number:
-
-        noise        0.3    1.0
-        mean |error| 1.89   6.26   degrees
-        signed mean -1.98  -6.49
-        p95          2.34   7.85
-
-      An error that is almost all offset is not noise, it is the method
-      answering the wrong question as the signal degrades, and the obvious
-      suspect is the detector hysteresis moving the rising-edge crossing one
-      way. Correlation does not do this: its error stays scattered about zero
-      until the north tick itself goes, at which point the offset it shows is
-      the tick's, not its own.
-      Worth fixing on its own account, and it also blocks the uncertainty
-      figure from covering that method's real error: a number built from the
-      spread of estimates cannot see a displacement they all share.
+- [x] The zero-crossing bearing method has a systematic bias that grows with
+      noise. Investigated: there is no such bias. The measurement that showed
+      one was made with noise that was half DC offset.
+      Every synthetic noise source in the repo built a sample as
+      `(x >> 33) as u32` over `u32::MAX`, which is 31 bits divided by a
+      32-bit maximum, so the range was [-1, 0) rather than [-1, 1). A
+      residual DC through the doppler bandpass shifts a sinusoid's zero
+      crossings, which is why the effect scaled with the noise setting, held
+      steady across seeds, changed sign with the filter width, and spared the
+      correlation method -- correlating against sin and cos at the tone
+      frequency rejects DC.
+      With the generator fixed the two methods measure within a few
+      hundredths of a degree of each other at every level: 0.44 against 0.47
+      at noise 0.3, 10.31 against 10.34 at noise 1.0.
+      Worth remembering how it was caught. The detector, the AGC, the
+      passband centre, the run length and the crossing-selection latch were
+      all cleared first, and a plain sign-change scan reproduced the biased
+      answer exactly -- so the bias was in the waveform, not the code reading
+      it. What settled it was reimplementing the same measurement in numpy
+      and getting no bias, then asking what differed about the input.
 
 ## North Tick Tracking
 
