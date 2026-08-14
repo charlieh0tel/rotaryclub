@@ -17,7 +17,7 @@
 //! the tests use, and the stimulus axes name physical quantities that were
 //! measured on the recordings rather than knob positions.
 //!
-//!   config_sweep --axis north_tick.threshold=0.10,0.15,0.25 \
+//!   config_sweep --axis north_tick.threshold_fraction=0.13,0.19,0.32 \
 //!                --axis north_noise=0.0,0.05,0.20
 //!
 //!   config_sweep --axis north_tick.dpll.natural_frequency_hz=1,2,4 \
@@ -108,7 +108,7 @@ const CONFIG_AXES: &[&str] = &[
     "north_tick.gain_db",
     "north_tick.highpass_cutoff",
     "north_tick.fir_highpass_length_us",
-    "north_tick.threshold",
+    "north_tick.threshold_fraction",
     "north_tick.min_interval_ms",
     "north_tick.max_coast_ms",
     "north_tick.gate_sigma",
@@ -149,7 +149,7 @@ fn apply_config(config: &mut RdfConfig, key: &str, value: &str) -> Result<bool> 
         "north_tick.gain_db" => config.north_tick.gain_db = number()?,
         "north_tick.highpass_cutoff" => config.north_tick.highpass_cutoff = number()?,
         "north_tick.fir_highpass_length_us" => config.north_tick.fir_highpass_length_us = number()?,
-        "north_tick.threshold" => config.north_tick.threshold = number()?,
+        "north_tick.threshold_fraction" => config.north_tick.threshold_fraction = number()?,
         "north_tick.min_interval_ms" => config.north_tick.min_interval_ms = number()?,
         "north_tick.max_coast_ms" => config.north_tick.max_coast_ms = number()?,
         "north_tick.gate_sigma" => config.north_tick.gate_sigma = number()?,

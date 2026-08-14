@@ -88,7 +88,7 @@ const KEYS: &[&str] = &[
     "north_tick.highpass_cutoff",
     "north_tick.highpass_transition_hz",
     "north_tick.fir_highpass_length_us",
-    "north_tick.threshold",
+    "north_tick.threshold_fraction",
     "north_tick.expected_pulse_amplitude",
     "north_tick.min_interval_ms",
     "north_tick.max_coast_ms",
@@ -139,7 +139,7 @@ fn apply(config: &mut RdfConfig, assignment: &str) -> Result<()> {
         "north_tick.fir_highpass_length_us" => {
             config.north_tick.fir_highpass_length_us = number(key)?
         }
-        "north_tick.threshold" => config.north_tick.threshold = number(key)?,
+        "north_tick.threshold_fraction" => config.north_tick.threshold_fraction = number(key)?,
         "north_tick.expected_pulse_amplitude" => {
             config.north_tick.expected_pulse_amplitude = number(key)?
         }

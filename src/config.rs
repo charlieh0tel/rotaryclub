@@ -471,22 +471,46 @@ pub struct NorthTickConfig {
     pub fir_highpass_length_us: f32,
     /// Highpass filter transition bandwidth in Hz (default: 500.0)
     pub highpass_transition_hz: f32,
-    /// Peak detection threshold (0-1 range)
+    /// Peak detection threshold, as a fraction of the pulse height the
+    /// detector expects to see.
     ///
-    /// Raising this was measured and rejected. The amplitude at which
-    /// detection collapses tracks the threshold, at about 1.6 times it, so
-    /// 0.15 detects down to a pulse amplitude of 0.25 and 0.25 only to 0.42.
-    /// Against the 0.8 expected that is a factor of 3.2 on receiver level
-    /// against 1.9. What the higher threshold buys is detection under channel
-    /// noise, and it buys nothing until 0.2 RMS and little until 0.3, by
-    /// which point the false positive rate is 0.18 either way. See DESIGN.md.
-    pub threshold: f32,
+    /// Dimensionless, and deliberately so. The detector compares against the
+    /// highpassed signal, whose pulse peaks at `expected_pulse_amplitude`
+    /// times the filter's peak response -- times `gain_db` as well when the
+    /// AGC is off, since the gain is applied to the buffer first. This is a
+    /// fraction of that, so the absolute level is derived rather than
+    /// configured.
+    ///
+    /// An absolute threshold could not stay correct across the things it
+    /// depends on. It met a signal that scaled with `gain_db` while itself
+    /// staying put, so 0.8 expected at -20 dB presented 0.08 to a threshold
+    /// of 0.15 and the tracker silently emitted nothing -- a failure that
+    /// needed its own validation check to catch. Derived, that check has
+    /// nothing left to reject: a fraction below 1 cannot sit above the pulse.
+    /// It also tracks the filter, so changing the highpass no longer quietly
+    /// changes the detection margin along with it.
+    ///
+    /// What the number means: detection collapses when the pulse falls to
+    /// about 1.6 times the threshold, so the shipped value holds detection
+    /// down to 31 percent of the expected pulse. The default reproduces the
+    /// 0.15 absolute threshold that was measured and settled -- raising it
+    /// was rejected, because what a higher threshold buys is detection under
+    /// channel noise and it buys nothing until 0.2 RMS and little until 0.3,
+    /// by which point the false positive rate is 0.18 either way. See
+    /// DESIGN.md.
+    pub threshold_fraction: f32,
     /// Expected pulse amplitude in the north channel, before `gain_db`.
     ///
-    /// Used to compute where the filtered pulse crosses the threshold, which
-    /// sets the peak search window. The gain is applied to the buffer first,
-    /// so what the threshold actually meets is this times the gain, and the
-    /// two are validated together.
+    /// Sets the detection threshold, the peak search window and, with the AGC
+    /// running, the level the gain drives the channel to. The gain is applied
+    /// to the buffer first, so what the detector meets is this times the gain
+    /// times the filter's peak response.
+    ///
+    /// Load-bearing for detection since the threshold became a fraction of
+    /// it: setting it wrong now moves the threshold too, where before it only
+    /// moved the search window. With the AGC on that is self-correcting,
+    /// because the gain drives the measured pulse to this value; with the AGC
+    /// off it is not.
     pub expected_pulse_amplitude: f32,
     /// Minimum interval between pulses in milliseconds. Must be shorter
     /// than the period at dpll.frequency_max_hz (0.6 ms supports up to
@@ -720,7 +744,9 @@ impl Default for NorthTickConfig {
             highpass_cutoff: 1000.0,
             fir_highpass_length_us: 1312.5,
             highpass_transition_hz: 500.0,
-            threshold: 0.15,
+            // 0.15 of full scale at the default 0.8 pulse through the
+            // default filter, which is the absolute threshold this replaced.
+            threshold_fraction: 0.19361,
             expected_pulse_amplitude: 0.8,
             min_interval_ms: 0.6,
             max_coast_ms: 1000.0,

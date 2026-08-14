@@ -5,6 +5,7 @@ use crate::config::{NorthPulseEstimator, NorthTickConfig};
 const MAX_CENTROID_HALF_WIDTH_FRACTION: f32 = 0.2;
 use crate::error::{RdfError, Result};
 use crate::signal_processing::FirHighpass;
+#[cfg(test)]
 use crate::signal_processing::db_to_amplitude;
 
 /// Validate the settings both trackers share.
@@ -39,25 +40,18 @@ pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: 
         )));
     }
 
-    finite("threshold", config.threshold)?;
-    if config.threshold <= 0.0 {
+    // The threshold is a fraction of the pulse height the detector expects,
+    // so the only way to misconfigure it is to ask for a fraction that is not
+    // one. What this used to have to check -- a threshold sitting above the
+    // amplitude it would meet, which a gain change alone could bring about
+    // and which silently emitted no ticks -- cannot be expressed any more.
+    finite("threshold_fraction", config.threshold_fraction)?;
+    if !(0.0..1.0).contains(&config.threshold_fraction) || config.threshold_fraction == 0.0 {
         return Err(RdfError::Config(format!(
-            "north_tick.threshold is {}, must be greater than 0",
-            config.threshold
-        )));
-    }
-    // The gain is applied to the buffer before the threshold is compared
-    // against it, so what a pulse has to clear is the amplitude after gain.
-    // Checking the raw amplitude, as this did, passes a configuration that
-    // cannot detect anything: 0.8 expected with -20 dB of gain presents 0.08
-    // to a threshold of 0.15, and the tracker silently emits no ticks.
-    let effective_amplitude = config.expected_pulse_amplitude * db_to_amplitude(config.gain_db);
-    if config.threshold >= effective_amplitude {
-        return Err(RdfError::Config(format!(
-            "north_tick.threshold ({}) is at or above the expected pulse amplitude after \
-             gain ({} at {} dB gives {}), so no pulse can ever cross it; lower the \
-             threshold or raise gain_db",
-            config.threshold, config.expected_pulse_amplitude, config.gain_db, effective_amplitude
+            "north_tick.threshold_fraction is {}, must be within (0, 1); it is the \
+             fraction of the expected filtered pulse height a detection has to clear, \
+             and at 1 or above no pulse can ever cross it",
+            config.threshold_fraction
         )));
     }
 
@@ -306,6 +300,22 @@ pub(super) struct DelayCompensation {
     pub fractional_sample_offset: f32,
 }
 
+/// Absolute detection threshold, from the fraction the configuration carries.
+///
+/// The detector runs on the highpassed signal, where the pulse peaks at the
+/// expected amplitude times the filter's peak response, so that product is
+/// what the fraction is of. `effective_pulse_amplitude` is the expected
+/// amplitude the tracker actually presents to the filter: the configured one
+/// when the AGC is driving the level to it, and that times the static gain
+/// when it is not.
+pub(super) fn detection_threshold(
+    threshold_fraction: f32,
+    effective_pulse_amplitude: f32,
+    highpass: &FirHighpass,
+) -> f32 {
+    threshold_fraction * effective_pulse_amplitude * highpass.peak_response()
+}
+
 pub(super) fn derive_peak_timing(
     highpass: &FirHighpass,
     threshold: f32,
@@ -383,4 +393,74 @@ pub(super) fn preprocess_north_buffer(
         }
     }
     highpass.process_buffer(filter_buffer);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::RdfConfig;
+
+    fn default_highpass(config: &NorthTickConfig, sample_rate: f32) -> FirHighpass {
+        FirHighpass::new(
+            config.highpass_cutoff,
+            sample_rate,
+            highpass_taps(config, sample_rate),
+            config.highpass_transition_hz,
+        )
+        .expect("filter")
+    }
+
+    /// The fraction reproduces the absolute threshold it replaced.
+    ///
+    /// 0.15 of full scale was measured and settled, and the change to a
+    /// fraction was meant to leave it exactly where it was. Pinned here
+    /// because nothing else would notice it drifting: a threshold slightly
+    /// off shows up as a slightly different detection cliff, which no test
+    /// asserts directly.
+    #[test]
+    fn test_the_default_fraction_reproduces_the_measured_threshold() {
+        let config = RdfConfig::default();
+        let sample_rate = config.audio.sample_rate as f32;
+        let highpass = default_highpass(&config.north_tick, sample_rate);
+        let threshold = detection_threshold(
+            config.north_tick.threshold_fraction,
+            config.north_tick.expected_pulse_amplitude,
+            &highpass,
+        );
+        assert!(
+            (threshold - 0.15).abs() < 1e-4,
+            "default fraction gives a threshold of {threshold}, not the 0.15 it replaced"
+        );
+    }
+
+    /// The gain no longer moves the pulse out from under the threshold.
+    ///
+    /// This is the whole point of the change. An absolute threshold stayed
+    /// put while the signal it met scaled with the gain, so attenuation
+    /// silently defeated detection and validation had to reject it. Derived,
+    /// the margin is the same at any gain.
+    #[test]
+    fn test_the_margin_is_invariant_under_gain() {
+        let config = RdfConfig::default();
+        let sample_rate = config.audio.sample_rate as f32;
+        let highpass = default_highpass(&config.north_tick, sample_rate);
+        let expected = config.north_tick.expected_pulse_amplitude;
+
+        for gain_db in [-20.0f32, -6.0, 0.0, 6.0, 20.0] {
+            let gain = db_to_amplitude(gain_db);
+            let threshold = detection_threshold(
+                config.north_tick.threshold_fraction,
+                expected * gain,
+                &highpass,
+            );
+            let pulse_peak = expected * gain * highpass.peak_response();
+            let margin = threshold / pulse_peak;
+            assert!(
+                (margin - config.north_tick.threshold_fraction).abs() < 1e-5,
+                "at {gain_db} dB the threshold is {margin} of the pulse, not the \
+                 configured {}",
+                config.north_tick.threshold_fraction
+            );
+        }
+    }
 }

@@ -29,7 +29,8 @@ bearing = (phase_offset / 2π) × 360°
 
 ### North Tick Detection (Right Channel)
 1. Highpass filter at 1 kHz (isolate 20µs pulse transients)
-2. Peak detection with 0.15 threshold and 0.6ms minimum spacing
+2. Peak detection at 0.19361 of the expected pulse height (0.15 of full scale
+   at the default pulse and filter) and 0.6ms minimum spacing
 3. Sub-sample pulse estimation (configurable): the detected peak is an
    integer sample index, and one sample at 48 kHz is 12° of bearing, so the
    arrival time is estimated below the sample grid.
@@ -82,7 +83,7 @@ expected_freq: 1602.56, bandpass: 1350-1850 Hz
 method: Correlation  // or ZeroCrossing
 
 // North tick detection
-highpass_cutoff: 1000.0 Hz, threshold: 0.15, min_interval_ms: 0.6
+highpass_cutoff: 1000.0 Hz, threshold_fraction: 0.19361, min_interval_ms: 0.6
 mode: Dpll  // or Simple
 estimator: EnergyCentroid  // or AmplitudeCentroid, HardLimiter
 max_coast_ms: 1000.0, gate_sigma: 3.0
@@ -184,8 +185,17 @@ tracking modes.
 Two things decide the threshold and they pull opposite ways.
 
 The amplitude cliff moves with the threshold, at roughly amplitude = 1.6 x
-threshold. The detector threshold is absolute and the filtered pulse peak
-scales with amplitude, so this is what it has to do. In DPLL mode, with no
+threshold. The filtered pulse peak scales with the amplitude the receiver
+delivers, so this is what it has to do.
+
+The threshold is now expressed as a fraction of the pulse height the
+configuration expects, rather than as an absolute level, which is why the
+figures below read in absolutes: they were measured before the change and the
+change reproduces them exactly. The shipped 0.19361 is 0.15 of full scale
+against the default 0.8 pulse through the default filter. What the fraction
+fixed is a bookkeeping failure rather than anything in this table -- an
+absolute threshold met a signal that scaled with `gain_db` while itself
+staying put, so attenuation silently defeated detection. In DPLL mode, with no
 noise, detection is total down to these amplitudes and collapses below them:
 
   threshold  0.10  0.15  0.20  0.25  0.30  0.40

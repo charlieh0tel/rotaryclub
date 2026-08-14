@@ -8,8 +8,8 @@ use std::f32::consts::PI;
 
 use super::north_ref_common::{
     QuietChannelWatch, centroid_half_width, derive_delay_compensation, derive_peak_timing,
-    estimate_fraction, highpass_taps, preprocess_north_buffer, retain_tail, split_effective_time,
-    validate_north_tick_config,
+    detection_threshold, estimate_fraction, highpass_taps, preprocess_north_buffer, retain_tail,
+    split_effective_time, validate_north_tick_config,
 };
 
 const MIN_TICK_SPACING_FRACTION: f32 = 0.75;
@@ -348,9 +348,14 @@ impl DpllNorthTracker {
         let nominal_period_samples = sample_rate / config.dpll.initial_frequency_hz.max(1.0);
         let centroid_half_width =
             centroid_half_width(config.estimator, sample_rate, nominal_period_samples);
+        let threshold = detection_threshold(
+            config.threshold_fraction,
+            effective_pulse_amplitude,
+            &highpass,
+        );
         let peak_timing = derive_peak_timing(
             &highpass,
-            config.threshold,
+            threshold,
             effective_pulse_amplitude,
             config.estimator,
             centroid_half_width,
@@ -370,7 +375,7 @@ impl DpllNorthTracker {
             highpass,
             peak_detector: {
                 let mut detector = PeakDetector::with_peak_search_window(
-                    config.threshold,
+                    threshold,
                     min_samples,
                     peak_timing.peak_search_window_samples,
                 );
@@ -405,7 +410,7 @@ impl DpllNorthTracker {
             filter_buffer: Vec::new(),
             filter_tail: Vec::new(),
             quiet_watch: QuietChannelWatch::new(sample_rate),
-            threshold: config.threshold,
+            threshold,
             last_measured_sample: None,
             last_rejection_sample: None,
             last_tick_fraction: 0.0,

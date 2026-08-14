@@ -78,12 +78,14 @@ fn main() {
         .unwrap();
 
     let min_interval = (nt.min_interval_ms / 1000.0 * sample_rate) as usize;
+    // The same derivation the trackers use: a fraction of the pulse height as
+    // it reaches the detector, which is after the filter.
+    let threshold = nt.threshold_fraction * nt.expected_pulse_amplitude * highpass.peak_response();
     let search = {
-        let crossing =
-            highpass.threshold_crossing_offset(nt.threshold, nt.expected_pulse_amplitude);
+        let crossing = highpass.threshold_crossing_offset(threshold, nt.expected_pulse_amplitude);
         ((highpass.peak_offset() - crossing).max(0.0)).ceil() as usize + 3
     };
-    let mut detector = PeakDetector::with_peak_search_window(nt.threshold, min_interval, search);
+    let mut detector = PeakDetector::with_peak_search_window(threshold, min_interval, search);
     detector.set_trailing_context(half_width);
     let detected = detector
         .find_all_peaks(&filtered)

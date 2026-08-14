@@ -7,8 +7,8 @@ use std::f32::consts::PI;
 
 use super::north_ref_common::{
     QuietChannelWatch, centroid_half_width, derive_delay_compensation, derive_peak_timing,
-    estimate_fraction, highpass_taps, preprocess_north_buffer, retain_tail, split_effective_time,
-    validate_north_tick_config,
+    detection_threshold, estimate_fraction, highpass_taps, preprocess_north_buffer, retain_tail,
+    split_effective_time, validate_north_tick_config,
 };
 
 const PERIOD_SMOOTHING_FACTOR: f32 = 0.1;
@@ -61,9 +61,18 @@ impl SimpleNorthTracker {
         let nominal_period_samples = sample_rate / config.dpll.initial_frequency_hz.max(1.0);
         let centroid_half_width =
             centroid_half_width(config.estimator, sample_rate, nominal_period_samples);
+        // No AGC here by design, so the level presented to the filter is the
+        // configured expectation times the static gain, and the threshold
+        // follows it. That keeps the fraction meaning the same thing in both
+        // trackers without giving this one any machinery it does not have.
+        let threshold = detection_threshold(
+            config.threshold_fraction,
+            effective_pulse_amplitude,
+            &highpass,
+        );
         let peak_timing = derive_peak_timing(
             &highpass,
-            config.threshold,
+            threshold,
             effective_pulse_amplitude,
             config.estimator,
             centroid_half_width,
@@ -79,7 +88,7 @@ impl SimpleNorthTracker {
             highpass,
             peak_detector: {
                 let mut detector = PeakDetector::with_peak_search_window(
-                    config.threshold,
+                    threshold,
                     min_samples,
                     peak_timing.peak_search_window_samples,
                 );
@@ -109,7 +118,7 @@ impl SimpleNorthTracker {
             filter_buffer: Vec::new(),
             filter_tail: Vec::new(),
             quiet_watch: QuietChannelWatch::new(sample_rate),
-            threshold: config.threshold,
+            threshold,
         })
     }
 

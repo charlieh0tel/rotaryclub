@@ -1,9 +1,12 @@
 //! Does the detection threshold have margin, and does it need to adapt?
 //!
-//! `north_tick.threshold` and `north_tick.expected_pulse_amplitude` are both
-//! absolute, so together they assume a signal level. A receiver delivering
-//! half the expected pulse height sits closer to the threshold than intended,
-//! and nothing in the pipeline says so. DESIGN.md argues adaptive
+//! `north_tick.threshold_fraction` is a fraction of the pulse height
+//! `expected_pulse_amplitude` says to expect, so together they still assume a
+//! signal level: a receiver delivering half the expected pulse sits closer to
+//! the threshold than intended, and only the AGC says so. The fraction fixed
+//! the bookkeeping -- a gain change no longer moves the pulse out from under
+//! a threshold that stayed put -- but it cannot know what the receiver
+//! actually delivers. DESIGN.md argues adaptive
 //! thresholding is unnecessary because the reference amplitude is
 //! predictable; that is an assumption rather than a measurement.
 //!
@@ -100,7 +103,7 @@ fn run(
     // costs, which is exactly the trade a threshold controls, so sweeping in
     // Simple mode -- which this did -- measures a tracker that does not ship.
     config.north_tick.mode = mode;
-    config.north_tick.threshold = threshold;
+    config.north_tick.threshold_fraction = threshold;
     let num_samples = (sample_rate * 1.5) as usize;
     let (signal, truth) = build(num_samples, sample_rate, amplitude, noise_rms);
 

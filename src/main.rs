@@ -160,7 +160,10 @@ fn main() -> anyhow::Result<()> {
         "Doppler bandpass: {}-{} Hz",
         config.doppler.bandpass_low, config.doppler.bandpass_high
     );
-    eprintln!("North tick threshold: {}", config.north_tick.threshold);
+    eprintln!(
+        "North tick threshold: {} of the expected pulse",
+        config.north_tick.threshold_fraction
+    );
     eprintln!("North tick tracking: {:?}", config.north_tick.mode);
     eprintln!("Bearing method: {:?}", config.doppler.method);
     eprintln!("Output rate: {} Hz", config.bearing.output_rate_hz);

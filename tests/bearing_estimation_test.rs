@@ -252,7 +252,7 @@ fn test_zero_crossing_bearing_with_correct_signal() {
 #[test]
 fn test_full_pipeline_with_north_tracker() {
     let mut config = RdfConfig::default();
-    config.north_tick.threshold = 0.1;
+    config.north_tick.threshold_fraction = 0.129;
     let sample_rate = config.audio.sample_rate as f32;
     let rotation_freq = config.doppler.expected_freq;
 

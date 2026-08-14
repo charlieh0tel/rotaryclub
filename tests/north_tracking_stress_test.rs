@@ -333,9 +333,11 @@ fn test_north_tracking_threshold_sweep() {
     );
     let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
 
-    for threshold in [0.08f32, 0.12, 0.15, 0.20, 0.25] {
+    // Fractions of the expected pulse, spanning the absolute 0.08 to 0.25
+    // this swept before the threshold became dimensionless.
+    for threshold in [0.103f32, 0.155, 0.194, 0.258, 0.323] {
         let mut config = base_config.clone();
-        config.north_tick.threshold = threshold;
+        config.north_tick.threshold_fraction = threshold;
         let (ticks, freq_opt) = run_north_tracker(&config, &north_signal);
         let metrics = detection_metrics(&pulse_positions, &ticks, 3.0);
 
@@ -706,30 +708,54 @@ fn test_dead_time_rejects_noise_triggers() {
 ///
 /// A tracker that starts and then silently detects nothing is far harder to
 /// diagnose from a bearing display than one that refuses to start.
+/// A large attenuation used to be a configuration error, and is not one now.
+///
+/// The threshold was absolute while the signal it met scaled with the gain,
+/// so -20 dB put the pulse under a threshold that looked fine against the raw
+/// amplitude. Validation grew a check for it because the tracker otherwise
+/// accepted the configuration and silently emitted nothing. A threshold
+/// expressed as a fraction of the pulse scales with the gain itself, so the
+/// case is not merely accepted -- it detects.
+#[test]
+fn test_attenuation_no_longer_defeats_the_threshold() {
+    let mut config = RdfConfig::default();
+    config.north_tick.gain_db = -20.0;
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = config.doppler.expected_freq;
+    let num_samples = (sample_rate * 0.5) as usize;
+    let pulse_positions =
+        generate_pulse_positions(0.0, 0.5, sample_rate, |_| rotation_hz, |_| true, 0);
+    let north_signal = build_north_signal(num_samples, &pulse_positions, 0.8);
+
+    let (ticks, _) = run_north_tracker(&config, &north_signal);
+    let metrics = detection_metrics(&pulse_positions, &ticks, 3.0);
+    assert!(
+        metrics.detection_rate >= 0.88,
+        "20 dB of attenuation should not cost detection once the threshold \
+         follows the pulse: rate {:.2} over {} ticks",
+        metrics.detection_rate,
+        ticks.len()
+    );
+}
+
 #[test]
 fn test_north_tick_config_guardrails() {
     let sample_rate = RdfConfig::default().audio.sample_rate as f32;
 
     type BadConfig = (&'static str, fn(&mut RdfConfig), &'static str);
-    let cases: [BadConfig; 9] = [
+    let cases: [BadConfig; 8] = [
         (
-            "threshold above pulse amplitude",
-            |c| c.north_tick.threshold = 0.9,
-            "after gain",
+            // A fraction of one is the whole pulse, so nothing can exceed it.
+            // The case this replaced set an absolute 0.9 against a 0.8 pulse;
+            // as a fraction 0.9 is merely a very tight gate, and legal.
+            "threshold fraction at the whole pulse height",
+            |c| c.north_tick.threshold_fraction = 1.0,
+            "(0, 1)",
         ),
         (
-            // The gain is applied before the threshold is compared, so a
-            // large attenuation puts the pulse under a threshold that looks
-            // fine against the raw amplitude. This was accepted, and the
-            // tracker then silently emitted nothing.
-            "threshold above the pulse amplitude once gain is applied",
-            |c| c.north_tick.gain_db = -20.0,
-            "after gain",
-        ),
-        (
-            "threshold at zero",
-            |c| c.north_tick.threshold = 0.0,
-            "greater than 0",
+            "threshold fraction at zero",
+            |c| c.north_tick.threshold_fraction = 0.0,
+            "(0, 1)",
         ),
         (
             "pulse amplitude above full scale",
