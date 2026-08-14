@@ -231,6 +231,7 @@ struct Measurement {
     snr_db: f64,
     signal_strength: f64,
     confidence: f64,
+    reference_phase_sigma_deg: f64,
     ticks: usize,
     bearings: usize,
 }
@@ -257,6 +258,12 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
     let mut processor = RdfProcessor::new(config, false, true)
         .map_err(|e| anyhow!("configuration rejected: {e}"))?;
     let results = processor.process_signal(signal);
+    // The tracker's own estimate of how much its tick timing scatters,
+    // expressed as the bearing degrees that scatter is worth.
+    let reference_phase_sigma_deg = processor
+        .phase_error_variance()
+        .map(|v| (v.max(0.0).sqrt()).to_degrees() as f64)
+        .unwrap_or(f64::NAN);
 
     let mut tick_errors = Vec::new();
     let mut bearing_errors = Vec::new();
@@ -314,6 +321,7 @@ fn measure(config: &RdfConfig, signal: &[f32], epochs: &[f64], truth: f32) -> Re
         snr_db: mean(&snr_tail),
         signal_strength: mean(&strength_tail),
         confidence: mean(&confidence_tail),
+        reference_phase_sigma_deg,
         ticks: tick_errors.len(),
         bearings: bearing_errors.len(),
     })
@@ -392,6 +400,11 @@ fn main() -> Result<()> {
     row("coherence", a.coherence, b.coherence);
     row("snr (dB)", a.snr_db, b.snr_db);
     row("signal strength", a.signal_strength, b.signal_strength);
+    row(
+        "reference sigma (deg)",
+        a.reference_phase_sigma_deg,
+        b.reference_phase_sigma_deg,
+    );
     row("confidence", a.confidence, b.confidence);
     println!(
         "{:<28} {:>12} {:>12} {:>+12}",
