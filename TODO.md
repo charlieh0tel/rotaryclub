@@ -7,6 +7,18 @@
 
 ## North Tick Tracking
 
+- [ ] Revisit `highpass_cutoff` when there is a capture that bleeds audio
+      into the north channel. It sits at 1 kHz. Moving it back to 5 kHz was
+      tried and measured worse on every axis available: per-tick timing 0.52
+      degrees against 0.44, the simple tracker's jitter doubling from 0.10 to
+      0.20 samples, coast coverage falling from 700 rotations to 568 because
+      the budget is earned from how well the rate is known, and the
+      `low_snr_dc` false-positive rate rising from 0.048 to 0.051, which trips
+      the performance gate. Intermediate cutoffs pass: 3 kHz has the lowest
+      false-positive rate measured, 0.046, at 0.56 degrees of timing.
+      The one thing none of this prices is audio bleed, which is the only
+      argument for filtering high, and no capture exhibits it.
+
 - [ ] Measure loop bandwidth against both acquisition and holdover, then pick
       one. At 2 Hz steady-state error is identical to 1 Hz -- 0.28 to 0.31
       degrees either way -- and acquisition halves from 0.84 s. But the

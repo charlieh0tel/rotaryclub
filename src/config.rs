@@ -356,12 +356,24 @@ pub struct NorthTickConfig {
     ///
     /// The filter rejects audio bleeding into the north channel, but it also
     /// discards pulse energy that carries timing information, so the cutoff
-    /// is a tradeoff rather than a free choice. Measured with
-    /// `north_hpf_sweep` on the captures in `data/`, centroid timing is about
-    /// three times better at 1 kHz than at the 5 kHz used previously, and
-    /// detection is unaffected at every cutoff tried including none at all.
-    /// Raise it if a receiver bleeds enough audio into the north channel to
-    /// cause false detections.
+    /// trades one against the other.
+    ///
+    /// Every measurement available favours the low end. With the shipped
+    /// estimator, `north_hpf_sweep` puts per-tick timing at 0.44 degrees here
+    /// against 0.52 at 5 kHz, and detection is unaffected at every cutoff
+    /// tried including none at all. Raising it also costs elsewhere: at
+    /// 5 kHz the simple tracker's timing jitter doubles, the coasting budget
+    /// shortens because it is earned from how well the rate is known, and the
+    /// `low_snr_dc` false-positive rate rises from 0.048 to 0.051, past the
+    /// limit the performance gate holds it to.
+    ///
+    /// That last one is worth stating plainly, because it is the opposite of
+    /// the intuition: filtering higher does not reject more junk. In the one
+    /// scenario built to test junk, it admits more of it.
+    ///
+    /// What no capture in `data/` can price is the reason to filter high at
+    /// all -- a receiver bleeding audio into the north channel. None of them
+    /// does. Raise the cutoff if one turns up.
     pub highpass_cutoff: f32,
     /// Length of the FIR highpass in microseconds.
     ///
