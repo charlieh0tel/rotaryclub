@@ -81,6 +81,9 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
 
 #### Output Measures
 
+See [METRICS.md](METRICS.md) for what each of these can and cannot see, what the CI
+gates cover, and how to add a metric without fooling yourself.
+
 - `bearing`: Smoothed azimuth estimate in degrees, wrapped to `[0, 360)`.
 - `raw`: Instantaneous unsmoothed azimuth estimate in degrees, wrapped to `[0, 360)`.
 - `confidence`: Quality score in `[0, 1]`, derived from `bearing_uncertainty_deg` as
