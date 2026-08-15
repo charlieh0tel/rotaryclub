@@ -93,6 +93,32 @@ pub struct SignalImpairment {
     /// north floor around 0.0006, so anything above about 0.01 here is beyond
     /// what has ever been observed.
     pub north_noise_rms: f32,
+    /// How strongly the interference clumps in time, from 0 to just under 1.
+    ///
+    /// Zero is stationary noise, which is what this generated for a long time
+    /// and is not what a radio delivers. Measured on the recordings, the power
+    /// in 20 ms windows correlates with the next window at 0.90, 0.91 and
+    /// 0.94; the synthetic channel read 0.002. Their power arrives in bursts
+    /// with quiet between -- the p95 window carries 1.4 to 5.9 times the
+    /// median, against 1.2 here, and 8 to 27 percent of windows are near
+    /// silent, against none.
+    ///
+    /// That difference, not the spectrum, is what made the synthetic channel
+    /// two to four times harsher at matched power. Matching the *mean* while
+    /// the real thing is quiet most of the time and occasionally much worse
+    /// means the typical bearing sees far less than the mean suggests. The
+    /// spectral tilt across the passband was the standing explanation and does
+    /// not survive measurement: 3.3 dB here against -0.4 to -3.8 there, small
+    /// and not even the same sign.
+    ///
+    /// The mean passband power is held to `passband_noise_to_tone` whatever
+    /// this is set to, so the two axes stay independent.
+    pub envelope_correlation: f32,
+    /// Spread of the interference envelope, in nepers of log power.
+    ///
+    /// Sets how deep the quiet stretches are and how far the bursts rise.
+    /// Zero is a flat envelope regardless of `envelope_correlation`.
+    pub envelope_depth: f32,
     /// Seed, so a run is repeatable.
     pub seed: u64,
 }
@@ -108,6 +134,8 @@ impl SignalImpairment {
             north_noise_rms: 0.0,
             audio_low_hz: 300.0,
             audio_high_hz: 3400.0,
+            envelope_correlation: 0.94,
+            envelope_depth: 0.5,
             seed: 0x51D3_7A19_C0DE_2B4F,
         }
     }
@@ -121,6 +149,20 @@ impl SignalImpairment {
             passband_noise_to_tone: 0.8,
             second_harmonic: 0.10,
             third_harmonic: 0.06,
+            ..Self::bursty()
+        }
+    }
+
+    /// Interference that clumps in time the way the recordings' does.
+    ///
+    /// The envelope figures are chosen to land inside the range the three
+    /// captures measure rather than on any one of them: correlation 0.92
+    /// against their 0.90 to 0.94, and a depth that reproduces a p95-over-
+    /// median of about 3 against their 1.4 to 5.9.
+    pub fn bursty() -> Self {
+        Self {
+            envelope_correlation: 0.94,
+            envelope_depth: 0.5,
             ..Self::none()
         }
     }
@@ -131,7 +173,7 @@ impl SignalImpairment {
             passband_noise_to_tone: ratio,
             second_harmonic: 0.10,
             third_harmonic: 0.06,
-            ..Self::none()
+            ..Self::bursty()
         }
     }
 }
@@ -169,6 +211,64 @@ fn mix(mut x: u64) -> u64 {
 pub fn noise_at(index: usize, seed: u64) -> f32 {
     let x = mix((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ mix(seed));
     (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
+}
+
+/// Length of one step of the interference envelope, in milliseconds.
+///
+/// Matches the window the recordings' envelope statistics were measured over,
+/// and is the timescale a bearing is computed on, which is the one that
+/// decides whether a burst is seen as a burst or averaged away.
+const ENVELOPE_STEP_MS: f32 = 20.0;
+
+/// Give the interference the clumped time structure real audio has.
+///
+/// An AR(1) process on log power, so the envelope is smooth on the scale of
+/// syllables rather than jumping every sample, and log-normal rather than
+/// normal so it cannot go negative and so quiet stretches are deep. The result
+/// is renormalised to unit mean power, which keeps this independent of
+/// `passband_noise_to_tone`: changing how bursty the interference is must not
+/// change how much of it there is, or the two could never be swept separately.
+fn apply_envelope(audio: &mut [f32], sample_rate: u32, impairment: SignalImpairment) {
+    let rho = impairment.envelope_correlation.clamp(0.0, 0.999);
+    let depth = impairment.envelope_depth.max(0.0);
+    if depth <= 0.0 {
+        return;
+    }
+
+    let step = ((ENVELOPE_STEP_MS * 1e-3 * sample_rate as f32) as usize).max(1);
+    let steps = audio.len().div_ceil(step) + 1;
+    let drive = (1.0 - rho * rho).sqrt();
+
+    let mut level = Vec::with_capacity(steps);
+    let mut state = 0.0f32;
+    for k in 0..steps {
+        // Twelve draws for something near normal, as elsewhere in this file.
+        let mut acc = 0.0f32;
+        for j in 0..12 {
+            acc += noise_at(k * 12 + j, impairment.seed ^ 0x454E_5645_4C4F_5045);
+        }
+        state = rho * state + drive * (acc / 2.0);
+        level.push((depth * state).exp());
+    }
+
+    // Interpolate between steps so the envelope has no edges of its own to
+    // put energy where the interference is not supposed to have any.
+    for (i, sample) in audio.iter_mut().enumerate() {
+        let position = i as f32 / step as f32;
+        let k = position as usize;
+        let frac = position - k as f32;
+        let a = level[k.min(level.len() - 1)];
+        let b = level[(k + 1).min(level.len() - 1)];
+        *sample *= a + (b - a) * frac;
+    }
+
+    let power = audio.iter().map(|s| (s * s) as f64).sum::<f64>() / audio.len().max(1) as f64;
+    if power > 0.0 {
+        let scale = (1.0 / power).sqrt() as f32;
+        for sample in audio.iter_mut() {
+            *sample *= scale;
+        }
+    }
 }
 
 /// Generate synthetic RDF test signal with fixed bearing
@@ -249,6 +349,7 @@ where
         ) {
             band.process_buffer(&mut raw);
         }
+        apply_envelope(&mut raw, sample_rate, impairment);
         // Scale by what reaches the Doppler passband, not by total power.
         // How much of the voice band gets there depends on both filters, so it
         // is measured rather than assumed.

@@ -102,13 +102,44 @@ for on every sweep.
       AGC is worth 0.902 to 0.943 detection at 0.20 RMS with false positives
       falling 0.025 to 0.001.
 
-- [ ] The uncertainty reads about 1.3 on synthetic signal and about 0.65 on
-      the recordings. That two-fold domain gap is now the dominant error in
-      the figure, several times the 1.25 residual at short buffers, and it
-      cannot be closed from this end: flat noise scatters a per-rotation phase
-      estimate more than shaped audio does, and three captures from two radios
-      is not enough to say what real interference does to it. Wants more
-      recordings, ideally at known bearings.
+- [ ] The synthetic channel still does not behave like the recordings, and
+      the reason is no longer the one that was written down.
+
+      Interference statistics were the standing explanation, as "flat noise is
+      worse for phase estimation than shaped audio". Half of that is now
+      measured and fixed. Real interference clumps in time: the power in 20 ms
+      windows correlates with the next window at 0.90, 0.91 and 0.94 across the
+      three captures, where the synthetic channel read 0.002, and its p95
+      window carries 1.4 to 5.9 times the median against 1.2. The generator now
+      carries an AR(1) envelope on log power and reads 0.898 and 3.58, both
+      inside the measured range.
+
+      The other half is refuted. Spectral shape across the passband was the
+      suspect and is not it: the tilt is 3.3 dB synthetic against -0.4 to -3.8
+      on the captures, small and not even the same sign.
+
+      Fixing the time structure moved the calibration ratio from 1.18 to 1.09
+      against the recordings' 0.65, which is about a sixth of the gap. It also
+      made bearing error slightly worse rather than better -- 16.25 degrees
+      against 15.13 at a 512 buffer and 0.8 noise -- because at matched mean
+      power bursts hurt more than steady noise: error grows faster than
+      linearly in the loud windows and the quiet ones cannot go below zero.
+      That is the opposite of the reasoning that motivated the change, and the
+      change is kept because it matches a measurement, not because it helped.
+
+      What is left points somewhere else entirely, and the sign says so. On
+      the recordings the stated uncertainty *understates* the scatter, at 0.65;
+      on synthetic signal it overstates, at 1.09. So real signal carries an
+      error the SNR does not see, rather than carrying more of the error it
+      does see. The captures scatter about ninety degrees around their own
+      whole-capture mean, which is fading and multipath, and the generator
+      models neither. That is the next thing to try, and it needs no new
+      recordings.
+
+      One measured difference is also still unmatched: 8 to 27 percent of real
+      windows are near silent against none here, because the envelope is
+      log-normal and never truly gates off.
+
 
 - [x] The estimator and the highpass cutoff were thought to trade against
       each other, with an answer that depended on the noise. Measured over

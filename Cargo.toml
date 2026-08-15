@@ -108,6 +108,10 @@ required-features = ["simulation"]
 name = "zero_crossing_bias_probe"
 required-features = ["simulation"]
 
+[[example]]
+name = "interference_census"
+required-features = ["simulation"]
+
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
 gui = ["dep:eframe", "dep:egui_plot"]
