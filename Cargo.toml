@@ -1,6 +1,6 @@
 [package]
 name = "rotaryclub"
-version = "2.9.0"
+version = "3.0.0"
 edition = "2024"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
 license = "Apache-2.0"
@@ -42,6 +42,10 @@ name = "config_sweep"
 required-features = ["simulation"]
 
 [[bin]]
+name = "config_compare"
+required-features = ["simulation"]
+
+[[bin]]
 name = "generate_wav"
 required-features = ["simulation"]
 
@@ -55,6 +59,54 @@ required-features = ["gui"]
 
 [[bin]]
 name = "analyze_wav"
+
+[[example]]
+name = "bearing_convention_probe"
+required-features = ["simulation"]
+
+[[example]]
+name = "bearing_performance_metrics"
+required-features = ["simulation"]
+
+[[example]]
+name = "bench_north_hotspots"
+required-features = ["simulation"]
+
+[[example]]
+name = "north_agc_probe"
+required-features = ["simulation"]
+
+[[example]]
+name = "north_loop_bandwidth_sweep"
+required-features = ["simulation"]
+
+[[example]]
+name = "north_threshold_sweep"
+required-features = ["simulation"]
+
+[[example]]
+name = "north_tick_timing_metrics"
+required-features = ["simulation"]
+
+[[example]]
+name = "signal_census"
+required-features = ["simulation"]
+
+[[example]]
+name = "synthetic_rdf"
+required-features = ["simulation"]
+
+[[example]]
+name = "system_pipeline_performance_metrics"
+required-features = ["simulation"]
+
+[[example]]
+name = "uncertainty_reference_probe"
+required-features = ["simulation"]
+
+[[example]]
+name = "zero_crossing_bias_probe"
+required-features = ["simulation"]
 
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
