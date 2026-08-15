@@ -118,11 +118,8 @@ fn run_mode(mode: NorthTrackingMode, agc: bool, noise_rms: f32, draw: u64) -> Re
 
 /// Independent noise realisations averaged into each cell.
 ///
-/// This probe decided how the north AGC works -- that averaging every peak
-/// drives a runaway, that a median over accepted pulses does not, when to
-/// freeze -- and every one of those rows was a single draw. The effects it
-/// found are large, but that was a judgement made by eye rather than a
-/// measurement, which is the same mistake in a different place.
+/// The AGC's behaviour was settled from this probe, so its rows want more
+/// than one draw behind them.
 const DRAWS: u64 = 12;
 
 /// Per-draw detection rates, so a wide error bar can be read for what it is.

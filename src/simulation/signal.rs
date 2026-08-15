@@ -121,25 +121,19 @@ pub struct SignalImpairment {
     pub envelope_depth: f32,
     /// Amplitude of a second propagation path, relative to the direct one.
     ///
-    /// A synthetic stress case, not something measured. Reflected signal
-    /// arrives from a different direction and so carries a different apparent
-    /// bearing, and the two sum with a relative phase that drifts; the tone
-    /// fades where they near cancellation and the bearing swings between
-    /// them.
+    /// A synthetic stress case, not something measured. A reflection arrives
+    /// from a different direction and so carries a different apparent
+    /// bearing; the two sum with a drifting relative phase, so the tone fades
+    /// where they near cancellation and the bearing swings between them.
     ///
-    /// It was added on the strength of the recordings' rotation tone varying
-    /// by 17 to 133 dB between its 5th and 95th percentile, which was read as
-    /// fading. It is not fading. The ft-70d capture was made by keying up
-    /// several times while walking around the array, and seventy percent of
-    /// it has no carrier at all -- between overs the receiver delivers its
-    /// own hiss, which is louder than the signal and has no tone in it. The
-    /// same measurement that showed the tone collapsing shows the channel
-    /// getting *louder* and the north pulses continuing, which is a
-    /// transmitter that stopped transmitting, not a path that cancelled.
+    /// It was added because the recordings' tone varies by 17 to 133 dB
+    /// between its 5th and 95th percentile, which is not fading: in those
+    /// windows the channel gets louder and the north pulses continue, which
+    /// is a transmitter that stopped transmitting. Seventy percent of the
+    /// ft-70d capture has no carrier on it.
     ///
     /// Kept because it is the only impairment here that makes a bearing
-    /// genuinely ambiguous rather than merely imprecise, which is worth being
-    /// able to generate. Claimed of nothing.
+    /// ambiguous rather than imprecise.
     pub multipath_ratio: f32,
     /// Bearing the reflected path appears to arrive from, in degrees, as an
     /// offset from the true one. Zero would make it indistinguishable from
@@ -212,13 +206,9 @@ impl SignalImpairment {
     /// them failed the moment it was switched on by default, which is the
     /// correct response and the reason it is opt-in.
     ///
-    /// The parameters reproduce a null about 19 dB deep and were tuned to
-    /// bring the uncertainty calibration onto the recordings' apparent 0.65.
-    /// That target was itself an artifact -- it was measured over stretches
-    /// with no carrier on them, and reads 1.06 once they are excluded, which
-    /// synthetic signal already matched at 1.09. So these numbers close a gap
-    /// that was not there, and are a plausible reflection rather than a
-    /// measured one.
+    /// The parameters give a null about 19 dB deep. They were tuned against
+    /// a calibration target that turned out to be an artifact, so treat them
+    /// as a plausible reflection rather than a measured one.
     pub fn multipath() -> Self {
         Self {
             multipath_ratio: 0.45,

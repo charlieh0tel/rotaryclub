@@ -1,9 +1,9 @@
 # The KN5R-RDF "C" sentence, answered
 
 `src/output/kn5r.rs` emits the KN5R-RDF "C" sentence so this receiver can feed
-displays and logging built for that format. What the fields are supposed to
-*contain* was previously unknown here, and what we sent was a set of guesses.
-Two of the three were wrong.
+displays and logging built for that format. What the fields contain is
+defined by the sources below; two of the three had previously been guessed
+wrong here.
 
 Both sources are local: `../kn5r-rdf/docs/data-format.md` gives the layout, and
 KR6DD's `../kr6dd-rdf-rs/RPiDDFengine20260510.4th` — with a Rust port beside it
@@ -39,9 +39,9 @@ fround>s 999 #section_zero+crossings */
 That is the mean resultant length: 1 when every crossing agrees on the angle,
 0 when they are scattered. Its own comment calls it a "quality factor".
 
-We had been sending normalised signal strength. That is a different quantity,
-and wrong in the direction that matters: a strong tone pointing inconsistently
-would have read near full scale. It now derives the resultant length from the
+We had been sending normalised signal strength, which is a different quantity:
+a strong tone pointing inconsistently reads near full scale on that and low on
+this. It now derives the resultant length from the
 signal-to-noise ratio, since scatter of sigma gives a resultant length of
 exp(-sigma^2 / 2) and one look at a power ratio r scatters by 1 / sqrt(r).
 
@@ -54,8 +54,8 @@ one, and sends it as thousandths:
 ( fval*1000 ) fround>s maxtonepeak kmax to maxtonepeak
 ```
 
-We had been sending the SNR against a notional 40 dB full scale — a ratio
-where the field wants a level. It now carries the largest positive sample of
+We had been sending the SNR against a notional 40 dB full scale, a ratio where
+the field wants a level. It now carries the largest positive sample of
 the filtered Doppler buffer, which is the same quantity.
 
 **Both scales are linear**, and neither is in decibels. Magnitude is linear in

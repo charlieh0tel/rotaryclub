@@ -96,20 +96,16 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
   it runs at about 1.1 on synthetic signal and about 1.06 on the recordings, counting only
   the stretches that have a carrier on them.
 
-  That qualifier is the whole of a long detour. Ungated, the recordings read 0.65, and the
-  difference was taken as real for an entire release: seventy percent of the ft-70d capture
-  is the receiver's own hiss between overs, and a bearing measured on hiss is a uniformly
-  distributed number.
+  The qualifier matters: ungated the recordings read 0.65, because seventy percent of the
+  ft-70d capture is receiver hiss between overs and a bearing measured on hiss is a
+  uniformly distributed number.
 
-  **It is largely blind to reflections, and that is worth knowing before trusting it.**
-  Noise degrades a bearing and moves the SNR this is derived from, so it sees noise by
-  construction. A reflection puts the bearing somewhere between two paths while the tone
-  stays strong, so the bearing is wrong and this figure does not say so. Measured with a
-  reflected path 0.45 of the direct one, discarding everything below 0.5 confidence
-  improves the median error by 5 percent while discarding 42 percent of the bearings,
-  where the same filter on a clean channel improves it by 23 to 58 percent. Its rank
-  correlation against actual error falls from 0.40 to 0.13. See
-  `examples/confidence_under_multipath`.
+  It is largely blind to reflections. Noise moves the SNR this is derived from, so it sees
+  noise by construction; a reflection puts the bearing between two paths while the tone
+  stays strong. With a reflected path 0.45 of the direct one, filtering at 0.5 confidence
+  improves median error by 5 percent while discarding 42 percent of the bearings, against
+  23 to 58 percent on a clean channel, and rank correlation against actual error falls from
+  0.40 to 0.13. See `examples/confidence_under_multipath`.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
 - `resultant_length`: Mean resultant length of the Doppler phase, `[0, 1]`. Whether the

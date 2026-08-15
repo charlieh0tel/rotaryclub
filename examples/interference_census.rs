@@ -1,11 +1,8 @@
 //! What does the interference in the doppler passband actually look like?
 //!
-//! At matched passband power the synthetic signal is two to four times harsher
-//! than the recordings, and the stated bearing uncertainty reads about 1.3 on
-//! synthetic against about 0.65 on the captures. That gap has been carried as
-//! "flat noise is worse for phase estimation than shaped audio", which is a
-//! hypothesis rather than a measurement -- and the levels are matched, so
-//! whatever is different is not how much interference there is.
+//! Two things could differ between the synthetic channel and the recordings
+//! at matched passband power: the shape of the interference across the band,
+//! and its structure in time.
 //!
 //! Two candidates, both measurable from the three recordings we have.
 //!

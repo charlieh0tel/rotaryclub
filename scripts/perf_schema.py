@@ -195,15 +195,8 @@ def _git(*args: str) -> str:
 def source_digest(roots: Sequence[str] = ("src", "examples")) -> str:
     """Content hash of the code that produces the metrics.
 
-    The commit is recorded alongside this, but it cannot be the check.
-    Committing changes no source bytes, so comparing a recorded SHA against
-    HEAD would call every metrics file stale the instant it was committed; and
-    a dirty tree has no SHA that identifies its contents at all, which is the
-    state most of this work happens in.
-
-    Hashing the sources is exact in both directions: unchanged code keeps its
-    digest across a commit, and an edit changes it whether or not anything was
-    committed.
+    Exact in both directions: unchanged code keeps its digest across a commit,
+    and an edit changes it whether or not anything was committed.
     """
     digest = hashlib.sha256()
     for root in roots:
@@ -216,13 +209,9 @@ def source_digest(roots: Sequence[str] = ("src", "examples")) -> str:
 def write_metrics(path: Path, harness: str, rows_from: Callable[[object], None]) -> None:
     """Write a JSONL metrics file: a meta record, then the harness's rows.
 
-    The meta record is what makes staleness detectable exactly rather than by
-    inference. These harnesses print their rows to stdout and this is the only
-    place that redirects them into a file, so running the example by hand
-    leaves the file untouched and reading it afterwards returns the previous
-    run -- which is indistinguishable from a fresh result and was real output
-    once. Stamping the commit it came from turns that into a mismatch anyone
-    can see.
+    The harnesses print their rows to stdout and this is the only place that
+    redirects them into a file, so running an example by hand leaves the file
+    describing whatever ran last. The meta record makes that detectable.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     meta = {
@@ -264,17 +253,9 @@ def read_metrics(path: Path) -> Tuple[Dict[str, object], List[Dict[str, object]]
 def assert_metrics_are_current(path: Path, meta: Mapping[str, object]) -> None:
     """Refuse to evaluate metrics that different code produced.
 
-    Replaces an mtime comparison, which could only infer this. It still fires
-    in the case that motivated it: the harnesses print their rows to stdout
-    and only `run` redirects them into a file, so running the example by hand
-    leaves the file describing whatever ran last -- indistinguishable from a
-    fresh result, and real output once.
-
-    Keyed on `source_digest` rather than on the commit. A first version
-    compared the recorded SHA against HEAD and was wrong in both directions:
-    it called every file stale the instant it was committed, since committing
-    changes no source bytes, and it could not say anything at all about the
-    dirty trees this work mostly happens in.
+    Keyed on `source_digest` rather than the commit: committing changes no
+    source bytes, so a SHA comparison would call every file stale as soon as
+    it was committed, and a dirty tree has no SHA identifying its contents.
     """
     if not meta:
         raise SystemExit(

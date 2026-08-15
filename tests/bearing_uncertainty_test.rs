@@ -25,11 +25,10 @@ use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
 
 /// Signal-to-noise floor, in dB, below which a capture is taken to have no
-/// carrier on it and its bearings are excluded from calibration.
+/// carrier and its bearings are excluded from calibration.
 ///
-/// Six rather than zero because the ratio is still climbing out of the noise
-/// at zero: on the ft-70d capture the calibration reads 0.85 gated at 0 dB
-/// and settles at 1.06 to 1.08 from 6 dB up, where it stops moving.
+/// Six rather than zero because the ratio is still climbing at zero: 0.85
+/// gated at 0 dB on the ft-70d capture, settling at 1.06 to 1.08 from 6 up.
 const CARRIER_FLOOR_DB: f32 = 6.0;
 use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
 use rotaryclub::simulation::noise_at;
@@ -438,20 +437,10 @@ fn test_uncertainty_is_calibrated_against_real_captures() {
                 if let Some(bearing) = result.bearing
                     && let Some(u) = bearing.metrics.bearing_uncertainty_deg
                 {
-                    // Only where there is a carrier to measure. The
-                    // ft-70d capture was made by keying up several times
-                    // while walking around the array, so seventy percent of
-                    // it is the receiver's own hiss between overs, and a
-                    // "bearing" taken on hiss is a uniformly distributed
-                    // number that belongs in no calibration.
-                    //
-                    // Leaving them in is not a small effect and it ran the
-                    // wrong way for a long time: ungated this capture
-                    // calibrates at 0.73, and gated it reads 1.06. The gap
-                    // between synthetic signal and the recordings that this
-                    // project chased for a whole release -- and eventually
-                    // built a multipath model to close -- was this, and
-                    // there was never a gap.
+                    // Only where there is a carrier. Seventy percent of
+                    // the ft-70d capture is receiver hiss between overs, and
+                    // a bearing taken on hiss is uniformly distributed.
+                    // Ungated this capture calibrates at 0.73; gated, 1.06.
                     if bearing.metrics.snr_db < CARRIER_FLOOR_DB {
                         continue;
                     }

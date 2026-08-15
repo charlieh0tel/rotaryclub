@@ -71,8 +71,8 @@ struct Args {
     /// Emit one JSON object per cell instead of the table.
     ///
     /// The table is for reading; this is for anything that wants to compute
-    /// with the results. Screen-scraping the table with awk is how a column
-    /// gets misread as another one, which has already happened here.
+    /// with the results, so a column is selected by name rather than by
+    /// position in formatted text.
     #[arg(long)]
     jsonl: bool,
 }

@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 """Run one metrics harness against two git states and diff the columns.
 
-Answers "did my change move this number, and which way", which is the question
-that kept coming up and kept being answered by hand: stash, run, copy the CSV
-somewhere, unstash, run, copy again, compare. Done that way the two halves
-drift apart. Once they were not even run the same way -- one through the
-report script and one by invoking cargo directly -- and the difference between
-the two invocations was read as a difference between the two code states.
-
-So both sides go through the report script's own `run`, from this one place,
-and neither side can be produced differently from the other.
+Both sides go through the report script's own `run`, so they cannot be
+produced by different invocations.
 
 Usage:
 
@@ -17,9 +10,8 @@ Usage:
     scripts/compare_refs.py bearing_performance --base HEAD~1
     scripts/compare_refs.py north_tick_timing --columns detection_rate
 
-Uncommitted changes are the default "after", since that is usually what is
-being asked about. They are stashed to measure the "before" and restored
-afterwards, including when the run fails.
+Uncommitted changes are the default "after". They are stashed to measure the
+"before" and restored afterwards, including when the run fails.
 """
 
 from __future__ import annotations
@@ -160,11 +152,8 @@ def main() -> int:
     columns = (
         args.columns.split(",") if args.columns else numeric_columns(after)
     )
-    # A key that does not identify a row uniquely pairs the wrong rows against
-    # each other and reports their difference as a change -- the same quiet
-    # wrongness this script exists to prevent. It shipped with exactly that
-    # bug: the timing harness key named a column that does not exist, so every
-    # key was identical and the diff was noise.
+    # A non-unique key pairs the wrong rows and reports their difference as a
+    # change, so reject one rather than silently producing noise.
     for side, rows in (("before", before), ("after", after)):
         missing = [k for k in keys if rows and k not in rows[0]]
         if missing:

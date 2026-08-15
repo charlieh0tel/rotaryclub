@@ -1,14 +1,9 @@
 //! When the rotation tone weakens in a recording, what else weakens with it?
 //!
 //! The tone's amplitude in 20 ms windows spans 17 to 133 dB across the three
-//! captures, and that was read as multipath: two paths summing, cancelling
-//! sometimes, moving the bearing as they do. The generator was given a second
-//! path on that basis and it reproduced both the fade statistics and the
-//! uncertainty calibration.
-//!
-//! It reproduced the numbers. That is not the same as being the mechanism, and
-//! this project has a history of the difference. So this asks what actually
-//! goes quiet, which multipath and the alternatives answer differently.
+//! captures. Multipath and the alternatives predict different things about
+//! what else changes in those windows, so this measures that rather than
+//! inferring it from the tone alone.
 //!
 //! A reflection removes the tone and leaves everything else: the carrier is
 //! still there, the receiver still delivers audio, the switcher still runs, so

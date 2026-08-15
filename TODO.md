@@ -151,39 +151,25 @@ for on every sweep.
       AGC is worth 0.902 to 0.943 detection at 0.20 RMS with false positives
       falling 0.025 to 0.001.
 
-- [x] The synthetic channel was thought not to behave like the recordings.
-      There was never a gap. Closed, and most of what was done about it should
-      not have been.
+- [x] The synthetic-versus-real calibration gap does not exist. Closed.
 
-      The figure that said so: stated uncertainty against observed scatter,
-      1.18 on synthetic signal and 0.65 on the captures. It was chased for a
-      release. The interference was made bursty to match the recordings' time
-      structure, which moved it to 1.09 and was worth doing on its own merits.
-      Then a multipath model was added, tuned until synthetic signal read 0.66,
-      and the gap declared closed.
-
-      The 0.65 was an artifact. The ft-70d capture was made by keying up
-      several times while walking around the array, and seventy percent of it
-      has no carrier on it -- between overs the receiver delivers its own
-      hiss. A bearing measured on hiss is a uniformly distributed number, and
-      averaging those in dragged the ratio down. Counting only the stretches
-      above 6 dB, the same capture reads 1.06 to 1.08, against synthetic
+      Stated uncertainty against observed scatter read 1.18 on synthetic
+      signal and 0.65 on the captures. The 0.65 is an artifact: seventy
+      percent of the ft-70d capture has no carrier on it, since it was
+      recorded by keying up several times while walking around the array, and
+      a bearing measured on receiver hiss is a uniformly distributed number.
+      Gated above 6 dB the same capture reads 1.06 to 1.08, against synthetic
       signal at 1.09.
 
-      So the uncertainty figure was already calibrated, and the multipath
-      model was tuned to make synthetic signal worse until it matched a number
-      that meant nothing. The tell was available throughout and never looked
-      at: nobody asked whether the recordings had signal in them.
+      `bearing_uncertainty_test` now gates on carrier presence.
 
-      `bearing_uncertainty_test` now gates on carrier presence, which is what
-      stops this recurring. The multipath model stays, documented as a
-      synthetic stress case claimed of nothing -- it is still the only
-      impairment here that makes a bearing ambiguous rather than imprecise.
-      The burstiness stays too, on its own evidence.
+      The multipath model added to close the gap is kept as a synthetic stress
+      case and documented as claimed of nothing; it is the only impairment
+      here that makes a bearing ambiguous rather than imprecise. The
+      burstiness is kept on its own evidence: the recordings' interference
+      correlates 0.90 to 0.94 window to window against 0.002 for stationary
+      noise.
 
-      What is still true, and was the one solid observation underneath all of
-      this: the recordings' interference does clump in time, correlating 0.90
-      to 0.94 window to window where stationary noise reads 0.002.
 
 
 
