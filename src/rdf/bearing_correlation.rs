@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
-use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg};
+use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg, resultant_length_from_snr};
 /// Below this the buffer is too short to say anything at all.
 const MIN_BUFFER_SAMPLES: usize = 2;
 const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
@@ -173,6 +173,7 @@ impl CorrelationBearingCalculator {
 
         ConfidenceMetrics {
             tone_peak: self.base.work_buffer.iter().copied().fold(0.0f32, f32::max),
+            resultant_length: resultant_length_from_snr(snr_db),
             snr_db,
             signal_strength,
             bearing_uncertainty_deg,

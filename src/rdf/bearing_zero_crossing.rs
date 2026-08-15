@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
-use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg};
+use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg, resultant_length_from_snr};
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
@@ -163,6 +163,7 @@ impl ZeroCrossingBearingCalculator {
 
         ConfidenceMetrics {
             tone_peak: self.base.work_buffer.iter().copied().fold(0.0f32, f32::max),
+            resultant_length: resultant_length_from_snr(snr_db),
             snr_db,
             signal_strength,
             bearing_uncertainty_deg: bearing_uncertainty_deg(

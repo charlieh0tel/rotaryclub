@@ -107,6 +107,17 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
   `examples/confidence_under_multipath`.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
+- `resultant_length`: Mean resultant length of the Doppler phase, `[0, 1]`. Whether the
+  looks agreed with each other — 1 when they all point the same way, 0 when scattered.
+  This is neither how strong the signal was (`signal_strength`) nor how uncertain the
+  answer is (`bearing_uncertainty_deg`), and a strong tone pointing inconsistently reads
+  high on the first and low on this.
+- `tone_peak`: Largest positive sample of the filtered Doppler signal, in full-scale
+  units `[0, 1]`.
+
+  The last two exist because the KN5R "C" sentence is defined in terms of them, but they
+  are carried unscaled and reported on every output. That format wants them as 0-999 and
+  0-999 thousandths respectively; the scaling belongs to the formatter, not the pipeline.
 
 #### North Tracking Quality Measures
 

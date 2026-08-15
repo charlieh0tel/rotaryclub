@@ -276,6 +276,7 @@ fn run_processing_loop(
                 bearing_uncertainty_deg: bearing.metrics.bearing_uncertainty_deg,
                 signal_strength: bearing.metrics.signal_strength,
                 tone_peak: bearing.metrics.tone_peak,
+                resultant_length: bearing.metrics.resultant_length,
                 lock_quality: result.north_tick.lock_quality,
                 phase_error_variance,
             };

@@ -145,12 +145,31 @@ pub struct ConfidenceMetrics {
     /// Largest positive sample of the filtered Doppler signal in this buffer,
     /// in full-scale units.
     ///
-    /// Exists for the KN5R "C" sentence, whose third field KR6DD's engine
-    /// defines as exactly this: the running maximum of the FIR output over a
-    /// batch section, with that output scaled to plus or minus one, sent as
-    /// thousandths. It is an absolute level rather than a ratio, which is why
-    /// nothing else here was the right thing to send in its place.
+    /// One of two quantities carried for the KN5R "C" sentence, kept here in
+    /// the units they are measured in rather than in the units that sentence
+    /// wants. KR6DD's engine defines its third field as the running maximum
+    /// of the FIR output over a batch section, that output scaled to plus or
+    /// minus one, sent as thousandths; the thousandths belong to the wire
+    /// format, so the scaling happens in the formatter and this stays a
+    /// fraction of full scale.
     pub tone_peak: f32,
+    /// Mean resultant length of the Doppler phase, from 0 to 1.
+    ///
+    /// The other KN5R quantity, and the one the "C" sentence calls magnitude:
+    /// 1 when every look agrees on the angle, 0 when they are scattered. It
+    /// is a coherence rather than a level, which is what made normalised
+    /// signal strength the wrong thing to send in its place -- a strong tone
+    /// pointing inconsistently reads high on that and low on this.
+    ///
+    /// Derived from the signal-to-noise ratio rather than from per-crossing
+    /// vectors, which this pipeline no longer keeps: phase scattered with
+    /// standard deviation sigma has resultant length exp(-sigma^2 / 2), and a
+    /// single look at a signal-to-noise power ratio r scatters by 1/sqrt(r).
+    ///
+    /// Reported for every output, not just that one. It says something the
+    /// other metrics do not -- whether the looks agree with each other, as
+    /// against how strong they were or how uncertain the answer is.
+    pub resultant_length: f32,
     /// Estimated one-sigma uncertainty of this bearing, in degrees, or None
     /// where it cannot be estimated.
     ///
@@ -173,6 +192,21 @@ pub struct ConfidenceMetrics {
     /// signal degrades, and it must not read lower than the scatter it
     /// describes.
     pub bearing_uncertainty_deg: Option<f32>,
+}
+
+/// Mean resultant length of phase scattered by a given signal-to-noise ratio.
+///
+/// See `ConfidenceMetrics::resultant_length`. Zero for a ratio that is not
+/// finite or not positive, since no coherence can be claimed from it.
+pub(super) fn resultant_length_from_snr(snr_db: f32) -> f32 {
+    if !snr_db.is_finite() {
+        return 0.0;
+    }
+    let snr = 10.0f32.powf(snr_db / 10.0);
+    if snr <= f32::EPSILON {
+        return 0.0;
+    }
+    (-1.0 / (2.0 * snr)).exp()
 }
 
 impl ConfidenceMetrics {
@@ -234,6 +268,7 @@ mod tests {
     fn metrics_with(uncertainty: Option<f32>) -> ConfidenceMetrics {
         ConfidenceMetrics {
             tone_peak: 0.0,
+            resultant_length: 0.0,
             snr_db: 20.0,
             signal_strength: 1.0,
             bearing_uncertainty_deg: uncertainty,
