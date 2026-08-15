@@ -172,13 +172,6 @@ fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64) -> bool {
         && reported_stated <= STATED_LIMIT_DEG
 }
 
-fn rate(burst_secs: f32, noise: f32, buffer_size: usize) -> f64 {
-    let hits = (0..DRAWS)
-        .filter(|&draw| trial(burst_secs, noise, buffer_size, draw))
-        .count();
-    hits as f64 / DRAWS as f64
-}
-
 fn snr_db(noise: f32) -> f64 {
     10.0 * (1.0 / noise as f64).log10()
 }
