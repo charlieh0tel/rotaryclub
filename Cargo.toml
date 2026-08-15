@@ -112,6 +112,10 @@ required-features = ["simulation"]
 name = "interference_census"
 required-features = ["simulation"]
 
+[[example]]
+name = "confidence_under_multipath"
+required-features = ["simulation"]
+
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
 gui = ["dep:eframe", "dep:egui_plot"]

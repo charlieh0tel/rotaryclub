@@ -87,6 +87,31 @@ for on every sweep.
       pinning down if this is taken further; the gap to the recordings below
       is still the larger error.
 
+- [ ] Confidence does not see multipath, and in an environment with
+      reflections that is the error that matters. Measured with a reflected
+      path 0.45 of the direct one, filtering at 0.5 confidence improves the
+      median error by 5 percent while throwing away 42 percent of the
+      bearings; on a clean channel the same filter improves it by 23 to 58
+      percent. Rank correlation against actual error falls from 0.40 to 0.13.
+      `examples/confidence_under_multipath` measures it.
+
+      This follows from the derivation rather than being a defect in it: the
+      figure comes from the signal-to-noise ratio, and a reflection leaves the
+      tone strong while moving where it points. Noise it sees by construction;
+      this it cannot.
+
+      There is a way to catch it that does not require recognising multipath
+      as such. A bearing whose recent scatter far exceeds its own stated
+      uncertainty is being degraded by something the figure does not model,
+      whatever that something is, and the ratio of the two is measurable
+      online -- it is exactly what the calibration measures offline, where it
+      reads 1.1 without a reflection and 0.66 with one. Inflating the stated
+      figure by that ratio would make it self-correcting against any
+      unmodelled error rather than against multipath specifically.
+
+      Not done, because it changes what a shipped number means for the third
+      time and wants deciding rather than doing.
+
 - [ ] The every-other-pulse failure is reduced, not gone. The arbitration
       window fixed it at the noise level the pipeline gate runs at -- 0.08
       RMS, 0.995 detection over sixteen draws, no spread -- and

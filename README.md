@@ -93,7 +93,18 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
   time, and the timing scatter of the north reference it was measured against. Empty when
   it cannot be estimated. This is precision rather than accuracy: a displacement every
   estimate shares is invisible to it. Measured against the bearing scatter actually seen,
-  it runs at about 1.3 on synthetic signal and about 0.65 on the recordings.
+  it runs at about 1.1 on synthetic signal and about 0.65 on the recordings, and the
+  difference between those two is multipath.
+
+  **It is largely blind to reflections, and that is worth knowing before trusting it.**
+  Noise degrades a bearing and moves the SNR this is derived from, so it sees noise by
+  construction. A reflection puts the bearing somewhere between two paths while the tone
+  stays strong, so the bearing is wrong and this figure does not say so. Measured with a
+  reflected path 0.45 of the direct one, discarding everything below 0.5 confidence
+  improves the median error by 5 percent while discarding 42 percent of the bearings,
+  where the same filter on a clean channel improves it by 23 to 58 percent. Its rank
+  correlation against actual error falls from 0.40 to 0.13. See
+  `examples/confidence_under_multipath`.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
 
