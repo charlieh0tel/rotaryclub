@@ -233,9 +233,6 @@ fn main() {
     let methods = [Method::Correlation, Method::ZeroCrossing];
     let expected_bearing_deg = 62.0f32;
 
-    println!(
-        "method,scenario,buffer_size,iterations,measured_count,success_rate,mean_us,p95_us,max_us,mean_us_per_sample,p95_us_per_sample,mean_abs_bearing_error_deg,p95_abs_bearing_error_deg,max_abs_bearing_error_deg"
-    );
     for method in methods {
         for scenario in scenarios {
             for &buffer_size in BUFFER_SIZES {
@@ -286,21 +283,24 @@ fn main() {
                 let p95_abs_bearing_error_deg = percentile_deg(&errors_deg, 0.95);
                 let max_abs_bearing_error_deg = mean_of(&per_draw_max_error);
                 println!(
-                    "{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.9},{:.9},{:.6},{:.6},{:.6}",
-                    method.as_str(),
-                    scenario.name,
-                    buffer_size,
-                    iterations,
-                    measured_count,
-                    success_rate,
-                    mean_us,
-                    p95_us,
-                    max_us,
-                    mean_us_per_sample,
-                    p95_us_per_sample,
-                    mean_abs_bearing_error_deg,
-                    p95_abs_bearing_error_deg,
-                    max_abs_bearing_error_deg
+                    "{}",
+                    serde_json::json!({
+                        "method": method.as_str(),
+                        "scenario": scenario.name,
+                        "buffer_size": buffer_size,
+                        "iterations": iterations,
+                        "measured_count": measured_count,
+                        "success_rate": success_rate,
+                        "mean_us": mean_us,
+                        "p95_us": p95_us,
+                        "max_us": max_us,
+                        "mean_us_per_sample": mean_us_per_sample,
+                        "p95_us_per_sample": p95_us_per_sample,
+                        "mean_abs_bearing_error_deg": mean_abs_bearing_error_deg,
+                        "p95_abs_bearing_error_deg": p95_abs_bearing_error_deg,
+                        "max_abs_bearing_error_deg": max_abs_bearing_error_deg,
+                        "draws": DRAWS,
+                    })
                 );
             }
         }

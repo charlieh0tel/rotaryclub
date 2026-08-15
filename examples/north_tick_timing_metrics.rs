@@ -290,10 +290,6 @@ fn main() {
         },
     ];
 
-    println!(
-        "mode,scenario,chunk_size,start_offset_s,expected,matched,detection_rate,false_positive_rate,mean_abs_error_samples,p95_abs_error_samples"
-    );
-
     for &(mode_name, mode) in &modes {
         for scenario in &scenarios {
             let num_samples = (scenario.duration_secs * sample_rate) as usize;
@@ -367,18 +363,25 @@ fn main() {
                         .collect();
                     let metrics = average_timing_metrics(&runs);
 
+                    // One JSON object per line. Numbers stay numbers, so
+                    // the reader is not parsing formatted strings back into
+                    // floats, and a column can be added without every
+                    // consumer having to agree on position.
                     println!(
-                        "{},{},{},{:.3},{},{},{:.6},{:.6},{:.6},{:.6}",
-                        mode_name,
-                        scenario.name,
-                        chunk_size,
-                        start_time_secs,
-                        expected.len(),
-                        metrics.matched,
-                        metrics.detection_rate,
-                        metrics.false_positive_rate,
-                        metrics.mean_abs_error_samples,
-                        metrics.p95_abs_error_samples
+                        "{}",
+                        serde_json::json!({
+                            "mode": mode_name,
+                            "scenario": scenario.name,
+                            "chunk_size": chunk_size,
+                            "start_offset_s": start_time_secs,
+                            "expected": expected.len(),
+                            "matched": metrics.matched,
+                            "detection_rate": metrics.detection_rate,
+                            "false_positive_rate": metrics.false_positive_rate,
+                            "mean_abs_error_samples": metrics.mean_abs_error_samples,
+                            "p95_abs_error_samples": metrics.p95_abs_error_samples,
+                            "draws": if scenario.noise_peak > 0.0 { DRAWS } else { 1 },
+                        })
                     );
                 }
             }

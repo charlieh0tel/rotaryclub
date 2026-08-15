@@ -25,27 +25,27 @@ afterwards, including when the run fails.
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 HARNESSES = {
     "system_pipeline": (
         "scripts/system_pipeline_report.py",
-        "target/system-pipeline-perf/system_pipeline_performance_metrics.csv",
+        "target/system-pipeline-perf/system_pipeline_performance_metrics.jsonl",
         ("north_mode", "bearing_method", "scenario", "buffer_size"),
     ),
     "bearing_performance": (
         "scripts/bearing_performance_report.py",
-        "target/bearing-perf/bearing_performance_metrics.csv",
+        "target/bearing-perf/bearing_performance_metrics.jsonl",
         ("method", "scenario", "buffer_size"),
     ),
     "north_tick_timing": (
         "scripts/north_tick_timing_report.py",
-        "target/timing-metrics/north_tick_timing_metrics.csv",
-        ("mode", "scenario", "chunk_size", "start_time_secs"),
+        "target/timing-metrics/north_tick_timing_metrics.jsonl",
+        ("mode", "scenario", "chunk_size", "start_offset_s"),
     ),
 }
 
@@ -60,13 +60,21 @@ def working_tree_is_dirty() -> bool:
     return bool(git("status", "--porcelain"))
 
 
-def run_harness(script: str, csv_path: str) -> List[Dict[str, str]]:
+def run_harness(script: str, metrics_path: str) -> List[Dict[str, Any]]:
     subprocess.run([sys.executable, script, "run"], check=True)
-    with Path(csv_path).open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
+    rows = []
+    with Path(metrics_path).open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            if record.get("kind") != "meta":
+                rows.append(record)
+    return rows
 
 
-def numeric_columns(rows: List[Dict[str, str]]) -> List[str]:
+def numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
     if not rows:
         return []
     out = []
@@ -79,8 +87,8 @@ def numeric_columns(rows: List[Dict[str, str]]) -> List[str]:
     return out
 
 
-def key_of(row: Dict[str, str], keys: Tuple[str, ...]) -> Tuple[str, ...]:
-    return tuple(row.get(k, "") for k in keys)
+def key_of(row: Dict[str, Any], keys: Tuple[str, ...]) -> Tuple[str, ...]:
+    return tuple(str(row.get(k, "")) for k in keys)
 
 
 def main() -> int:
@@ -152,9 +160,22 @@ def main() -> int:
     columns = (
         args.columns.split(",") if args.columns else numeric_columns(after)
     )
-    index: Dict[Tuple[str, ...], Dict[str, str]] = {
-        key_of(r, keys): r for r in before
-    }
+    # A key that does not identify a row uniquely pairs the wrong rows against
+    # each other and reports their difference as a change -- the same quiet
+    # wrongness this script exists to prevent. It shipped with exactly that
+    # bug: the timing harness key named a column that does not exist, so every
+    # key was identical and the diff was noise.
+    for side, rows in (("before", before), ("after", after)):
+        missing = [k for k in keys if rows and k not in rows[0]]
+        if missing:
+            raise SystemExit(f"{args.harness}: key columns {missing} are not in the output")
+        seen = {key_of(r, keys) for r in rows}
+        if len(seen) != len(rows):
+            raise SystemExit(
+                f"{args.harness}: {keys} does not identify rows uniquely on the "
+                f"{side} side ({len(rows)} rows, {len(seen)} distinct keys)"
+            )
+    index: Dict[Tuple[str, ...], Dict[str, Any]] = {key_of(r, keys): r for r in before}
 
     moved = 0
     unchanged = 0

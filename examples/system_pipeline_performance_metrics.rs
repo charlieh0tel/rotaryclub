@@ -570,10 +570,6 @@ fn main() {
     let bearing_methods = [BearingMethod::Correlation, BearingMethod::ZeroCrossing];
     let expected_bearing_deg = 62.0;
 
-    println!(
-        "north_mode,bearing_method,scenario,buffer_size,bearing_success_rate,detection_rate,false_positive_rate,mean_us_per_sample,p95_us_per_sample,mean_abs_bearing_error_deg,p95_abs_bearing_error_deg,max_abs_bearing_error_deg,mean_abs_tick_error_samples,p95_abs_tick_error_samples"
-    );
-
     for north_mode in north_modes {
         for bearing_method in bearing_methods {
             for scenario in scenarios {
@@ -599,21 +595,24 @@ fn main() {
                         &draws,
                     );
                     println!(
-                        "{},{},{},{},{:.6},{:.6},{:.6},{:.9},{:.9},{:.6},{:.6},{:.6},{:.6},{:.6}",
-                        north_mode_name(north_mode),
-                        bearing_method_name(bearing_method),
-                        scenario.name,
-                        buffer_size,
-                        m.bearing_success_rate,
-                        m.detection_rate,
-                        m.false_positive_rate,
-                        m.mean_us_per_sample,
-                        m.p95_us_per_sample,
-                        m.mean_abs_bearing_error_deg,
-                        m.p95_abs_bearing_error_deg,
-                        m.max_abs_bearing_error_deg,
-                        m.mean_abs_tick_error_samples,
-                        m.p95_abs_tick_error_samples,
+                        "{}",
+                        serde_json::json!({
+                            "north_mode": north_mode_name(north_mode),
+                            "bearing_method": bearing_method_name(bearing_method),
+                            "scenario": scenario.name,
+                            "buffer_size": buffer_size,
+                            "bearing_success_rate": m.bearing_success_rate,
+                            "detection_rate": m.detection_rate,
+                            "false_positive_rate": m.false_positive_rate,
+                            "mean_us_per_sample": m.mean_us_per_sample,
+                            "p95_us_per_sample": m.p95_us_per_sample,
+                            "mean_abs_bearing_error_deg": m.mean_abs_bearing_error_deg,
+                            "p95_abs_bearing_error_deg": m.p95_abs_bearing_error_deg,
+                            "max_abs_bearing_error_deg": m.max_abs_bearing_error_deg,
+                            "mean_abs_tick_error_samples": m.mean_abs_tick_error_samples,
+                            "p95_abs_tick_error_samples": m.p95_abs_tick_error_samples,
+                            "draws": DRAWS,
+                        })
                     );
                 }
             }

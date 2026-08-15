@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import subprocess
 from pathlib import Path
 from typing import Dict, Tuple
 
 from perf_schema import (
-    assert_metrics_are_fresh,
+    assert_metrics_are_current,
+    read_metrics,
+    write_metrics,
     coverage_failures,
     fine_coverage_failures,
     MetricSpec,
@@ -136,20 +138,22 @@ for method in ("correlation", "zero_crossing"):
 
 def paths(out_dir: Path, profile: str) -> tuple[Path, Path, Path]:
     return (
-        out_dir / "bearing_performance_metrics.csv",
+        out_dir / "bearing_performance_metrics.jsonl",
         out_dir / f"bearing_performance_{profile}_summary.md",
-        out_dir / f"bearing_performance_{profile}_failed_rows.csv",
+        out_dir / f"bearing_performance_{profile}_failed_rows.jsonl",
     )
 
 
-def run_example(csv_path: Path) -> None:
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", encoding="utf-8") as out:
-        subprocess.run(
+def run_example(metrics_path: Path) -> None:
+    write_metrics(
+        metrics_path,
+        "bearing_performance",
+        lambda handle: subprocess.run(
             ["cargo", "run", "--release", "--example", "bearing_performance_metrics"],
             check=True,
-            stdout=out,
-        )
+            stdout=handle,
+        ),
+    )
 
 
 def evaluate_thresholds(
@@ -209,16 +213,14 @@ def evaluate_thresholds(
     return failures, failed_rows
 
 
-def write_failed_rows_csv(rows: list[dict[str, str]], failed_rows_path: Path, input_rows: list[dict[str, str]]) -> None:
+def write_failed_rows(rows: list[dict[str, str]], failed_rows_path: Path, input_rows: list[dict[str, str]]) -> None:
     failed_rows_path.parent.mkdir(parents=True, exist_ok=True)
     input_fields = list(input_rows[0].keys()) if input_rows else []
     limit_fields = [f"limit_{m.name}" for m in METRICS]
     fieldnames = input_fields + limit_fields + ["reason"]
-    with failed_rows_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
-        writer.writeheader()
+    with failed_rows_path.open("w", encoding="utf-8") as fh:
         for row in rows:
-            writer.writerow(row)
+            fh.write(json.dumps(row) + "\n")
 
 
 def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
@@ -230,7 +232,7 @@ def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
         "",
         f"- Profile: `{profile}`",
         "- Scope: bearing calculators only (correlation and zero-crossing), not end-to-end north+bearing pipeline.",
-        "- This markdown file is the detailed metrics artifact generated from CSV.",
+        "- This markdown file is the detailed metrics artifact generated from the JSONL metrics.",
         "- CI step-summary status notes are separate and only indicate pass/fail state.",
         "",
         "## Threshold Profile",
@@ -277,7 +279,7 @@ def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: in
     if not failed_rows_path.exists():
         lines.append(f"`{failed_rows_path}` not found.")
         return lines
-    rows = list(csv.DictReader(failed_rows_path.open(newline="", encoding="utf-8")))
+    _, rows = read_metrics(failed_rows_path)
     if not rows:
         lines.append("No threshold failures.")
         return lines
@@ -308,8 +310,9 @@ def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: in
     return lines
 
 
-def write_summary(csv_path: Path, summary_path: Path, profile: str, failed_rows_path: Path | None, max_rows: int) -> None:
-    rows = list(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
+def write_summary(metrics_path: Path, summary_path: Path, profile: str, failed_rows_path: Path | None, max_rows: int) -> None:
+    meta, rows = read_metrics(metrics_path)
+    assert_metrics_are_current(metrics_path, meta)
     lines = build_summary_lines(rows, profile)
     if failed_rows_path is not None:
         lines = append_failed_rows_md(lines, failed_rows_path, max_rows)
@@ -324,17 +327,17 @@ def print_failed_rows_md(failed_rows_path: Path, title: str, max_rows: int) -> N
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    csv_path, _, _ = paths(args.out_dir, args.profile)
+    metrics_path, _, _ = paths(args.out_dir, args.profile)
     print("Running bearing performance metrics example...")
-    run_example(csv_path)
-    print(f"Wrote {csv_path}")
+    run_example(metrics_path)
+    print(f"Wrote {metrics_path}")
     return 0
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    csv_path, _, failed_rows_path = paths(args.out_dir, args.profile)
-    assert_metrics_are_fresh(csv_path)
-    rows = list(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
+    metrics_path, _, failed_rows_path = paths(args.out_dir, args.profile)
+    meta, rows = read_metrics(metrics_path)
+    assert_metrics_are_current(metrics_path, meta)
     overrides = {
         "success_rate": args.override_min_success_rate,
         "mean_us_per_sample": args.override_max_mean_us_per_sample,
@@ -344,7 +347,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         "max_abs_bearing_error_deg": args.override_max_error_deg,
     }
     failures, failed_rows = evaluate_thresholds(rows, args.profile, overrides)
-    write_failed_rows_csv(failed_rows, failed_rows_path, rows)
+    write_failed_rows(failed_rows, failed_rows_path, rows)
     print(f"Wrote {failed_rows_path}")
     if failures:
         for failure in failures:
@@ -355,25 +358,26 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_summary(args: argparse.Namespace) -> int:
-    csv_path, summary_path, failed_rows_path = paths(args.out_dir, args.profile)
+    metrics_path, summary_path, failed_rows_path = paths(args.out_dir, args.profile)
     include_failed = failed_rows_path if args.include_failed_rows else None
-    write_summary(csv_path, summary_path, args.profile, include_failed, args.max_rows)
+    write_summary(metrics_path, summary_path, args.profile, include_failed, args.max_rows)
     print(f"Wrote {summary_path}")
     return 0
 
 
 def cmd_failed_rows(args: argparse.Namespace) -> int:
-    print_failed_rows_md(args.failed_rows_csv, args.title, args.max_rows)
+    print_failed_rows_md(args.failed_rows_path_arg, args.title, args.max_rows)
     return 0
 
 
 def cmd_ci(args: argparse.Namespace) -> int:
-    csv_path, summary_path, failed_rows_path = paths(args.out_dir, args.profile)
+    metrics_path, summary_path, failed_rows_path = paths(args.out_dir, args.profile)
     print("Running bearing performance metrics example...")
-    run_example(csv_path)
-    print(f"Wrote {csv_path}")
+    run_example(metrics_path)
+    print(f"Wrote {metrics_path}")
 
-    rows = list(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
+    meta, rows = read_metrics(metrics_path)
+    assert_metrics_are_current(metrics_path, meta)
     overrides = {
         "success_rate": args.override_min_success_rate,
         "mean_us_per_sample": args.override_max_mean_us_per_sample,
@@ -383,10 +387,10 @@ def cmd_ci(args: argparse.Namespace) -> int:
         "max_abs_bearing_error_deg": args.override_max_error_deg,
     }
     failures, failed_rows = evaluate_thresholds(rows, args.profile, overrides)
-    write_failed_rows_csv(failed_rows, failed_rows_path, rows)
+    write_failed_rows(failed_rows, failed_rows_path, rows)
     print(f"Wrote {failed_rows_path}")
 
-    write_summary(csv_path, summary_path, args.profile, failed_rows_path, args.max_rows)
+    write_summary(metrics_path, summary_path, args.profile, failed_rows_path, args.max_rows)
     print(f"Wrote {summary_path}")
 
     if failures:
@@ -420,7 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--include-failed-rows", action="store_true")
 
     pf = sub.add_parser("failed-rows")
-    pf.add_argument("failed_rows_csv", type=Path)
+    pf.add_argument("failed_rows_path_arg", type=Path)
     pf.add_argument("--title", default="Bearing Performance Threshold Failures (Top Rows)")
     pf.add_argument("--max-rows", type=int, default=10)
     return parser

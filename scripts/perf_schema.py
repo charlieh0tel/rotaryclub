@@ -4,6 +4,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -171,42 +175,100 @@ def render_markdown_table(
         "| " + " | ".join(sep_parts) + " |",
     ]
     for row in rows:
-        lines.append("| " + " | ".join(row) + " |")
+        # Cells arrive as real numbers now that the metrics are JSON rather
+        # than strings parsed out of a CSV, so they are stringified here
+        # instead of being assumed to have been already.
+        lines.append("| " + " | ".join(str(cell) for cell in row) + " |")
     return lines
 
 
-def assert_metrics_are_fresh(csv_path: Path, roots: Sequence[str] = ("src", "examples")) -> None:
-    """Refuse to evaluate a metrics CSV older than the code that produces it.
+def _git(*args: str) -> str:
+    try:
+        return subprocess.run(
+            ["git", *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+    except Exception:
+        return ""
 
-    These harnesses write their CSV to stdout and the report script redirects
-    it into place, so running the example directly -- `cargo run --example x`
-    with the output going anywhere else -- performs the whole measurement and
-    leaves the file untouched. Reading it afterwards returns whatever the last
-    report run wrote, which is indistinguishable from a fresh result and was
-    once real output, so nothing about it looks wrong.
 
-    That cost three isolation runs on a question about which noise seed
-    changed a gate row: each one edited a source file, ran the example
-    directly, and read a CSV that no longer had anything to do with the code
-    under test. All three returned the same number and the conclusion drawn
-    from them was that the seed did not matter.
+def write_metrics(path: Path, harness: str, rows_from: Callable[[object], None]) -> None:
+    """Write a JSONL metrics file: a meta record, then the harness's rows.
 
-    Comparing mtimes catches exactly that, because the giveaway is always the
-    same: source newer than the artifact derived from it.
+    The meta record is what makes staleness detectable exactly rather than by
+    inference. These harnesses print their rows to stdout and this is the only
+    place that redirects them into a file, so running the example by hand
+    leaves the file untouched and reading it afterwards returns the previous
+    run -- which is indistinguishable from a fresh result and was real output
+    once. Stamping the commit it came from turns that into a mismatch anyone
+    can see.
     """
-    if not csv_path.exists():
-        raise SystemExit(f"{csv_path} does not exist; run the `run` subcommand first")
-    csv_mtime = csv_path.stat().st_mtime
-    newest: Optional[Tuple[float, Path]] = None
-    for root in roots:
-        for path in Path(root).rglob("*.rs"):
-            mtime = path.stat().st_mtime
-            if newest is None or mtime > newest[0]:
-                newest = (mtime, path)
-    if newest is not None and newest[0] > csv_mtime:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "kind": "meta",
+        "harness": harness,
+        "git_sha": _git("rev-parse", "HEAD"),
+        "git_dirty": bool(_git("status", "--porcelain")),
+        "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(meta) + "\n")
+        handle.flush()
+        rows_from(handle)
+
+
+def read_metrics(path: Path) -> Tuple[Dict[str, object], List[Dict[str, object]]]:
+    """Read a JSONL metrics file into its meta record and its rows."""
+    if not path.exists():
+        raise SystemExit(f"{path} does not exist; run the `run` subcommand first")
+    meta: Dict[str, object] = {}
+    rows: List[Dict[str, object]] = []
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise SystemExit(f"{path}:{number}: not JSON ({error})") from error
+            if record.get("kind") == "meta":
+                meta = record
+            else:
+                rows.append(record)
+    return meta, rows
+
+
+def assert_metrics_are_current(path: Path, meta: Mapping[str, object]) -> None:
+    """Refuse to evaluate metrics produced by a different commit.
+
+    Replaces an mtime comparison, which could only infer this. The commit the
+    numbers came from is now recorded in the file, so the check is exact --
+    and it still fires in the case that motivated it, where the example was
+    run by hand and the file left describing older code.
+
+    A dirty tree cannot be identified by SHA alone, so that is reported rather
+    than trusted: it is the state most likely to be mid-experiment.
+    """
+    if not meta:
         raise SystemExit(
-            f"{csv_path} is older than {newest[1]}, so it does not describe the current\n"
-            f"code. Re-run the `run` subcommand. If you ran the example by hand, note that\n"
-            f"it writes its CSV to stdout and this file is only updated by the redirect the\n"
-            f"`run` subcommand performs."
+            f"{path} has no meta record, so what produced it is unknown. "
+            f"Re-run the `run` subcommand."
         )
+    current = _git("rev-parse", "HEAD")
+    recorded = meta.get("git_sha")
+    if current and recorded and current != recorded:
+        raise SystemExit(
+            f"{path} was produced at {str(recorded)[:12]} but HEAD is "
+            f"{current[:12]}, so it does not describe the current code. "
+            f"Re-run the `run` subcommand.\n"
+            f"Note that the harness prints to stdout; only `run` redirects it "
+            f"into this file."
+        )
+    if meta.get("git_dirty"):
+        print(
+            f"note: {path} was produced from a dirty tree at "
+            f"{str(recorded)[:12]}, so the commit does not identify it",
+            file=sys.stderr,
+        )
+
+
