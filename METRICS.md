@@ -143,47 +143,48 @@ The shortest burst duration T for which, over N independent noise
 realisations, at least 90 percent yield a reported bearing within E degrees of
 truth with a stated uncertainty at or below U.
 
-Measured by `metric_shortest_signal` at E = U = 10 degrees, over 24 draws,
-with the burst embedded in squelch-open hiss and the north loop already
-locked. Detection rate by burst length:
+Measured by `metric_shortest_signal` at E = U = 10 degrees, over 48 draws at
+each of 13 log-spaced durations, with the burst embedded in squelch-open hiss
+and the north loop already locked.
 
-| Buffer | In-band SNR | 25 ms | 50 ms | 100 ms | 200 ms | 400 ms | 800 ms | 1600 ms | **T90** | Control |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 256 | +7 dB | 0.79 | 0.92 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | **50 ms** | 0.00 |
-| 256 | +1 dB | 0.54 | 0.67 | 0.79 | 0.96 | 1.00 | 1.00 | 1.00 | **200 ms** | 0.00 |
-| 256 | −8 dB | 0.33 | 0.33 | 0.42 | 0.71 | 0.83 | 0.92 | 1.00 | **800 ms** | 0.00 |
-| 1024 | +7 dB | 0.75 | 0.92 | 0.96 | 0.96 | 1.00 | 1.00 | 1.00 | **50 ms** | 0.00 |
-| 1024 | +1 dB | 0.50 | 0.67 | 0.88 | 0.96 | 1.00 | 1.00 | 1.00 | **200 ms** | 0.00 |
-| 1024 | −8 dB | 0.12 | 0.25 | 0.42 | 0.62 | 0.92 | 0.92 | 1.00 | **400 ms** | 0.00 |
+| In-band SNR | 256 sample buffer | 1024 sample buffer |
+| ---: | ---: | ---: |
+| +7 dB (cleanest capture) | **45 ms** | 65 ms |
+| +1 dB (middle capture) | 200 ms | **140 ms** |
+| −8 dB (worst capture) | 940 ms | **640 ms** |
 
-The three levels are what the captures measure: +7, +1 and −8 dB, or ratios of
-0.2, 0.8 and 6.5 of interference power to tone power. So a 50 ms transmission
-on the cleanest channel recorded, 200 ms on the middle one, and 400 to 800 ms
-on the worst — where the rotation tone sits 8 dB *below* the audio on top of
-it.
+So a 45 ms transmission on the cleanest channel recorded, around 150 ms on the
+middle one, and around two thirds of a second on the worst — where the
+rotation tone sits 8 dB below the audio on top of it.
 
-The control column is the same criterion applied to the same window with no
-burst in it. It reads zero throughout, so these rates sit above a zero
-false-alarm floor.
+The same criterion applied to the same window with no transmission in it is
+met 0.00 of the time in every cell, so these are not rates of the pipeline
+emitting something.
+
+`scripts/plot_shortest_signal.py` draws the curves from the harness's JSONL,
+marking each crossing. Worth looking at rather than reading off the table: the
+shape differs between buffer sizes, and the 1024 curve on a clean channel is a
+step rather than a ramp — flat at 0.71 until the burst covers enough whole
+buffers, then straight to 0.98.
 
 Two things to read carefully.
 
-**Buffer size barely matters, which was not expected.** The reasoning was that
-bigger buffers give better bearings and a longer minimum duration, so the two
-would trade. They do, but only at the extremes: at 25 ms the smaller buffer
-wins on every noise level (0.79 against 0.75, 0.33 against 0.12), since a 1024
-sample buffer is 21 ms and barely fits inside the burst at all. From 400 ms up
-the larger buffer wins at the worst noise. In between there is nothing to
-choose, and the knob is not the lever it was expected to be.
+**Buffer size trades, in the direction physics suggests.** The small buffer
+wins where the signal is strong, 45 ms against 65, because its finer time
+resolution fits inside a shorter burst. The large buffer wins where the signal
+is weak, 640 ms against 940, because integration is what a weak signal needs.
+An earlier and coarser run of this measurement sampled seven durations and
+concluded buffer size barely mattered; it had too few points near each
+crossing to see either effect.
 
 **The stated uncertainty is that of the aggregate, not of one buffer.** The
 score is a median over the burst's bearings, so it is judged against what that
-median claims, which is the per-buffer figure over the root of the number of
-looks. Judging an aggregate against a single buffer's uncertainty makes the
-criterion insensitive to duration -- the first version of this measurement did
-that and reported nothing detectable at all above the cleanest noise level.
-The division is optimistic about the reference term, which is common to every
-look and does not average away, so read these durations as a floor.
+median claims: the per-buffer figure over the root of the number of looks.
+Judging an aggregate against a single buffer's uncertainty makes the criterion
+insensitive to duration — the first version of this measurement did that and
+reported nothing detectable above the cleanest channel. The division is
+optimistic about the reference term, which is common to every look and does not
+average away, so read these durations as a floor.
 
 ## Measuring without fooling yourself
 
@@ -288,7 +289,7 @@ The rest, none of which run in CI:
 | `probe_agc` | AGC behaviour against north-channel noise, per tracking mode |
 | `probe_coast_budget` | How far the coasting budget lets the loop predict |
 | `probe_zero_crossing_bias` | Bias in the zero-crossing estimator across seeds and filter widths |
-| `metric_shortest_signal` | Shortest burst yielding a usable bearing, against noise and buffer size |
+| `metric_shortest_signal` | Shortest burst yielding a usable bearing, against noise and buffer size; `--jsonl` for `scripts/plot_shortest_signal.py` |
 | `compare_config` | Two configurations against one generated signal |
 
 `scripts/compare_refs.py` runs a gate against two git states; `benches/north_hotspots`

@@ -36,7 +36,7 @@ const STATED_LIMIT_DEG: f64 = 10.0;
 /// Detection rate the reported duration has to reach.
 const REQUIRED_RATE: f64 = 0.90;
 /// Independent noise realisations per cell.
-const DRAWS: u64 = 24;
+const DRAWS: u64 = 48;
 /// Lead-in before the burst, enough for the north loop to acquire from cold
 /// with margin; in service it is already locked.
 const LEAD_IN_SECS: f32 = 1.5;
@@ -179,41 +179,98 @@ fn rate(burst_secs: f32, noise: f32, buffer_size: usize) -> f64 {
     hits as f64 / DRAWS as f64
 }
 
+fn snr_db(noise: f32) -> f64 {
+    10.0 * (1.0 / noise as f64).log10()
+}
+
 fn main() {
-    let durations_ms = [25.0f32, 50.0, 100.0, 200.0, 400.0, 800.0, 1600.0];
+    let jsonl = std::env::args().any(|a| a == "--jsonl");
+    // Log-spaced, so the knee is resolved rather than interpolated between
+    // two points an octave apart.
+    let durations_ms = [
+        20.0f32, 30.0, 45.0, 65.0, 95.0, 140.0, 200.0, 300.0, 440.0, 640.0, 940.0, 1400.0, 2000.0,
+    ];
     let noises = [0.2f32, 0.8, 6.5];
     let buffers = [256usize, 1024];
 
-    println!(
-        "bearing within {ERROR_LIMIT_DEG:.0} deg of truth and stating at most \
-         {STATED_LIMIT_DEG:.0} deg,\n\
-         over {DRAWS} draws. T90 is the shortest listed duration reaching \
-         {:.0} percent.\n",
-        REQUIRED_RATE * 100.0
-    );
-    print!("{:>7} {:>7}", "buffer", "noise");
-    for ms in durations_ms {
-        print!("{:>8}", format!("{ms:.0}ms"));
+    if !jsonl {
+        println!(
+            "bearing within {ERROR_LIMIT_DEG:.0} deg of truth and stating at most \
+             {STATED_LIMIT_DEG:.0} deg,\n\
+             over {DRAWS} draws. T90 is the shortest duration reaching \
+             {:.0} percent.\n",
+            REQUIRED_RATE * 100.0
+        );
+        print!("{:>7} {:>8}", "buffer", "snr dB");
+        for ms in durations_ms {
+            print!("{:>7}", format!("{ms:.0}"));
+        }
+        println!("{:>9} {:>9}", "T90", "control");
     }
-    println!("{:>9} {:>10}", "T90", "control");
 
     for &buffer_size in &buffers {
         for &noise in &noises {
-            print!("{buffer_size:>7} {noise:>7.1}");
+            if !jsonl {
+                print!("{buffer_size:>7} {:>8.0}", snr_db(noise));
+            }
             let mut t90: Option<f32> = None;
             for ms in durations_ms {
-                let r = rate(ms / 1000.0, noise, buffer_size);
-                print!("{r:>8.2}");
+                let hits = (0..DRAWS)
+                    .filter(|&draw| trial(ms / 1000.0, noise, buffer_size, draw))
+                    .count();
+                let r = hits as f64 / DRAWS as f64;
                 if t90.is_none() && r >= REQUIRED_RATE {
                     t90 = Some(ms);
                 }
+                if jsonl {
+                    // Binomial standard error, so a curve drawn from this can
+                    // carry the uncertainty it actually has.
+                    let se = (r * (1.0 - r) / DRAWS as f64).sqrt();
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "buffer_size": buffer_size,
+                            "snr_db": snr_db(noise),
+                            "passband_noise_to_tone": noise,
+                            "duration_ms": ms,
+                            "rate": r,
+                            "rate_se": se,
+                            "hits": hits,
+                            "draws": DRAWS,
+                            "error_limit_deg": ERROR_LIMIT_DEG,
+                            "stated_limit_deg": STATED_LIMIT_DEG,
+                        })
+                    );
+                } else {
+                    print!("{r:>7.2}");
+                }
             }
-            let control = rate(0.0, noise, buffer_size);
-            match t90 {
-                Some(ms) => print!("{:>9}", format!("{ms:.0}ms")),
-                None => print!("{:>9}", ">1600ms"),
+            let control_hits = (0..DRAWS)
+                .filter(|&draw| trial(0.0, noise, buffer_size, draw))
+                .count();
+            let control = control_hits as f64 / DRAWS as f64;
+            if jsonl {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "buffer_size": buffer_size,
+                        "snr_db": snr_db(noise),
+                        "passband_noise_to_tone": noise,
+                        "duration_ms": 0.0,
+                        "rate": control,
+                        "rate_se": (control * (1.0 - control) / DRAWS as f64).sqrt(),
+                        "hits": control_hits,
+                        "draws": DRAWS,
+                        "control": true,
+                    })
+                );
+            } else {
+                match t90 {
+                    Some(ms) => print!("{:>9}", format!("{ms:.0}ms")),
+                    None => print!("{:>9}", ">2000ms"),
+                }
+                println!("{control:>9.2}");
             }
-            println!("{control:>10.2}");
         }
     }
 }
