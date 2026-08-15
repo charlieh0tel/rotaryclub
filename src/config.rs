@@ -575,9 +575,22 @@ pub struct NorthTickConfig {
     /// pay in full: whichever crossing opened the window masked the pulse
     /// behind it, and at moderate noise that halved its detection rate. It
     /// now takes the largest sample in the dead time rather than the first
-    /// crossing, which keeps the blanking and loses the masking. The figures
-    /// above were re-measured over eight draws and hold: 0.45 ms gives the
-    /// simple tracker 5980 bearings against 9586 here.
+    /// crossing, which keeps the blanking and loses the masking.
+    ///
+    /// That changed which value the simple tracker wants, and the figures
+    /// above no longer describe it. Re-measured over eight draws with the
+    /// masking gone, nothing separates any of these at 0.05 RMS or below --
+    /// 9613 bearings and 9.6 degrees at every value tried -- and at 0.2 RMS
+    /// the simple tracker now prefers a shorter dead time monotonically:
+    /// 0.30 ms gives it 9429 bearings and 47.4 degrees against 6166 and 88.6
+    /// at the shipped 0.6.
+    ///
+    /// The DPLL is unaffected by that change and still wants 0.6: at the same
+    /// 0.2 RMS it reads 0.44 samples of tick error here against 0.85 at
+    /// 0.30 ms. So the optimum is mode-dependent at noise levels three
+    /// hundred times anything the recordings show, and identical at the
+    /// levels they do show. The shipped value is chosen for the tracker that
+    /// ships.
     pub min_interval_ms: f32,
     /// How long to keep emitting ticks from the tracked rotation after
     /// pulses stop arriving, in milliseconds. Past this the tracker declares

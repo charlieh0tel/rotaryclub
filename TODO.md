@@ -308,11 +308,20 @@ for on every sweep.
       standard error under 0.0004, the bimodality is gone, and mean bearing
       error improves from 67 to 60 degrees on the worst scenario.
 
-      Shortening the dead time, which is the obvious fix, is worse and was
-      measured: at 0.2 RMS it admits more triggers than it saves, and the
-      simple tracker delivers 5980 bearings at 0.45 ms against 9586 at the
-      shipped 0.6. The old note recommending against shortening was right,
-      though its numbers came from a single draw.
+      Shortening the dead time, which is the obvious fix, was measured first
+      and rejected on numbers taken before the fix existed. Those numbers do
+      not survive the fix and the rejection has to be restated: with the
+      masking gone, the simple tracker prefers a shorter dead time at 0.2 RMS
+      after all, monotonically, 9429 bearings and 47.4 degrees at 0.30 ms
+      against 6166 and 88.6 at the shipped 0.6. Nothing separates any value at
+      0.05 RMS or below.
+
+      Shortening is still not the fix, for a better reason than the one first
+      given: it does nothing at the noise levels the recordings actually show,
+      it costs the DPLL -- 0.85 samples of tick error at 0.30 ms against 0.44
+      at 0.6 -- and it would trade the shipped tracker's timing for a fallback
+      tracker's coverage at three hundred times the measured channel noise.
+      Taking the largest sample in the window costs neither.
 
       Deliberately not applied to the DPLL. Measured there it was slightly
       worse across the board -- tick error 0.0175 to 0.0180 on clean signal,
