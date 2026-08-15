@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -172,3 +173,40 @@ def render_markdown_table(
     for row in rows:
         lines.append("| " + " | ".join(row) + " |")
     return lines
+
+
+def assert_metrics_are_fresh(csv_path: Path, roots: Sequence[str] = ("src", "examples")) -> None:
+    """Refuse to evaluate a metrics CSV older than the code that produces it.
+
+    These harnesses write their CSV to stdout and the report script redirects
+    it into place, so running the example directly -- `cargo run --example x`
+    with the output going anywhere else -- performs the whole measurement and
+    leaves the file untouched. Reading it afterwards returns whatever the last
+    report run wrote, which is indistinguishable from a fresh result and was
+    once real output, so nothing about it looks wrong.
+
+    That cost three isolation runs on a question about which noise seed
+    changed a gate row: each one edited a source file, ran the example
+    directly, and read a CSV that no longer had anything to do with the code
+    under test. All three returned the same number and the conclusion drawn
+    from them was that the seed did not matter.
+
+    Comparing mtimes catches exactly that, because the giveaway is always the
+    same: source newer than the artifact derived from it.
+    """
+    if not csv_path.exists():
+        raise SystemExit(f"{csv_path} does not exist; run the `run` subcommand first")
+    csv_mtime = csv_path.stat().st_mtime
+    newest: Optional[Tuple[float, Path]] = None
+    for root in roots:
+        for path in Path(root).rglob("*.rs"):
+            mtime = path.stat().st_mtime
+            if newest is None or mtime > newest[0]:
+                newest = (mtime, path)
+    if newest is not None and newest[0] > csv_mtime:
+        raise SystemExit(
+            f"{csv_path} is older than {newest[1]}, so it does not describe the current\n"
+            f"code. Re-run the `run` subcommand. If you ran the example by hand, note that\n"
+            f"it writes its CSV to stdout and this file is only updated by the redirect the\n"
+            f"`run` subcommand performs."
+        )

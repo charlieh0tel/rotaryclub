@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 from perf_schema import (
+    assert_metrics_are_fresh,
     coverage_failures,
     fine_coverage_failures,
     MetricSpec,
@@ -300,6 +301,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     csv_path, _, failed_rows_path = paths(args.out_dir, args.profile)
+    assert_metrics_are_fresh(csv_path)
     rows = list(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
     overrides = {
         "detection_rate": args.override_min_det,
