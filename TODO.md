@@ -66,26 +66,26 @@ for on every sweep.
       pairing the two inside each window reads 0.6 to 0.7.
       `examples/uncertainty_reference_probe` prints all of these side by side.
 
-      The buffer-length drift predicted from the offline table -- overstating
-      at small buffers, understating at large -- does not survive the
-      implementation, and is not the residual. Over 40 cells, five buffer
-      lengths against two noise levels and four bearings, the ratio means
-      1.07 and runs 0.83 to 1.35, and by buffer it humps rather than drifts:
-      0.95, 1.16, 1.23, 1.21, 1.12 at noise 0.2 and 0.90, 1.01, 1.15, 0.99,
-      1.01 at 6.5. End to end that is 0.84 to 0.89, the small buffer reading
-      lower, which is the opposite direction. Most of the variation is not a
-      trend at all: the four bearings within one cell spread by 0.1 to 0.2,
-      about as much as the buffer axis does.
+      The buffer-length drift is real and monotonic, which took three
+      measurements to establish. The offline table predicted the figure would
+      overstate at small buffers and understate at large. A first pass with
+      the `bearing` axis standing in for independent noise said there was no
+      trend at all, only a hump, and that was recorded here as a correction.
+      It was the wrong instrument: sweeping bearing redraws the doppler noise
+      and reuses the north channel, so the cells were not independent.
 
-      What is real is the shortest buffer. At 128 the four bearings give 0.91
-      to 1.00 and at 512 they give 1.15 to 1.29, which do not overlap, so the
-      figure runs about a quarter low there. 128 samples against a 96-sample
-      noise correlation length is 1.33 looks and the code clamps at 1: below
-      about one correlation time the independent-looks model has nothing left
-      to describe, so independence is over-counted and the figure comes out
-      low. Not worth correcting yet, and correcting it would mean fitting a
-      constant to flat synthetic noise, which is the thing least like the
-      channel this runs on.
+      Measured properly, eight independent draws per cell across three buffer
+      lengths and three noise levels, the ratio of stated to actual runs 0.92
+      at 128 samples, 1.19 at 512 and 1.42 at 2048, at every noise level and
+      with no overlap between the groups. Mean 1.18 over the nine cells. So
+      the figure understates at short buffers and overstates at long, which is
+      the opposite of what the offline table predicted, and it is a trend
+      rather than scatter.
+
+      That says the effective independence grows faster with buffer length
+      than the model's buffer-over-correlation-time, not more slowly. Worth
+      pinning down if this is taken further; the gap to the recordings below
+      is still the larger error.
 
 - [ ] The uncertainty reads about 1.3 on synthetic signal and about 0.65 on
       the recordings. That two-fold domain gap is now the dominant error in
