@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 
 
@@ -191,6 +192,27 @@ def _git(*args: str) -> str:
         return ""
 
 
+def source_digest(roots: Sequence[str] = ("src", "examples")) -> str:
+    """Content hash of the code that produces the metrics.
+
+    The commit is recorded alongside this, but it cannot be the check.
+    Committing changes no source bytes, so comparing a recorded SHA against
+    HEAD would call every metrics file stale the instant it was committed; and
+    a dirty tree has no SHA that identifies its contents at all, which is the
+    state most of this work happens in.
+
+    Hashing the sources is exact in both directions: unchanged code keeps its
+    digest across a commit, and an edit changes it whether or not anything was
+    committed.
+    """
+    digest = hashlib.sha256()
+    for root in roots:
+        for path in sorted(Path(root).rglob("*.rs")):
+            digest.update(path.as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def write_metrics(path: Path, harness: str, rows_from: Callable[[object], None]) -> None:
     """Write a JSONL metrics file: a meta record, then the harness's rows.
 
@@ -209,6 +231,7 @@ def write_metrics(path: Path, harness: str, rows_from: Callable[[object], None])
         "git_sha": _git("rev-parse", "HEAD"),
         "git_dirty": bool(_git("status", "--porcelain")),
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source_digest": source_digest(),
     }
     with path.open("w", encoding="utf-8") as handle:
         handle.write(json.dumps(meta) + "\n")
@@ -239,36 +262,36 @@ def read_metrics(path: Path) -> Tuple[Dict[str, object], List[Dict[str, object]]
 
 
 def assert_metrics_are_current(path: Path, meta: Mapping[str, object]) -> None:
-    """Refuse to evaluate metrics produced by a different commit.
+    """Refuse to evaluate metrics that different code produced.
 
-    Replaces an mtime comparison, which could only infer this. The commit the
-    numbers came from is now recorded in the file, so the check is exact --
-    and it still fires in the case that motivated it, where the example was
-    run by hand and the file left describing older code.
+    Replaces an mtime comparison, which could only infer this. It still fires
+    in the case that motivated it: the harnesses print their rows to stdout
+    and only `run` redirects them into a file, so running the example by hand
+    leaves the file describing whatever ran last -- indistinguishable from a
+    fresh result, and real output once.
 
-    A dirty tree cannot be identified by SHA alone, so that is reported rather
-    than trusted: it is the state most likely to be mid-experiment.
+    Keyed on `source_digest` rather than on the commit. A first version
+    compared the recorded SHA against HEAD and was wrong in both directions:
+    it called every file stale the instant it was committed, since committing
+    changes no source bytes, and it could not say anything at all about the
+    dirty trees this work mostly happens in.
     """
     if not meta:
         raise SystemExit(
             f"{path} has no meta record, so what produced it is unknown. "
             f"Re-run the `run` subcommand."
         )
-    current = _git("rev-parse", "HEAD")
-    recorded = meta.get("git_sha")
-    if current and recorded and current != recorded:
+    recorded = meta.get("source_digest")
+    if not recorded:
+        raise SystemExit(f"{path} predates source digests. Re-run the `run` subcommand.")
+    current = source_digest()
+    if recorded != current:
         raise SystemExit(
-            f"{path} was produced at {str(recorded)[:12]} but HEAD is "
-            f"{current[:12]}, so it does not describe the current code. "
-            f"Re-run the `run` subcommand.\n"
+            f"{path} was produced from different source than is checked out "
+            f"({str(recorded)[:12]} against {current[:12]}), so it does not "
+            f"describe the current code. Re-run the `run` subcommand.\n"
             f"Note that the harness prints to stdout; only `run` redirects it "
             f"into this file."
-        )
-    if meta.get("git_dirty"):
-        print(
-            f"note: {path} was produced from a dirty tree at "
-            f"{str(recorded)[:12]}, so the commit does not identify it",
-            file=sys.stderr,
         )
 
 
