@@ -14,6 +14,11 @@
 
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTracker};
+use rotaryclub::simulation::noise_at;
+
+/// Noise stream for this harness. One implementation, one seed per
+/// harness: the generator itself lives in `simulation`.
+const NOISE_SEED: u64 = 0x5EED_1234_9ABC_DEF0;
 
 /// Half-width, in samples, of the synthesized north pulse.
 const PULSE_HALF_WIDTH: i64 = 12;
@@ -25,14 +30,6 @@ const ACQUIRED_SAMPLES: f64 = 0.1;
 /// acquisition is called, so a single passage through zero on the way to a
 /// settled value is not mistaken for having arrived.
 const ACQUIRED_RUN_TICKS: usize = 32;
-
-fn noise_at(index: usize) -> f32 {
-    let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5EED_1234_9ABC_DEF0;
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    x ^= x >> 29;
-    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
-}
 
 /// Band-limited impulses at the true rotation epochs.
 ///
@@ -85,7 +82,7 @@ fn build(
             // every "noise 0.2" row was measured at 0.067.
             let mut acc = 0.0f32;
             for j in 0..12 {
-                acc += noise_at(i * 12 + j);
+                acc += noise_at(i * 12 + j, NOISE_SEED);
             }
             *sample += acc / 2.0 * noise_rms;
         }

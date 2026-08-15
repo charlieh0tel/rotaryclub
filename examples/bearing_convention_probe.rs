@@ -16,6 +16,11 @@ use std::f32::consts::PI;
 
 use rotaryclub::config::{BearingMethod, RdfConfig, RotationFrequency};
 use rotaryclub::processing::RdfProcessor;
+use rotaryclub::simulation::noise_at;
+
+/// Noise stream for this harness. One implementation, one seed per
+/// harness: the generator itself lives in `simulation`.
+const NOISE_SEED: u64 = 0xBEEF_1234;
 
 const HALF_SAMPLE_US: f32 = 10.416_667;
 
@@ -34,14 +39,6 @@ fn jitter_samples(index: usize, max_abs: i32) -> i32 {
     } else {
         ((index as f32 * 0.37).sin() * max_abs as f32).round() as i32
     }
-}
-
-/// Deterministic noise, so a run is repeatable.
-fn noise_at(index: usize) -> f32 {
-    let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xBEEF_1234;
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -110,8 +107,8 @@ fn build_signal(
 
     let mut out = Vec::with_capacity(num_samples * 2);
     for (i, &tick) in north.iter().enumerate() {
-        out.push((omega * i as f32 - bearing).sin() + noise_peak * noise_at(i));
-        out.push(tick + noise_peak * 0.35 * noise_at(i ^ 0x5555));
+        out.push((omega * i as f32 - bearing).sin() + noise_peak * noise_at(i, NOISE_SEED));
+        out.push(tick + noise_peak * 0.35 * noise_at(i ^ 0x5555, NOISE_SEED));
     }
     out
 }

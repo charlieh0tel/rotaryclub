@@ -2,6 +2,7 @@ use std::f32::consts::PI;
 
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTick, NorthTracker};
+use rotaryclub::simulation::noise_at;
 
 #[derive(Debug, Clone)]
 struct DetectionMetrics {
@@ -672,20 +673,14 @@ fn test_dead_time_rejects_noise_triggers() {
 
     // Noise a quarter of the pulse amplitude, which is where the tradeoff
     // between dead time and detection becomes visible.
-    let mut state = 0x9E37_79B9_7F4A_7C15u64;
-    for sample in north_signal.iter_mut() {
+    // Twelve uniform draws approximate a normal. Each is uniform on [-1, 1)
+    // and so has variance 1/3, making the sum's standard deviation 2.
+    for (i, sample) in north_signal.iter_mut().enumerate() {
         let mut acc = 0.0f32;
-        for _ in 0..12 {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            // Shift by 32, not 33. A 33-bit shift leaves 31 bits against a
-            // 32-bit divisor, so each draw lands in [0, 0.5): the sum is
-            // centred on 3 rather than 6, and what this adds is a -0.6 DC
-            // offset carrying a tenth of the intended noise.
-            acc += (((state >> 32) as u32) as f32) / (u32::MAX as f32);
+        for j in 0..12 {
+            acc += noise_at(i * 12 + j, 0x0DEA_D710_5EED_0001);
         }
-        *sample += (acc - 6.0) * 0.2;
+        *sample += acc / 2.0 * 0.2;
     }
 
     let (ticks, _freq) = run_north_tracker(&config, &north_signal);

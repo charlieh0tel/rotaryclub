@@ -12,16 +12,9 @@
 
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTracker};
+use rotaryclub::simulation::noise_at;
 
 const PULSE_HALF_WIDTH: i64 = 12;
-
-fn noise_at(index: usize, seed: u64) -> f32 {
-    let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed;
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    x ^= x >> 29;
-    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
-}
 
 fn build(num_samples: usize, period: f64, amplitude: f32, noise_rms: f32) -> (Vec<f32>, Vec<f64>) {
     let mut signal = vec![0.0f32; num_samples];

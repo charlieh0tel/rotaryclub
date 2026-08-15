@@ -24,14 +24,7 @@ use std::f32::consts::PI;
 
 use rotaryclub::config::{AgcConfig, DopplerConfig};
 use rotaryclub::signal_processing::{AutomaticGainControl, FirBandpass, ZeroCrossingDetector};
-
-fn noise_at(index: usize, seed: u64) -> f32 {
-    let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed;
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    x ^= x >> 29;
-    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
-}
+use rotaryclub::simulation::noise_at;
 
 fn main() {
     let doppler = DopplerConfig::default();

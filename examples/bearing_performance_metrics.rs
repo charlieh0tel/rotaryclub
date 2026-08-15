@@ -2,6 +2,7 @@ use rotaryclub::config::RdfConfig;
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthTick, ZeroCrossingBearingCalculator,
 };
+use rotaryclub::simulation::noise_at as deterministic_noise_at;
 use std::f32::consts::PI;
 use std::time::Instant;
 
@@ -72,13 +73,6 @@ fn make_north_tick(sample_index: usize, samples_per_rotation: f32) -> NorthTick 
         phase: 0.0,
         frequency: 2.0 * PI / samples_per_rotation,
     }
-}
-
-fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
-    let mut x = seed ^ ((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
-    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let u = (((x >> 32) as u32) as f32) / (u32::MAX as f32);
-    2.0 * u - 1.0
 }
 
 fn make_doppler_buffer(

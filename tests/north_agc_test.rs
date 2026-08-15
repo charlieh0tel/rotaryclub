@@ -9,6 +9,7 @@
 
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTracker};
+use rotaryclub::simulation::noise_at;
 
 const PULSE_HALF_WIDTH: i64 = 12;
 
@@ -119,11 +120,7 @@ fn test_agc_holds_gain_on_a_silent_channel() {
     // threshold and then detect it.
     let mut signal = vec![0.0f32; (sample_rate * 3.0) as usize];
     for (i, sample) in signal.iter_mut().enumerate() {
-        let mut x = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xFEED;
-        x ^= x >> 33;
-        x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-        x ^= x >> 29;
-        *sample = ((((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0) * 0.02;
+        *sample = noise_at(i, 0xFEED) * 0.02;
     }
 
     let mut tracker =

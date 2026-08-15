@@ -206,6 +206,7 @@ impl BearingCalculator for CorrelationBearingCalculator {
 mod tests {
     use super::*;
     use crate::config::AgcConfig;
+    use crate::simulation::noise_at;
     use std::f32::consts::PI;
 
     #[test]
@@ -564,11 +565,7 @@ mod tests {
             let bearing_radians = 45.0f32.to_radians();
             let buffer: Vec<f32> = (0..samples)
                 .map(|i| {
-                    let mut x = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x51D3;
-                    x ^= x >> 33;
-                    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-                    x ^= x >> 29;
-                    let n = ((x >> 32) as u32) as f32 / (u32::MAX as f32) * 2.0 - 1.0;
+                    let n = noise_at(i, 0x51D3);
                     (omega * i as f32 - bearing_radians).sin() + noise * n
                 })
                 .collect();

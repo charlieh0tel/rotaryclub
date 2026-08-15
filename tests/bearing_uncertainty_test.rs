@@ -24,17 +24,14 @@ use rotaryclub::audio::AudioSource;
 use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
+use rotaryclub::simulation::noise_at;
 use rotaryclub::simulation::{SignalImpairment, generate_impaired_signal};
 
-const PULSE_HALF_WIDTH: i64 = 12;
+/// Noise stream for this harness. One implementation, one seed per
+/// harness: the generator itself lives in `simulation`.
+const NOISE_SEED: u64 = 0xA5A5_1234_9ABC_DEF0;
 
-fn noise_at(index: usize) -> f32 {
-    let mut x = (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xA5A5_1234_9ABC_DEF0;
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-    x ^= x >> 29;
-    (((x >> 32) as u32) as f32 / (u32::MAX as f32)) * 2.0 - 1.0
-}
+const PULSE_HALF_WIDTH: i64 = 12;
 
 /// Interleaved stereo: Doppler tone left, band-limited north pulses right.
 ///
@@ -80,8 +77,8 @@ fn build_signal(
 
     let mut out = Vec::with_capacity(num_samples * 2);
     for (i, &tick) in north.iter().enumerate() {
-        out.push((omega * i as f32 - bearing).sin() + noise * noise_at(i));
-        out.push(tick + noise * 0.35 * noise_at(i ^ 0x5555));
+        out.push((omega * i as f32 - bearing).sin() + noise * noise_at(i, NOISE_SEED));
+        out.push(tick + noise * 0.35 * noise_at(i ^ 0x5555, NOISE_SEED));
     }
     out
 }

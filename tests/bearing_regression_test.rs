@@ -2,6 +2,7 @@ use rotaryclub::config::{AgcConfig, ConfidenceConfig, DopplerConfig, RdfConfig};
 use rotaryclub::rdf::{
     BearingCalculator, CorrelationBearingCalculator, NorthTick, ZeroCrossingBearingCalculator,
 };
+use rotaryclub::simulation::noise_at as deterministic_noise_at;
 use std::f32::consts::PI;
 
 fn make_north_tick(samples_per_rotation: f32) -> NorthTick {
@@ -137,13 +138,6 @@ fn make_signal_with_impulsive_burst(
         *x += burst_amplitude;
     }
     signal
-}
-
-fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
-    let mut x = seed ^ ((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
-    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let u = (((x >> 32) as u32) as f32) / (u32::MAX as f32);
-    2.0 * u - 1.0
 }
 
 fn make_signal_with_low_snr_and_dc(

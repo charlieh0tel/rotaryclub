@@ -1,5 +1,6 @@
 use rotaryclub::config::{NorthTrackingMode, RdfConfig};
 use rotaryclub::rdf::{NorthReferenceTracker, NorthTick, NorthTracker};
+use rotaryclub::simulation::noise_at;
 
 const DEFAULT_DURATION_SECS: f32 = 1.2;
 const DEFAULT_CHUNK_SIZES: &[usize] = &[32usize, 64, 128, 256, 512, 1024];
@@ -94,12 +95,8 @@ fn apply_deterministic_dropouts(positions: &[usize], stride: usize) -> Vec<usize
 }
 
 fn add_deterministic_noise(signal: &mut [f32], noise_peak: f32) {
-    let mut x = 0x9E37_79B9_7F4A_7C15u64;
-    for sample in signal.iter_mut() {
-        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let u = (((x >> 32) as u32) as f32) / (u32::MAX as f32);
-        let noise = (2.0 * u - 1.0) * noise_peak;
-        *sample += noise;
+    for (i, sample) in signal.iter_mut().enumerate() {
+        *sample += noise_at(i, 0x71C7_71C7_5EED_0001) * noise_peak;
     }
 }
 
