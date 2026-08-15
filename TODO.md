@@ -87,6 +87,30 @@ for on every sweep.
       pinning down if this is taken further; the gap to the recordings below
       is still the larger error.
 
+- [ ] Discuss the multipath metrics. Deferred deliberately; this records the
+      shape of it so the thread is not lost.
+
+      `resultant_length` is derived from the signal-to-noise ratio, not
+      measured from per-rotation phase vectors, because those were removed
+      when the uncertainty was re-derived. That is a faithful estimate of
+      KR6DD's quantity under noise and misleading under a reflection, which is
+      the case it would most be wanted for: the tone stays strong, so an
+      SNR-derived resultant length reads high exactly where a measured one
+      would read low.
+
+      The same machinery would serve the item below. A directly measured
+      resultant length is a coherence, and a bearing whose looks disagree is
+      the observable that the stated uncertainty is currently missing. So
+      "measure the phases" and "make confidence see multipath" are one change,
+      not two, and worth deciding together rather than separately.
+
+      What it costs is re-introducing per-look phase accumulation, which was
+      taken out for good reasons: it was the thing that made the old
+      uncertainty understate, and the old coherence metric read 0.99 on
+      bearings tens of degrees wrong. Bringing it back to compute a different
+      quantity is defensible, but it is the same code that was wrong before,
+      so it wants care rather than enthusiasm.
+
 - [ ] Confidence does not see multipath, and in an environment with
       reflections that is the error that matters. Measured with a reflected
       path 0.45 of the direct one, filtering at 0.5 confidence improves the
