@@ -87,6 +87,21 @@ for on every sweep.
       pinning down if this is taken further; the gap to the recordings below
       is still the larger error.
 
+- [ ] The every-other-pulse failure is reduced, not gone. The arbitration
+      window fixed it at the noise level the pipeline gate runs at -- 0.08
+      RMS, 0.995 detection over sixteen draws, no spread -- and
+      `north_agc_probe` finds it again just above. At 0.10 RMS ten of twelve
+      draws read exactly 0.50 and two read 1.00; at 0.20, eight read about
+      0.45 and four about 0.90. Still bimodal, still exactly half when it
+      bites.
+      So the fix moved the onset rather than removing the mechanism, and the
+      shipped tracker is clear of it only by margin. The two harnesses build
+      their north channel differently, so part of the difference in onset may
+      be construction rather than level; that is the first thing to settle.
+      Simple-tracker only. The DPLL is smooth across the same sweep, and its
+      AGC is worth 0.902 to 0.943 detection at 0.20 RMS with false positives
+      falling 0.025 to 0.001.
+
 - [ ] The uncertainty reads about 1.3 on synthetic signal and about 0.65 on
       the recordings. That two-fold domain gap is now the dominant error in
       the figure, several times the 1.25 residual at short buffers, and it
