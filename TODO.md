@@ -340,11 +340,17 @@ for on every sweep.
       for one row, so its limits come from the measured spread instead.
       Runtime went to 52 and 76 seconds and about seven minutes.
 
-- [ ] Five copies of the tick jitter helper still use `sin(0.37 k)`, which is
-      a coherent tone at 94 Hz rather than jitter and once produced a wrong
-      conclusion about the DPLL. The noise generators are unified; this one is
-      not, because changing it changes what several tests and two gates
-      measure. Worth doing deliberately rather than as part of a cleanup.
+- [x] Five copies of the tick jitter helper used `sin(0.37 k)`, a coherent
+      94 Hz tone rather than jitter -- forty-seven times the loop bandwidth,
+      so any second-order loop rejects it by construction, and anything
+      measured against it was measuring the stimulus being out of band. It had
+      already earned the DPLL an advantage it had not. All five now draw from
+      `simulation::noise_at`, each with its own seed, matching the system
+      pipeline harness that was fixed earlier.
+
+      The suite and all three gates pass unchanged, which is a weaker result
+      than it sounds: it says the limits were not resting on the coherent
+      stimulus, not that the stimulus made no difference.
 
 - [ ] Price what the highpass is for, with a capture that bleeds audio into
       the north channel. That is the only argument for filtering high, and no

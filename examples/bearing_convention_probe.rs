@@ -33,11 +33,19 @@ enum Placement {
 }
 
 /// Deterministic jitter, matching the system pipeline example's generator.
+/// Per-pulse timing jitter, in samples.
+///
+/// White. It used to be `sin(0.37 k)`, which repeats every 17 rotations: a
+/// coherent 94 Hz modulation, forty-seven times the loop bandwidth, which any
+/// second-order loop rejects by construction. Anything measured against it
+/// was measuring the stimulus being out of band rather than the tracker doing
+/// anything, and it once earned the DPLL an advantage it had not. Real jitter
+/// has in-band content the loop has to follow.
 fn jitter_samples(index: usize, max_abs: i32) -> i32 {
     if max_abs <= 0 {
         0
     } else {
-        ((index as f32 * 0.37).sin() * max_abs as f32).round() as i32
+        (noise_at(index, 0x1A77_E812_5EED_0004) * max_abs as f32).round() as i32
     }
 }
 

@@ -570,6 +570,14 @@ pub struct NorthTickConfig {
     /// rotation, and noise triggers arriving where a pulse is due are
     /// indistinguishable from the pulse. `test_dead_time_rejects_noise_
     /// triggers` pins the shipped behaviour.
+    ///
+    /// Blanking that much of a rotation has a cost the simple tracker used to
+    /// pay in full: whichever crossing opened the window masked the pulse
+    /// behind it, and at moderate noise that halved its detection rate. It
+    /// now takes the largest sample in the dead time rather than the first
+    /// crossing, which keeps the blanking and loses the masking. The figures
+    /// above were re-measured over eight draws and hold: 0.45 ms gives the
+    /// simple tracker 5980 bearings against 9586 here.
     pub min_interval_ms: f32,
     /// How long to keep emitting ticks from the tracked rotation after
     /// pulses stop arriving, in milliseconds. Past this the tracker declares
