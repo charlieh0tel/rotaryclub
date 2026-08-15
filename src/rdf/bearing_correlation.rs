@@ -172,6 +172,7 @@ impl CorrelationBearingCalculator {
         };
 
         ConfidenceMetrics {
+            tone_peak: self.base.work_buffer.iter().copied().fold(0.0f32, f32::max),
             snr_db,
             signal_strength,
             bearing_uncertainty_deg,

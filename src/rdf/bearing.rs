@@ -142,6 +142,15 @@ pub struct ConfidenceMetrics {
     pub snr_db: f32,
     /// Normalized signal power (0-1)
     pub signal_strength: f32,
+    /// Largest positive sample of the filtered Doppler signal in this buffer,
+    /// in full-scale units.
+    ///
+    /// Exists for the KN5R "C" sentence, whose third field KR6DD's engine
+    /// defines as exactly this: the running maximum of the FIR output over a
+    /// batch section, with that output scaled to plus or minus one, sent as
+    /// thousandths. It is an absolute level rather than a ratio, which is why
+    /// nothing else here was the right thing to send in its place.
+    pub tone_peak: f32,
     /// Estimated one-sigma uncertainty of this bearing, in degrees, or None
     /// where it cannot be estimated.
     ///
@@ -224,6 +233,7 @@ mod tests {
 
     fn metrics_with(uncertainty: Option<f32>) -> ConfidenceMetrics {
         ConfidenceMetrics {
+            tone_peak: 0.0,
             snr_db: 20.0,
             signal_strength: 1.0,
             bearing_uncertainty_deg: uncertainty,

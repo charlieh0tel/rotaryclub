@@ -27,6 +27,9 @@ pub struct BearingOutput {
     /// be estimated.
     pub bearing_uncertainty_deg: Option<f32>,
     pub signal_strength: f32,
+    /// Largest positive sample of the filtered Doppler signal, in full-scale
+    /// units. Carried for the KN5R sentence, which wants an absolute level.
+    pub tone_peak: f32,
     pub lock_quality: Option<f32>,
     pub phase_error_variance: Option<f32>,
 }

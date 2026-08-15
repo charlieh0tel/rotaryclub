@@ -845,7 +845,11 @@ impl Default for BearingConfig {
     fn default() -> Self {
         Self {
             smoothing_window: 5,
-            output_rate_hz: 10.0,
+            // 20 Hz because that is what the KN5R side emits: KR6DD's engine
+            // divides each second into twenty batch sections and sends one
+            // sentence per section. Nothing here needs that rate, but a
+            // consumer built against it may.
+            output_rate_hz: 20.0,
             north_offset_degrees: 0.0,
             north_tick_warning_timeout_secs: 2.0,
             confidence: ConfidenceConfig::default(),
