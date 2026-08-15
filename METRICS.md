@@ -126,7 +126,7 @@ Three harnesses, run in CI, each with limits in `scripts/*_report.py`.
 | --- | --- | --- |
 | `gate_bearing` | Bearing accuracy and throughput per method, scenario and buffer size | 8 |
 | `gate_north_tick` | Tick detection and timing per tracking mode, scenario and chunk size | 8 |
-| `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput | 4 |
+| `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput | 8 |
 
 Scenarios are `clean`, `noisy_jittered`, `harmonic_contaminated` and
 `low_snr_dc`, with the interference scaled to the in-band SNR the recordings
@@ -203,8 +203,21 @@ checks that cannot fail, such as a bearing-error limit above the 180 degrees a
 bearing error can reach. Including the latter put the requirement at 14 instead
 of 1.3.
 
-The count is tied to the limits. Tightening one shrinks its margin and raises
-the count needed, so re-run the sizing when a limit moves.
+**And let the gate check that for you.** Each harness emits a standard error
+beside every metric, and `check` refuses a row that passes by less than three
+of them: within limits, but not by more than its own noise. That turns the
+sizing rule from something to remember into something enforced, and it catches
+three things at once — a tightened limit whose margin no longer supports the
+draw count, a value drifting toward its limit before it crosses, and a metric
+gone bimodal, whose inflated spread demands draws it does not have.
+
+Two exclusions, declared per gate. Timing columns, whose spread is load. And
+limits that cannot be crossed, which need a declared physical maximum: a
+bearing error cannot exceed 180 degrees, so a limit at 181 is not a margin.
+
+It found five rows on first run, all of them maxima or 95th percentiles, which
+are the most volatile things measured here. Two gates' limits were widened
+from the observed spread and the pipeline gate went from four draws to eight.
 
 **Check for bimodality before quoting a mean.** A mean is only a summary if the
 distribution has one mode. Print the per-draw values for any cell whose error

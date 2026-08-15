@@ -471,7 +471,13 @@ fn bearing_method_name(method: BearingMethod) -> &'static str {
 /// The requirement is that noise must not trip a limit, so for each row and
 /// each checked metric the count needed to keep a three-sigma excursion inside
 /// the margin is (3 sd / margin)^2. Measured over 32 draws, the largest such
-/// requirement across the whole matrix is 1.3. Four gives three times that.
+/// requirement across the whole matrix is 1.3.
+///
+/// Eight rather than four, because the sizing above only asks that noise not
+/// trip a limit. `unsupported_metrics` asks the stronger question -- whether a
+/// row passes by more than its own spread -- and three rows failed it at four
+/// draws, all of them extreme-value columns, which are the most volatile
+/// thing here.
 ///
 /// Two things that calculation deliberately ignores. Timing spread is machine
 /// load, which no number of draws averages away. And the bearing-error limits
@@ -482,7 +488,22 @@ fn bearing_method_name(method: BearingMethod) -> &'static str {
 /// This is tied to the limits: tightening one shrinks its margin and raises
 /// the count needed. Re-run the sizing from the `spread` lines on stderr if
 /// a limit moves.
-const DRAWS: u64 = 4;
+const DRAWS: u64 = 8;
+
+/// Standard error of the mean of one column over the draws.
+fn se_of(runs: &[Metrics], f: fn(&Metrics) -> f32) -> f32 {
+    let n = runs.len() as f32;
+    if n < 2.0 {
+        return 0.0;
+    }
+    let mean = runs.iter().map(f).sum::<f32>() / n;
+    let var = runs
+        .iter()
+        .map(|r| (f(r) - mean) * (f(r) - mean))
+        .sum::<f32>()
+        / (n - 1.0);
+    (var / n).sqrt()
+}
 
 fn average_metrics(runs: &[Metrics]) -> Metrics {
     let n = runs.len() as f64;
@@ -642,6 +663,22 @@ fn main() {
                             "max_abs_bearing_error_deg": m.max_abs_bearing_error_deg,
                             "mean_abs_tick_error_samples": m.mean_abs_tick_error_samples,
                             "p95_abs_tick_error_samples": m.p95_abs_tick_error_samples,
+                            // Emitted so `check` can ask whether this row is
+                            // precise enough to support the verdict, not just
+                            // whether the value is inside the limit.
+                            "bearing_success_rate_se": se_of(&draws, |m| m.bearing_success_rate),
+                            "detection_rate_se": se_of(&draws, |m| m.detection_rate),
+                            "false_positive_rate_se": se_of(&draws, |m| m.false_positive_rate),
+                            "mean_abs_bearing_error_deg_se":
+                                se_of(&draws, |m| m.mean_abs_bearing_error_deg),
+                            "p95_abs_bearing_error_deg_se":
+                                se_of(&draws, |m| m.p95_abs_bearing_error_deg),
+                            "max_abs_bearing_error_deg_se":
+                                se_of(&draws, |m| m.max_abs_bearing_error_deg),
+                            "mean_abs_tick_error_samples_se":
+                                se_of(&draws, |m| m.mean_abs_tick_error_samples),
+                            "p95_abs_tick_error_samples_se":
+                                se_of(&draws, |m| m.p95_abs_tick_error_samples),
                             "draws": DRAWS,
                         })
                     );

@@ -93,6 +93,67 @@ def evaluate_row_against_limits(
     return violations
 
 
+def unsupported_metrics(
+    row: Mapping[str, object],
+    limits: Mapping[str, float],
+    metrics: Sequence[MetricSpec],
+    *,
+    exempt: Sequence[str] = (),
+    physical_max: Mapping[str, float] = {},
+    sigmas: float = 3.0,
+) -> List[str]:
+    """Metrics whose spread is too large for this row to support a verdict.
+
+    A limit check answers "is the value inside the limit". This answers the
+    question underneath it: is the measurement precise enough for that answer
+    to mean anything. A row passing by less than its own noise has not passed;
+    it has been rounded in the right direction.
+
+    The test is that `sigmas` standard errors fit inside the margin from the
+    value to its limit. Three things it deliberately does not flag:
+
+    Rows already over their limit, which the limit check reports; saying it
+    twice helps nobody.
+
+    Metrics named in `exempt`. The timing columns belong here: their spread is
+    machine load, and no number of draws averages that away.
+
+    Limits that cannot be crossed. A bearing error cannot exceed 180 degrees,
+    so a limit at 181 is a check that never fails, and its arithmetic margin
+    -- 177 against 181 -- looks tight while meaning nothing. Declare the
+    physical maximum and those stop distorting the answer; leaving them in put
+    the pipeline gate's draw requirement at 14 rather than 1.3.
+
+    The standard error is inflated by its own uncertainty before the
+    comparison, since with a handful of draws the estimate of the spread is
+    itself a rough one -- about 40 percent at four draws.
+    """
+    draws = float(row.get("draws", 0) or 0)
+    failures: List[str] = []
+    for spec in metrics:
+        if spec.name in exempt:
+            continue
+        raw_se = row.get(f"{spec.name}_se")
+        if raw_se is None:
+            continue
+        se = float(raw_se)
+        if not math.isfinite(se):
+            failures.append(spec.name)
+            continue
+        limit = limits[spec.name]
+        cap = physical_max.get(spec.name)
+        if cap is not None and spec.direction == "max" and limit >= cap:
+            continue
+        value = float(row[spec.name])
+        margin = (value - limit) if spec.direction == "min" else (limit - value)
+        if margin <= 0.0:
+            continue
+        inflation = 1.0 + 1.0 / math.sqrt(2.0 * (draws - 1.0)) if draws > 1.0 else float("inf")
+        if sigmas * se * inflation > margin:
+            failures.append(spec.name)
+    return failures
+
+
 def fine_coverage_failures(
     rows: Sequence[Mapping[str, str]],
     group_key_fn: Callable[[Mapping[str, str]], Tuple[str, ...]],

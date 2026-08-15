@@ -249,15 +249,50 @@ fn main() {
                 // quantity as before, measured more times.
                 let mut per_draw_max_error: Vec<f64> = Vec::new();
                 let mut per_draw_max_us: Vec<f64> = Vec::new();
+                // Each draw's own summary, kept so the spread across draws can
+                // be reported. The values below are still pooled; these say how
+                // far a single draw moves, which is what decides whether a row
+                // supports a verdict.
+                let mut per_draw_success: Vec<f64> = Vec::new();
+                let mut per_draw_mean_error: Vec<f64> = Vec::new();
+                let mut per_draw_p95_error: Vec<f64> = Vec::new();
+                let mut per_draw_mean_us: Vec<f64> = Vec::new();
+                let mut per_draw_p95_us: Vec<f64> = Vec::new();
                 for draw in 0..DRAWS {
                     let (c, t, e) =
                         run_case(method, scenario, buffer_size, expected_bearing_deg, draw);
                     measured_count += c;
                     per_draw_max_us.push(t.iter().copied().fold(0.0, f64::max));
                     per_draw_max_error.push(e.iter().copied().fold(0.0, f64::max));
+                    per_draw_success.push(if t.is_empty() {
+                        0.0
+                    } else {
+                        c as f64 / t.len() as f64
+                    });
+                    per_draw_mean_error.push(if e.is_empty() {
+                        360.0
+                    } else {
+                        e.iter().sum::<f64>() / e.len() as f64
+                    });
+                    per_draw_p95_error.push(percentile_deg(&e, 0.95));
+                    per_draw_mean_us.push(if t.is_empty() {
+                        0.0
+                    } else {
+                        t.iter().sum::<f64>() / t.len() as f64
+                    });
+                    per_draw_p95_us.push(percentile_us(&t, 0.95));
                     times_us.extend(t);
                     errors_deg.extend(e);
                 }
+                let se_of = |v: &[f64], scale: f64| -> f64 {
+                    let n = v.len() as f64;
+                    if n < 2.0 {
+                        return 0.0;
+                    }
+                    let m = v.iter().sum::<f64>() / n;
+                    let var = v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (n - 1.0);
+                    (var / n).sqrt() / scale
+                };
                 let mean_of = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
                 let iterations = times_us.len();
                 let sum_us: f64 = times_us.iter().sum();
@@ -299,6 +334,14 @@ fn main() {
                         "mean_abs_bearing_error_deg": mean_abs_bearing_error_deg,
                         "p95_abs_bearing_error_deg": p95_abs_bearing_error_deg,
                         "max_abs_bearing_error_deg": max_abs_bearing_error_deg,
+                        // Spread across draws, so `check` can ask whether the
+                        // row is precise enough to support its verdict.
+                        "success_rate_se": se_of(&per_draw_success, 1.0),
+                        "mean_us_per_sample_se": se_of(&per_draw_mean_us, buffer_size as f64),
+                        "p95_us_per_sample_se": se_of(&per_draw_p95_us, buffer_size as f64),
+                        "mean_abs_bearing_error_deg_se": se_of(&per_draw_mean_error, 1.0),
+                        "p95_abs_bearing_error_deg_se": se_of(&per_draw_p95_error, 1.0),
+                        "max_abs_bearing_error_deg_se": se_of(&per_draw_max_error, 1.0),
                         "draws": DRAWS,
                     })
                 );

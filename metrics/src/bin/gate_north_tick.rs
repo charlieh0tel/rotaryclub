@@ -180,6 +180,21 @@ fn compute_timing_metrics(
 /// Independent noise realisations averaged into each reported row.
 const DRAWS: u64 = 8;
 
+/// Standard error of the mean of one column over the draws.
+fn se_of(runs: &[TimingMetrics], f: fn(&TimingMetrics) -> f32) -> f32 {
+    let n = runs.len() as f32;
+    if n < 2.0 {
+        return 0.0;
+    }
+    let mean = runs.iter().map(f).sum::<f32>() / n;
+    let var = runs
+        .iter()
+        .map(|r| (f(r) - mean) * (f(r) - mean))
+        .sum::<f32>()
+        / (n - 1.0);
+    (var / n).sqrt()
+}
+
 fn average_timing_metrics(runs: &[TimingMetrics]) -> TimingMetrics {
     let n = runs.len() as f32;
     let mean = |f: fn(&TimingMetrics) -> f32| runs.iter().map(f).sum::<f32>() / n;
@@ -380,6 +395,13 @@ fn main() {
                             "false_positive_rate": metrics.false_positive_rate,
                             "mean_abs_error_samples": metrics.mean_abs_error_samples,
                             "p95_abs_error_samples": metrics.p95_abs_error_samples,
+                            // For `check` to test whether the row supports a
+                            // verdict, not only whether it is inside a limit.
+                            "detection_rate_se": se_of(&runs, |m| m.detection_rate),
+                            "false_positive_rate_se": se_of(&runs, |m| m.false_positive_rate),
+                            "mean_abs_error_samples_se":
+                                se_of(&runs, |m| m.mean_abs_error_samples),
+                            "p95_abs_error_samples_se": se_of(&runs, |m| m.p95_abs_error_samples),
                             "draws": if scenario.noise_peak > 0.0 { DRAWS } else { 1 },
                         })
                     );
