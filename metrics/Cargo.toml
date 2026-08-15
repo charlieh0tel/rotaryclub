@@ -1,6 +1,6 @@
 [package]
 name = "rotaryclub-metrics"
-version = "3.1.0"
+version = "3.2.0"
 edition = "2024"
 publish = false
 description = "Measurement instruments for the rotaryclub receiver: gates, sweeps, probes and censuses."
