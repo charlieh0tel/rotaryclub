@@ -192,7 +192,7 @@ whole turn, so it read 0.99 on a bearing that was tens of degrees wrong.
 Confidence now derives from an estimated bearing uncertainty in degrees.)
 
 Note: adaptive thresholding for north tick detection is not a priority, and
-this is measured rather than assumed. `examples/north_threshold_sweep` sweeps
+this is measured rather than assumed. `sweep_threshold` sweeps
 pulse amplitude and channel noise against the detection threshold, in both
 tracking modes.
 

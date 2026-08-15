@@ -102,7 +102,7 @@ for mode in ("dpll", "simple"):
 
 def paths(out_dir: Path, profile: str) -> tuple[Path, Path, Path]:
     return (
-        out_dir / "north_tick_timing_metrics.jsonl",
+        out_dir / "gate_north_tick.jsonl",
         out_dir / f"north_tick_timing_{profile}_summary.md",
         out_dir / f"north_tick_timing_{profile}_failed_rows.jsonl",
     )
@@ -113,7 +113,7 @@ def run_example(metrics_path: Path) -> None:
         metrics_path,
         "north_tick_timing",
         lambda handle: subprocess.run(
-            ["cargo", "run", "--release", "--example", "north_tick_timing_metrics"],
+            ["cargo", "run", "--release", "-p", "rotaryclub-metrics", "--bin", "gate_north_tick"],
             check=True,
             stdout=handle,
         ),

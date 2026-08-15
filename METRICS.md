@@ -103,9 +103,9 @@ Three harnesses, run in CI, each with limits in `scripts/*_report.py`.
 
 | Harness | Covers | Draws per cell |
 | --- | --- | --- |
-| `bearing_performance_metrics` | Bearing accuracy and throughput per method, scenario and buffer size | 8 |
-| `north_tick_timing_metrics` | Tick detection and timing per tracking mode, scenario and chunk size | 8 |
-| `system_pipeline_performance_metrics` | The whole stack: detection, bearing error, tick error, throughput | 16 |
+| `gate_bearing` | Bearing accuracy and throughput per method, scenario and buffer size | 8 |
+| `gate_north_tick` | Tick detection and timing per tracking mode, scenario and chunk size | 8 |
+| `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput | 16 |
 
 Scenarios are `clean`, `noisy_jittered`, `harmonic_contaminated` and
 `low_snr_dc`, with the interference scaled to the passband noise the recordings
@@ -122,7 +122,7 @@ The shortest burst duration T for which, over N independent noise
 realisations, at least 90 percent yield a reported bearing within E degrees of
 truth with a stated uncertainty at or below U.
 
-Measured by `examples/shortest_signal` at E = U = 10 degrees, over 24 draws,
+Measured by `metric_shortest_signal` at E = U = 10 degrees, over 24 draws,
 with the burst embedded in squelch-open hiss and the north loop already
 locked. Detection rate by burst length:
 
@@ -205,20 +205,43 @@ indistinguishable from a fresh result.
 
 ## Where the numbers come from
 
-Measurement tools, none of which run in CI:
+Everything that measures the receiver lives in the `rotaryclub-metrics`
+workspace member, run as `cargo run -p rotaryclub-metrics --bin <name>`. It is
+not a default workspace member, so `cargo build` and the packaging that wraps
+it are unaffected, and nothing here is installable.
 
-| Example | Measures |
+The prefix says what a thing is: `gate_` is enforced by CI against limits in
+`scripts/`, `census_` compares the synthetic channel against the recordings,
+`sweep_` walks a parameter, `probe_` answers one question, `metric_` produces a
+headline number. `examples/` is for demonstrating the receiver, `tests/` for
+testing it, `benches/` for the one thing that measures speed.
+
+The gates:
+
+| Instrument | Measures |
 | --- | --- |
-| `signal_census` | Synthetic signal against the recordings: pulse amplitude, width, floor, jitter, in-band fraction, harmonics |
-| `interference_census` | Interference shape and time structure in the Doppler passband |
-| `dropout_census` | What else changes when the rotation tone weakens |
-| `uncertainty_reference_probe` | Which scatter the stated uncertainty should be calibrated against, gated on carrier |
-| `confidence_under_multipath` | Whether filtering on confidence improves the bearings kept |
-| `north_threshold_sweep` | Detection and false positives against pulse amplitude, noise and threshold |
-| `north_loop_bandwidth_sweep` | Loop bandwidth against acquisition, steady state and holdover |
-| `north_agc_probe` | AGC behaviour against north-channel noise, per tracking mode |
-| `coast_budget_probe` | How far the coasting budget lets the loop predict |
-| `zero_crossing_bias_probe` | Bias in the zero-crossing estimator across seeds and filter widths |
-| `north_hpf_sweep` (bin) | Highpass cutoff against per-tick timing, on the captures |
-| `shortest_signal` | Shortest burst yielding a usable bearing, against noise and buffer size |
-| `config_sweep` (bin) | Any configuration or stimulus axis against bearing and tick error, with `--seeds` and `--jsonl` |
+| `gate_bearing` | Bearing accuracy and throughput per method, scenario and buffer size |
+| `gate_north_tick` | Tick detection and timing per tracking mode, scenario and chunk size |
+| `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput |
+
+The rest, none of which run in CI:
+
+| Instrument | Measures |
+| --- | --- |
+| `census_signal` | Synthetic signal against the recordings: pulse amplitude, width, floor, jitter, in-band fraction, harmonics |
+| `census_interference` | Interference shape and time structure in the Doppler passband |
+| `census_dropout` | What else changes when the rotation tone weakens |
+| `sweep_config` | Any configuration or stimulus axis against bearing and tick error, with `--seeds` and `--jsonl` |
+| `sweep_threshold` | Detection and false positives against pulse amplitude, noise and threshold |
+| `sweep_loop_bandwidth` | Loop bandwidth against acquisition, steady state and holdover |
+| `sweep_hpf` | Highpass cutoff against per-tick timing, on the captures |
+| `probe_uncertainty_reference` | Which scatter the stated uncertainty should be calibrated against, gated on carrier |
+| `probe_confidence_multipath` | Whether filtering on confidence improves the bearings kept |
+| `probe_agc` | AGC behaviour against north-channel noise, per tracking mode |
+| `probe_coast_budget` | How far the coasting budget lets the loop predict |
+| `probe_zero_crossing_bias` | Bias in the zero-crossing estimator across seeds and filter widths |
+| `metric_shortest_signal` | Shortest burst yielding a usable bearing, against noise and buffer size |
+| `compare_config` | Two configurations against one generated signal |
+
+`scripts/compare_refs.py` runs a gate against two git states; `benches/north_hotspots`
+is the one thing here that measures speed rather than accuracy.

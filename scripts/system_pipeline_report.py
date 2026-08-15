@@ -434,7 +434,7 @@ for bearing_method in ("correlation", "zero_crossing"):
 
 def paths(out_dir: Path, profile: str) -> tuple[Path, Path, Path]:
     return (
-        out_dir / "system_pipeline_performance_metrics.jsonl",
+        out_dir / "gate_pipeline.jsonl",
         out_dir / f"system_pipeline_performance_{profile}_summary.md",
         out_dir / f"system_pipeline_performance_{profile}_failed_rows.jsonl",
     )
@@ -445,7 +445,7 @@ def run_example(metrics_path: Path) -> None:
         metrics_path,
         "system_pipeline",
         lambda handle: subprocess.run(
-            ["cargo", "run", "--release", "--example", "system_pipeline_performance_metrics"],
+            ["cargo", "run", "--release", "-p", "rotaryclub-metrics", "--bin", "gate_pipeline"],
             check=True,
             stdout=handle,
         ),

@@ -108,7 +108,7 @@ gates cover, and how to add a metric without fooling yourself.
   stays strong. With a reflected path 0.45 of the direct one, filtering at 0.5 confidence
   improves median error by 5 percent while discarding 42 percent of the bearings, against
   23 to 58 percent on a clean channel, and rank correlation against actual error falls from
-  0.40 to 0.13. See `examples/confidence_under_multipath`.
+  0.40 to 0.13. See `probe_confidence_multipath`.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
 - `resultant_length`: Mean resultant length of the Doppler phase, `[0, 1]`. Whether the
@@ -223,11 +223,11 @@ cargo test
 python3 scripts/north_tick_timing_report.py ci --profile baseline
 
 # Baseline artifacts:
-# - target/timing-metrics/north_tick_timing_metrics.csv
+# - target/timing-metrics/gate_north_tick.csv
 # - target/timing-metrics/north_tick_timing_baseline_summary.md
 # - target/timing-metrics/north_tick_timing_baseline_failed_rows.csv
 # Strict artifacts (when run with --profile strict and --out-dir target/timing-metrics-strict):
-# - target/timing-metrics-strict/north_tick_timing_metrics.csv
+# - target/timing-metrics-strict/gate_north_tick.csv
 # - target/timing-metrics-strict/north_tick_timing_strict_summary.md
 # - target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv
 

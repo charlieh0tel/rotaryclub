@@ -3295,6 +3295,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rotaryclub-metrics"
+version = "3.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rotaryclub",
+ "serde_json",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

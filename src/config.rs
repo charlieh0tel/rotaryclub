@@ -272,7 +272,7 @@ pub enum NorthTrackingMode {
 /// spans zero at every noise level tried.
 ///
 /// On the recordings the two are a tie, and the tie is better evidence than
-/// either synthetic result: `north_hpf_sweep` over 121,073 ticks of
+/// either synthetic result: `sweep_hpf` over 121,073 ticks of
 /// `wouxun_..._test1.wav` puts amplitude weighting at 0.704 degrees per tick
 /// against 0.688 for energy at this cutoff, a two percent difference. At
 /// 5 kHz the ordering reverses and the gap is real, 0.664 against 1.624,
@@ -471,7 +471,7 @@ pub struct NorthTickConfig {
     /// trades one against the other.
     ///
     /// Every measurement available favours the low end. With the shipped
-    /// estimator, `north_hpf_sweep` puts per-tick timing at 0.44 degrees here
+    /// estimator, `sweep_hpf` puts per-tick timing at 0.44 degrees here
     /// against 0.52 at 5 kHz, and detection is unaffected at every cutoff
     /// tried including none at all. Raising it also costs elsewhere: at
     /// 5 kHz the simple tracker's timing jitter doubles, the coasting budget
@@ -559,7 +559,7 @@ pub struct NorthTickConfig {
     /// At the default rotation rate this covers 96% of a rotation, which is
     /// why the timing gate can only act on detections arriving late. Trading
     /// some of it for gate reach was measured and rejected. Re-measured with
-    /// `config_sweep`, against a north channel noise of 0.20 RMS: the shipped
+    /// `sweep_config`, against a north channel noise of 0.20 RMS: the shipped
     /// 0.6 ms gives 0.32 samples of tick error and 12.1 degrees of bearing
     /// error, where 0.45 ms gives 0.89 and 86.1, and 0.3 ms gives 0.86 and
     /// 75.1. The figures this comment used to quote -- detection falling from

@@ -8,6 +8,13 @@ description = "Pseudo-Doppler Radio Direction Finding system"
 homepage = "https://github.com/charlieh0tel/rotaryclub"
 repository = "https://github.com/charlieh0tel/rotaryclub"
 
+[workspace]
+members = ["metrics"]
+# Only the receiver by default, so `cargo build` and the packaging that wraps
+# it keep building what they always built. The instruments are opt-in:
+# `cargo build -p rotaryclub-metrics`.
+default-members = ["."]
+
 [dependencies]
 # Audio I/O
 # audio_thread_priority makes cpal promote its own stream thread (the one
@@ -38,14 +45,6 @@ approx = "0.5"
 rotaryclub = { path = ".", features = ["simulation"] }
 
 [[bin]]
-name = "config_sweep"
-required-features = ["simulation"]
-
-[[bin]]
-name = "config_compare"
-required-features = ["simulation"]
-
-[[bin]]
 name = "generate_wav"
 required-features = ["simulation"]
 
@@ -60,68 +59,9 @@ required-features = ["gui"]
 [[bin]]
 name = "analyze_wav"
 
-[[example]]
-name = "bearing_convention_probe"
-required-features = ["simulation"]
-
-[[example]]
-name = "bearing_performance_metrics"
-required-features = ["simulation"]
-
-[[example]]
-name = "bench_north_hotspots"
-required-features = ["simulation"]
-
-[[example]]
-name = "north_agc_probe"
-required-features = ["simulation"]
-
-[[example]]
-name = "north_loop_bandwidth_sweep"
-required-features = ["simulation"]
-
-[[example]]
-name = "north_threshold_sweep"
-required-features = ["simulation"]
-
-[[example]]
-name = "north_tick_timing_metrics"
-required-features = ["simulation"]
-
-[[example]]
-name = "signal_census"
-required-features = ["simulation"]
-
-[[example]]
-name = "synthetic_rdf"
-required-features = ["simulation"]
-
-[[example]]
-name = "system_pipeline_performance_metrics"
-required-features = ["simulation"]
-
-[[example]]
-name = "uncertainty_reference_probe"
-required-features = ["simulation"]
-
-[[example]]
-name = "zero_crossing_bias_probe"
-required-features = ["simulation"]
-
-[[example]]
-name = "interference_census"
-required-features = ["simulation"]
-
-[[example]]
-name = "confidence_under_multipath"
-required-features = ["simulation"]
-
-[[example]]
-name = "dropout_census"
-required-features = ["simulation"]
-
-[[example]]
-name = "shortest_signal"
+[[bench]]
+name = "north_hotspots"
+harness = false
 required-features = ["simulation"]
 
 [features]

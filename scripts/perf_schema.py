@@ -192,11 +192,14 @@ def _git(*args: str) -> str:
         return ""
 
 
-def source_digest(roots: Sequence[str] = ("src", "examples")) -> str:
+def source_digest(roots: Sequence[str] = ("src", "metrics")) -> str:
     """Content hash of the code that produces the metrics.
 
     Exact in both directions: unchanged code keeps its digest across a commit,
     and an edit changes it whether or not anything was committed.
+
+    Covers the library and the instruments that produce the metrics. `examples`
+    is deliberately not covered: nothing there feeds a gate.
     """
     digest = hashlib.sha256()
     for root in roots:

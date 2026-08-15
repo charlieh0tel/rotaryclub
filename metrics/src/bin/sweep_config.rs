@@ -1,6 +1,6 @@
 //! Sweep any number of axes against one generator and print the table.
 //!
-//! `config_compare` takes an A and a B, and most real questions are not two
+//! `compare_config` takes an A and a B, and most real questions are not two
 //! configurations but a grid: the detection threshold needed threshold against
 //! amplitude against noise against tracking mode, and the loop bandwidth
 //! needed bandwidth against noise. Both were hand-rolled into their own
@@ -17,10 +17,10 @@
 //! the tests use, and the stimulus axes name physical quantities that were
 //! measured on the recordings rather than knob positions.
 //!
-//!   config_sweep --axis north_tick.threshold_fraction=0.13,0.19,0.32 \
+//!   sweep_config --axis north_tick.threshold_fraction=0.13,0.19,0.32 \
 //!                --axis north_noise=0.0,0.05,0.20
 //!
-//!   config_sweep --axis north_tick.dpll.natural_frequency_hz=1,2,4 \
+//!   sweep_config --axis north_tick.dpll.natural_frequency_hz=1,2,4 \
 //!                --axis doppler_noise=0.2,0.8,6.5
 
 use anyhow::{Context, Result, anyhow, bail};

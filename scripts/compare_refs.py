@@ -26,17 +26,17 @@ from typing import Any, Dict, List, Optional, Tuple
 HARNESSES = {
     "system_pipeline": (
         "scripts/system_pipeline_report.py",
-        "target/system-pipeline-perf/system_pipeline_performance_metrics.jsonl",
+        "target/system-pipeline-perf/gate_pipeline.jsonl",
         ("north_mode", "bearing_method", "scenario", "buffer_size"),
     ),
     "bearing_performance": (
         "scripts/bearing_performance_report.py",
-        "target/bearing-perf/bearing_performance_metrics.jsonl",
+        "target/bearing-perf/gate_bearing.jsonl",
         ("method", "scenario", "buffer_size"),
     ),
     "north_tick_timing": (
         "scripts/north_tick_timing_report.py",
-        "target/timing-metrics/north_tick_timing_metrics.jsonl",
+        "target/timing-metrics/gate_north_tick.jsonl",
         ("mode", "scenario", "chunk_size", "start_offset_s"),
     ),
 }

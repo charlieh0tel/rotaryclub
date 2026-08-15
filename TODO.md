@@ -4,7 +4,7 @@
   (memory growth is fixed: dumps stream to disk incrementally)
 - Add criterion benchmarks for DSP pipeline (FIR filters, AGC, I/Q correlation)
 
-## Measured with config_sweep
+## Measured with sweep_config
 
 Five grids run once the sweep tool existed. Two of them found bugs in the
 tool itself before finding anything about the pipeline, both of the same
@@ -64,7 +64,7 @@ for on every sweep.
       median over windows; both distributions are strongly skewed on real
       signal, so that landed in the quiet part of the run and read 0.16 where
       pairing the two inside each window reads 0.6 to 0.7.
-      `examples/uncertainty_reference_probe` prints all of these side by side.
+      `probe_uncertainty_reference` prints all of these side by side.
 
       The buffer-length drift is real and monotonic, which took three
       measurements to establish. The offline table predicted the figure would
@@ -117,7 +117,7 @@ for on every sweep.
       median error by 5 percent while throwing away 42 percent of the
       bearings; on a clean channel the same filter improves it by 23 to 58
       percent. Rank correlation against actual error falls from 0.40 to 0.13.
-      `examples/confidence_under_multipath` measures it.
+      `probe_confidence_multipath` measures it.
 
       This follows from the derivation rather than being a defect in it: the
       figure comes from the signal-to-noise ratio, and a reflection leaves the
@@ -139,7 +139,7 @@ for on every sweep.
 - [ ] The every-other-pulse failure is reduced, not gone. The arbitration
       window fixed it at the noise level the pipeline gate runs at -- 0.08
       RMS, 0.995 detection over sixteen draws, no spread -- and
-      `north_agc_probe` finds it again just above. At 0.10 RMS ten of twelve
+      `probe_agc` finds it again just above. At 0.10 RMS ten of twelve
       draws read exactly 0.50 and two read 1.00; at 0.20, eight read about
       0.45 and four about 0.90. Still bimodal, still exactly half when it
       bites.
@@ -196,7 +196,7 @@ for on every sweep.
 
       The recordings outrank all of the above and say the two are a tie at the
       shipped cutoff. `scripts/centroid_weighting_report.py` and
-      `src/bin/north_hpf_sweep.rs` compare the estimators on the captures, and
+      `metrics/src/bin/sweep_hpf.rs` compare the estimators on the captures, and
       the latter over 121,073 ticks puts amplitude at 0.704 degrees per tick
       against energy at 0.688 -- two percent. At 5 kHz the ordering reverses
       and the gap is real, 0.664 against 1.624. Nothing recommends a change,
@@ -207,7 +207,7 @@ for on every sweep.
       shipped default, on the grounds that it too was a single draw. It was
       not: it came from the two capture harnesses above, which were missed
       because the search for them looked in `examples/` and at
-      `north_hpf_sweep --help`, and they live in `scripts/` and behind no
+      `sweep_hpf --help`, and they live in `scripts/` and behind no
       flag. A synthetic measurement does not overturn a capture measurement
       whatever its error bars, and the two are not even in disagreement --
       they are separated by roughly a hundredfold in tick error, because a
@@ -219,7 +219,7 @@ for on every sweep.
       seed-to-seed spread of 0.37 to 0.79, which is a draw. 1000 stays.
 
       Two harness defects had to be fixed before any of this could be
-      measured, and they are the real result of this item. `config_sweep` had
+      measured, and they are the real result of this item. `sweep_config` had
       no way to vary the noise at all, so every row it had ever printed was
       one realisation; and the generator's seed was folded in before the
       finalizer, so nearby seeds produced correlated streams -- 0.97 between
@@ -491,7 +491,7 @@ for on every sweep.
       `test_coasting_stops_before_its_error_escapes_the_bound` now pins the
       bound itself, and fails against the change described above.
 
-- [x] Extend the comparison to N configurations, not two. `src/bin/config_sweep.rs`
+- [x] Extend the comparison to N configurations, not two. `metrics/src/bin/sweep_config.rs`
       takes any number of `--axis key=v1,v2,...` and runs the cross product,
       over configuration keys and stimulus alike. `--list-axes` lists both.
       The stimulus axes name the physical quantity rather than a knob:
@@ -503,7 +503,7 @@ for on every sweep.
       different noise.
 
 - [x] Add a mode that runs two configurations over the same signal and reports
-      the difference. `src/bin/config_compare.rs`: both sides start from the
+      the difference. `metrics/src/bin/compare_config.rs`: both sides start from the
       shipped defaults and take dotted `key=value` overrides, so a comparison
       records exactly what it changed. `--list-keys` lists what it accepts.
 

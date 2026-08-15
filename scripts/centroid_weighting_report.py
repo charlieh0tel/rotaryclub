@@ -17,7 +17,7 @@ after changing the cutoff, the filter length, or the capture hardware.
 
 Scores are RMS bearing error of the per-tick estimate against a fitted
 constant rotation rate, optionally after a second-order DPLL. This mirrors
-`north_hpf_sweep` but sweeps weighting rather than cutoff, and unlike the Rust
+`sweep_hpf` but sweeps weighting rather than cutoff, and unlike the Rust
 binary it can measure schemes that are not in the shipped enum.
 
 Usage:

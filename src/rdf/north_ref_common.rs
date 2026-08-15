@@ -126,7 +126,7 @@ pub(super) fn highpass_taps(config: &NorthTickConfig, sample_rate: f32) -> usize
 /// Below that point detection does not degrade, it stops -- there are no
 /// ticks, so no bearings, and no metric that would show a problem. The
 /// threshold has wide margin (detection holds to a pulse amplitude of 0.3
-/// against the 0.8 expected, per `examples/north_threshold_sweep`), so a
+/// against the 0.8 expected, per `sweep_threshold`), so a
 /// channel that falls through it is badly wrong rather than marginal, and
 /// worth saying so out loud.
 pub(super) struct QuietChannelWatch {

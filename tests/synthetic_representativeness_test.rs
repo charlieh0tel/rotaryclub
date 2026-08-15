@@ -1,7 +1,7 @@
 //! The synthetic Doppler channel must resemble the recordings it stands in for.
 //!
 //! It did not. The generated channel was the rotation tone and nothing else:
-//! `examples/signal_census` measured its in-band fraction at 1.000 against
+//! `census_signal` measured its in-band fraction at 1.000 against
 //! 0.002 to 0.075 on the captures in `data/`, and its harmonic content at zero
 //! against 0.07 to 0.15. That is a factor of thirteen to five hundred on the
 //! first, and it is not a cosmetic gap. The bearing uncertainty is the Doppler

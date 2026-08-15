@@ -58,6 +58,9 @@ jobs:
     - name: Build examples
       run: cargo build --examples --verbose
 
+    - name: Build instruments
+      run: cargo build -p rotaryclub-metrics --verbose
+
     - name: Upload north tick timing metrics
       if: always()
       uses: actions/upload-artifact@v4

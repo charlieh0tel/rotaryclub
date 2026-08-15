@@ -8,10 +8,10 @@
 //! Both sides start from the shipped defaults and take dotted `key=value`
 //! overrides, so a comparison says exactly what it changed:
 //!
-//!   config_compare -a north_tick.estimator=hard-limiter \
+//!   compare_config -a north_tick.estimator=hard-limiter \
 //!                  -b north_tick.estimator=energy-centroid
 //!
-//!   config_compare -a north_tick.dpll.natural_frequency_hz=1 \
+//!   compare_config -a north_tick.dpll.natural_frequency_hz=1 \
 //!                  -b north_tick.dpll.natural_frequency_hz=2 --noise 0.05
 //!
 //! The signal is a Doppler tone at a known bearing with band-limited north

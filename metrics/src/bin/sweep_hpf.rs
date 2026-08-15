@@ -21,7 +21,7 @@ use rotaryclub::config::RotationFrequency;
 use rotaryclub::signal_processing::{DcRemover, FirHighpass, PeakDetector};
 
 #[derive(Parser, Debug)]
-#[command(name = "north_hpf_sweep")]
+#[command(name = "sweep_hpf")]
 #[command(about = "Sweep north highpass cutoff/taps against pulse timing accuracy", long_about = None)]
 struct Args {
     /// WAV files to analyze

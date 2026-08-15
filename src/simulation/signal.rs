@@ -47,7 +47,7 @@ fn add_north_pulse(channel: &mut [f32], epoch: f64, amplitude: f32) {
 ///
 /// The synthetic Doppler channel was the rotation tone and nothing else,
 /// which is not what a receiver delivers. Measured against the captures in
-/// `data/` with `examples/signal_census`, the tone is between 0.2 and 7.5
+/// `data/` with `census_signal`, the tone is between 0.2 and 7.5
 /// percent of the channel and the rest is FM audio, and the second and third
 /// harmonics run at 7 to 15 percent of the fundamental. The synthetic signal
 /// read 100 percent and zero.
