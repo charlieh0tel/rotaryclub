@@ -15,9 +15,11 @@ method.
 | `confidence` | The same question on a 0–1 scale against a configured half point | The same things, plus: it is a monotone function of the uncertainty and carries no independent information |
 | `snr_db` | How much of the buffer's power correlated with the rotation | Whether the correlated part points anywhere sensible |
 | `signal_strength` | Whether there is a carrier at all | Whether the bearing derived from it agrees with itself |
-| `resultant_length` | Whether the looks agreed with each other | How strong they were. Derived from `snr_db`, so under a reflection it reads high where a directly measured one would read low |
-| `tone_peak` | Absolute level of the filtered Doppler signal | Everything else. It is a level, reported because the KN5R sentence is defined in terms of one |
+| `resultant_length` † | Whether the looks agreed with each other | How strong they were. Derived from `snr_db`, so under a reflection it reads high where a directly measured one would read low |
+| `tone_peak` † | Absolute level of the filtered Doppler signal | Everything else. It is a level |
 | `lock_quality` | Whether the north DPLL is tracking | The Doppler side entirely |
+
+† Defined by KR6DD; see [Attribution](#attribution).
 
 Two of these deserve emphasis because they are easy to over-read.
 
@@ -33,6 +35,37 @@ while discarding 42 percent of the bearings, against 23 to 58 percent on a
 clean channel, and its rank correlation against actual error falls from 0.40 to
 0.13. A reflection leaves the tone strong and moves where it points, which is
 exactly what an SNR-derived figure cannot register.
+
+## Attribution
+
+Two of the metrics above are not this project's. `resultant_length` and
+`tone_peak` are **KR6DD's**, defined in his `RPiDDFengine` and carried in the
+"C" sentence as *angle vector average magnitude* and *FIR filtered Doppler tone
+peak value*. The sentence format is his as well; the copy in
+`kn5r-rdf/docs/data-format.md` is headed "Data format from KR6DD".
+
+What is specifically his, and worth stating because it is a design choice
+rather than an implementation detail:
+
+**Using the resultant length of the phase vectors as the bearing quality
+figure.** The mean resultant length is a standard circular statistic, but
+choosing it as *the* quality number a direction finder reports — maximal when
+every zero crossing agrees on the angle, zero when they are scattered — is his,
+and it is a better choice than the obvious alternatives. Signal strength says
+whether a carrier is present, not whether the bearing derived from it holds
+together; a coherence says the second thing, and the second thing is what a
+hunter needs.
+
+**Reporting an absolute tone level alongside it.** The two answer different
+questions and neither substitutes for the other, which is why sending signal
+strength in the magnitude field was wrong here rather than merely imprecise.
+
+This receiver computes `resultant_length` from the signal-to-noise ratio rather
+than from per-crossing vectors, so it is an estimate of his quantity rather
+than the same computation. That is our compromise, not his design.
+
+The wider format and the consuming ecosystem — the "S", "B" and "T" sentences,
+the collection and display side — come from the KN5R-RDF project.
 
 ## What the gates measure
 

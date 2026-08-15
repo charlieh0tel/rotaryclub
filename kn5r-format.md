@@ -1,4 +1,8 @@
-# The KN5R-RDF "C" sentence, answered
+# The KN5R-RDF "C" sentence
+
+The format and both quality metrics in it are **KR6DD's**, defined in his
+`RPiDDFengine`. The "S", "B" and "T" sentences and the collection side come
+from the KN5R-RDF project.
 
 `src/output/kn5r.rs` emits the KN5R-RDF "C" sentence so this receiver can feed
 displays and logging built for that format. What the fields contain is

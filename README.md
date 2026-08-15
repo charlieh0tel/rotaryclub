@@ -119,8 +119,9 @@ gates cover, and how to add a metric without fooling yourself.
 - `tone_peak`: Largest positive sample of the filtered Doppler signal, in full-scale
   units `[0, 1]`.
 
-  The last two exist because the KN5R "C" sentence is defined in terms of them, but they
-  are carried unscaled and reported on every output. That format wants them as 0-999 and
+  The last two are KR6DD's metrics, defined in his `RPiDDFengine` and carried in the
+  KN5R "C" sentence as *angle vector average magnitude* and *FIR filtered Doppler tone
+  peak value*. They are carried here unscaled and reported on every output. That format wants them as 0-999 and
   0-999 thousandths respectively; the scaling belongs to the formatter, not the pipeline.
 
 #### North Tracking Quality Measures
