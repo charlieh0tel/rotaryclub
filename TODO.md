@@ -293,23 +293,32 @@ for on every sweep.
       through the system pipeline the split touches DPLL rows only and
       improves the noisy ones.
 
-- [ ] The simple tracker can latch into detecting every other pulse. At the
-      `low_snr_dc` level it either tracks or halves, and which one happens is
-      decided by the noise draw: over sixteen draws the latch appears in about
-      one in five, and detection reads 0.894 rather than either of the two
-      values it actually takes. The dead time is 28.8 samples against a 29.95
-      sample period, so a detection landing early puts the next pulse inside
-      its shadow, and once that starts it sustains itself.
+- [x] The simple tracker latched into detecting every other pulse. Fixed.
+      The dead time blanks 96 percent of a rotation and the detector kept the
+      first crossing in it, so at any real noise level a trigger arriving
+      roughly once per rotation opened the window and masked the pulse behind
+      it. Over sixteen draws that halved detection about one time in five,
+      and the gate row read 0.894 with a standard error of 0.049 -- a value it
+      never actually took.
 
-      Found because the noise generators were unified and the new draw
-      happened to land on the bad side. The gate now averages sixteen draws
-      and its limits are set from the spread, so this is measured rather than
-      hidden, but the behaviour itself is untouched. The DPLL does not do it:
-      its gate rejects the early detection on timing and it coasts the gap.
+      The simple tracker now searches the whole dead time for its largest
+      sample rather than taking the first crossing. A pulse is several times
+      the threshold and a trigger is barely over it, so the pulse wins
+      whenever both are in the window. Detection goes to 0.995 to 0.997 with a
+      standard error under 0.0004, the bimodality is gone, and mean bearing
+      error improves from 67 to 60 degrees on the worst scenario.
 
-      Fixing it means shortening the dead time, which trades against
-      noise-trigger rejection, and it is the simple tracker, which is not to
-      be hardened. Recorded rather than acted on.
+      Shortening the dead time, which is the obvious fix, is worse and was
+      measured: at 0.2 RMS it admits more triggers than it saves, and the
+      simple tracker delivers 5980 bearings at 0.45 ms against 9586 at the
+      shipped 0.6. The old note recommending against shortening was right,
+      though its numbers came from a single draw.
+
+      Deliberately not applied to the DPLL. Measured there it was slightly
+      worse across the board -- tick error 0.0175 to 0.0180 on clean signal,
+      bearing 0.87 to 0.90 degrees -- with nothing improved, because its
+      timing gate already rejects the detections this arbitrates against and a
+      wider window only lets a late noise sample outrank a clean pulse.
 
 - [x] Sixteen files carried their own copy of the synthetic noise generator,
       and they had diverged three ways: the library's murmur finalizer, one

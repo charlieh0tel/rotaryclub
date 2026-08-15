@@ -70,6 +70,18 @@ impl SimpleNorthTracker {
             effective_pulse_amplitude,
             &highpass,
         );
+        // The dead time blanks 96 percent of a rotation, and the detector
+        // keeps the first crossing in it. At any real noise level a trigger
+        // arrives roughly once per rotation, opens the window, and masks the
+        // pulse that follows -- which is how the simple tracker ends up
+        // finding every other pulse.
+        //
+        // Searching the whole dead time for its largest sample fixes that
+        // without shortening it. A pulse is several times the threshold and a
+        // noise trigger is barely over it, so the pulse wins whenever both
+        // are in the window. Shortening the dead time instead was measured
+        // and is worse: it admits more triggers than it saves.
+        let arbitration_window = min_samples;
         let peak_timing = derive_peak_timing(
             &highpass,
             threshold,
@@ -90,7 +102,7 @@ impl SimpleNorthTracker {
                 let mut detector = PeakDetector::with_peak_search_window(
                     threshold,
                     min_samples,
-                    peak_timing.peak_search_window_samples,
+                    arbitration_window,
                 );
                 // The estimator reads samples on both sides of the peak, and
                 // the peak can land at the end of the search window, so the
@@ -106,7 +118,7 @@ impl SimpleNorthTracker {
             // reaches back by the search window plus the trailing context the
             // detector now waits for, and the estimator then reads a further
             // half-width before it.
-            filter_tail_len: 2 * centroid_half_width + peak_timing.peak_search_window_samples,
+            filter_tail_len: 2 * centroid_half_width + arbitration_window,
             nominal_period_samples,
             last_tick_sample: None,
             last_tick_fraction: 0.0,

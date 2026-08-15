@@ -244,13 +244,24 @@ fn main() {
                 // the summaries, so the percentiles still describe a
                 // distribution rather than an average of percentiles.
                 let (mut measured_count, mut times_us, mut errors_deg) = (0usize, vec![], vec![]);
+                // The extreme-value columns are kept per draw and averaged,
+                // not taken over the pool. A maximum over eight times as many
+                // samples is larger for that reason alone, which would make
+                // the column mean something different from the limit set
+                // against it; the mean of the per-run maxima is the same
+                // quantity as before, measured more times.
+                let mut per_draw_max_error: Vec<f64> = Vec::new();
+                let mut per_draw_max_us: Vec<f64> = Vec::new();
                 for draw in 0..DRAWS {
                     let (c, t, e) =
                         run_case(method, scenario, buffer_size, expected_bearing_deg, draw);
                     measured_count += c;
+                    per_draw_max_us.push(t.iter().copied().fold(0.0, f64::max));
+                    per_draw_max_error.push(e.iter().copied().fold(0.0, f64::max));
                     times_us.extend(t);
                     errors_deg.extend(e);
                 }
+                let mean_of = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
                 let iterations = times_us.len();
                 let sum_us: f64 = times_us.iter().sum();
                 let mean_us = if iterations > 0 {
@@ -259,7 +270,7 @@ fn main() {
                     0.0
                 };
                 let p95_us = percentile_us(&times_us, 0.95);
-                let max_us = times_us.iter().copied().fold(0.0, f64::max);
+                let max_us = mean_of(&per_draw_max_us);
                 let success_rate = if iterations > 0 {
                     measured_count as f64 / iterations as f64
                 } else {
@@ -273,7 +284,7 @@ fn main() {
                     errors_deg.iter().sum::<f64>() / errors_deg.len() as f64
                 };
                 let p95_abs_bearing_error_deg = percentile_deg(&errors_deg, 0.95);
-                let max_abs_bearing_error_deg = errors_deg.iter().copied().fold(0.0, f64::max);
+                let max_abs_bearing_error_deg = mean_of(&per_draw_max_error);
                 println!(
                     "{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.9},{:.9},{:.6},{:.6},{:.6}",
                     method.as_str(),

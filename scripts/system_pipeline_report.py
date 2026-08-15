@@ -274,6 +274,127 @@ BASELINE_LIMITS[("simple", "zero_crossing", "low_snr_dc")].update(
     }
 )
 
+# The simple tracker on low_snr_dc used to be bimodal, and is not any more.
+#
+# It either tracked or latched into detecting every other pulse, decided by
+# the noise draw: over sixteen draws the latch turned up about one time in
+# five, and detection read 0.894 with a standard error of 0.049 -- a value it
+# never actually took. The cause was the dead time keeping the first crossing
+# in its window rather than the largest. At this noise level a trigger arrives
+# roughly once per rotation, and the one that opened the window masked the
+# pulse behind it.
+#
+# The simple tracker now searches the whole dead time for its largest sample,
+# so the pulse wins over the trigger. Detection reads 0.995 to 0.997 with a
+# standard error under 0.0004, and the limits below are tight again. The
+# bearing limit is the measured worst row plus three standard errors.
+for bearing_method in ("correlation", "zero_crossing"):
+    BASELINE_LIMITS[("simple", bearing_method, "low_snr_dc")].update(
+        {
+            "bearing_success_rate": 0.99,
+            "detection_rate": 0.99,
+            "mean_abs_bearing_error_deg": 78.0,
+        }
+    )
+
+# The bearing limits below are far looser than they were, and the scenarios
+# are far harsher than they were. The doppler noise used to be added white
+# across the spectrum, so the doppler bandpass -- 500 Hz of 24 kHz -- threw 98
+# percent of it away before it reached anything: the scenario named for low SNR
+# ran at an in-band tone fraction of 0.998 while the recordings in data/ run
+# from 0.002 to 0.075. Every accuracy limit here was set against near-clean
+# signal.
+#
+# The scenarios now carry band-limited audio scaled to the noise power inside
+# the doppler passband, which is the quantity that decides a bearing, matched
+# to the three recordings: 0.2, 0.8 and 6.5.
+#
+# One caveat on reading these. At matched passband power the synthetic signal
+# is two to four times harsher than the recordings -- 6.1 degrees against 1.6
+# at a ratio of 0.2, 40.7 against 54.8 at 6.5 -- because flat noise is worse
+# for phase estimation than the shaped audio a radio actually delivers. The
+# levels match the physical measurement rather than the resulting error, which
+# is the honest way round but means these limits are pessimistic.
+
+# noisy_jittered injects a sample of deliberate tick jitter, so the tick error
+# columns there measure the stimulus, not the tracker. The DPLL averages that
+# jitter away -- which is the point of a loop -- and so reads a larger tick
+# error than the simple tracker while producing a third of its bearing error.
+# Bearing is the metric that means something in this scenario.
+#
+# That claim used to rest on nothing. The jitter was sin(0.37 k), a coherent
+# 94 Hz modulation that a 2 Hz loop rejects by construction, so the DPLL's
+# advantage was the stimulus being out of band rather than the loop working.
+# With white fractional jitter, which has in-band content the loop must
+# actually follow, the advantage is not merely intact but wider: 2.07 degrees
+# against 5.92 where it had been 4.35 against 8.17.
+for bearing_method in ("correlation", "zero_crossing"):
+    BASELINE_LIMITS[("dpll", bearing_method, "noisy_jittered")].update(
+        {
+            "mean_abs_bearing_error_deg": 30.0,
+            "p95_abs_bearing_error_deg": 85.0,
+            "max_abs_bearing_error_deg": 180.0,
+            "mean_abs_tick_error_samples": 0.5,
+            "p95_abs_tick_error_samples": 1.0,
+        }
+    )
+    BASELINE_LIMITS[("simple", bearing_method, "noisy_jittered")].update(
+        {
+            "mean_abs_bearing_error_deg": 30.0,
+            "p95_abs_bearing_error_deg": 85.0,
+            "max_abs_bearing_error_deg": 180.0,
+            "mean_abs_tick_error_samples": 0.3,
+        }
+    )
+
+# harmonic_contaminated adds impulses to the north channel. The DPLL's timing
+# gate rejects the detections they displace and does not coast over a rejection,
+# so it reports about one tick in a hundred fewer than the simple tracker, which
+# takes the displaced detection instead. Losing the tick is the better trade.
+for bearing_method in ("correlation", "zero_crossing"):
+    BASELINE_LIMITS[("dpll", bearing_method, "harmonic_contaminated")].update(
+        {
+            "bearing_success_rate": 0.985,
+            "detection_rate": 0.985,
+            "mean_abs_bearing_error_deg": 16.0,
+            "p95_abs_bearing_error_deg": 40.0,
+            "max_abs_bearing_error_deg": 60.0,
+            "mean_abs_tick_error_samples": 0.3,
+        }
+    )
+    BASELINE_LIMITS[("simple", bearing_method, "harmonic_contaminated")].update(
+        {
+            "mean_abs_bearing_error_deg": 16.0,
+            "p95_abs_bearing_error_deg": 40.0,
+            "max_abs_bearing_error_deg": 60.0,
+        }
+    )
+
+for bearing_method in ("correlation", "zero_crossing"):
+    BASELINE_LIMITS[("dpll", bearing_method, "low_snr_dc")].update(
+        {
+            "mean_abs_bearing_error_deg": 70.0,
+            "p95_abs_bearing_error_deg": 175.0,
+            "max_abs_bearing_error_deg": 181.0,
+            "mean_abs_tick_error_samples": 0.5,
+            "p95_abs_tick_error_samples": 1.0,
+        }
+    )
+BASELINE_LIMITS[("simple", "correlation", "low_snr_dc")].update(
+    {
+        "mean_abs_bearing_error_deg": 75.0,
+        "p95_abs_bearing_error_deg": 170.0,
+        "max_abs_bearing_error_deg": 181.0,
+    }
+)
+BASELINE_LIMITS[("simple", "zero_crossing", "low_snr_dc")].update(
+    {
+        "mean_abs_bearing_error_deg": 75.0,
+        "p95_abs_bearing_error_deg": 170.0,
+        "max_abs_bearing_error_deg": 181.0,
+    }
+)
+
 # The simple tracker on low_snr_dc is bimodal, and the limits below are set
 # from its spread rather than from a single run.
 #
