@@ -43,6 +43,8 @@ use std::f32::consts::PI;
 const WINDOW_MS: f32 = 20.0;
 
 struct Census {
+    tone_fade_db: f32,
+    tone_corr: f32,
     in_band: f32,
     tilt_db: f32,
     burst_ratio: f32,
@@ -109,8 +111,39 @@ fn remove_tone(signal: &mut [f32], tone_hz: f32, sample_rate: f32) {
     }
 }
 
+/// Envelope of the rotation tone itself, window by window.
+///
+/// The interference envelope says what the noise is doing; this says what the
+/// wanted signal is doing. A tone that fades is a channel with multipath or a
+/// transmitter moving through one, and neither is in the generator.
+fn tone_envelope(doppler: &[f32], sample_rate: f32, tone_hz: f32, window: usize) -> (f32, f32) {
+    let amps: Vec<f32> = doppler
+        .chunks(window.max(1))
+        .filter(|c| c.len() == window.max(1))
+        .map(|c| power_at(c, tone_hz, sample_rate).max(1e-20).sqrt())
+        .collect();
+    if amps.len() < 8 {
+        return (f32::NAN, f32::NAN);
+    }
+    let mean = amps.iter().sum::<f32>() / amps.len() as f32;
+    let var = amps.iter().map(|a| (a - mean) * (a - mean)).sum::<f32>();
+    let cov: f32 = amps.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum();
+    let corr = if var > 0.0 { cov / var } else { 0.0 };
+    let mut sorted = amps.clone();
+    sorted.sort_by(f32::total_cmp);
+    let p95 = sorted[(sorted.len() as f32 * 0.95) as usize];
+    let p05 = sorted[(sorted.len() as f32 * 0.05) as usize].max(1e-20);
+    (20.0 * (p95 / p05).log10(), corr)
+}
+
 fn census(doppler: &[f32], sample_rate: f32, tone_hz: f32, low: f32, high: f32) -> Census {
     let tone_power = power_at(doppler, tone_hz, sample_rate);
+    let (tone_fade_db, tone_corr) = tone_envelope(
+        doppler,
+        sample_rate,
+        tone_hz,
+        (WINDOW_MS * 1e-3 * sample_rate) as usize,
+    );
 
     let mut residual = doppler.to_vec();
     remove_tone(&mut residual, tone_hz, sample_rate);
@@ -133,6 +166,8 @@ fn census(doppler: &[f32], sample_rate: f32, tone_hz: f32, low: f32, high: f32) 
         .collect();
     if powers.len() < 4 {
         return Census {
+            tone_fade_db,
+            tone_corr,
             in_band: (in_band_power / tone_power.max(1e-20) as f64) as f32,
             tilt_db,
             burst_ratio: f32::NAN,
@@ -159,6 +194,8 @@ fn census(doppler: &[f32], sample_rate: f32, tone_hz: f32, low: f32, high: f32) 
     powers.clear();
 
     Census {
+        tone_fade_db,
+        tone_corr,
         in_band: (in_band_power / tone_power.max(1e-20) as f64) as f32,
         tilt_db,
         burst_ratio: if median > 0.0 { p95 / median } else { f32::NAN },
@@ -169,8 +206,14 @@ fn census(doppler: &[f32], sample_rate: f32, tone_hz: f32, low: f32, high: f32) 
 
 fn row(name: &str, c: &Census) {
     println!(
-        "{name:<34} {:>10.3} {:>9.1} {:>12.2} {:>13.3} {:>15.3}",
-        c.in_band, c.tilt_db, c.burst_ratio, c.envelope_corr, c.active_fraction
+        "{name:<34} {:>11.1} {:>10.3} {:>10.3} {:>12.2} {:>13.3} {:>8.1} {:>9.3}",
+        c.tone_fade_db,
+        c.tone_corr,
+        c.in_band,
+        c.burst_ratio,
+        c.envelope_corr,
+        c.tilt_db,
+        c.active_fraction
     );
 }
 
@@ -182,8 +225,15 @@ fn main() {
 
     println!("doppler passband {low:.0} to {high:.0} Hz, envelope in {WINDOW_MS:.0} ms windows\n");
     println!(
-        "{:<34} {:>10} {:>9} {:>12} {:>13} {:>15}",
-        "signal", "in-band", "tilt dB", "burst ratio", "envelope corr", "active fraction"
+        "{:<34} {:>11} {:>10} {:>10} {:>12} {:>13} {:>8} {:>9}",
+        "signal",
+        "tone fade dB",
+        "tone corr",
+        "in-band",
+        "burst ratio",
+        "envelope corr",
+        "tilt dB",
+        "active"
     );
 
     for ratio in [0.2f32, 0.8, 6.5] {

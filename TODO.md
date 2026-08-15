@@ -102,43 +102,42 @@ for on every sweep.
       AGC is worth 0.902 to 0.943 detection at 0.20 RMS with false positives
       falling 0.025 to 0.001.
 
-- [ ] The synthetic channel still does not behave like the recordings, and
-      the reason is no longer the one that was written down.
+- [ ] The synthetic channel now behaves like the recordings, and what closes
+      the gap is multipath rather than anything about the noise.
 
-      Interference statistics were the standing explanation, as "flat noise is
-      worse for phase estimation than shaped audio". Half of that is now
-      measured and fixed. Real interference clumps in time: the power in 20 ms
-      windows correlates with the next window at 0.90, 0.91 and 0.94 across the
-      three captures, where the synthetic channel read 0.002, and its p95
-      window carries 1.4 to 5.9 times the median against 1.2. The generator now
-      carries an AR(1) envelope on log power and reads 0.898 and 3.58, both
-      inside the measured range.
+      Predicted before measuring, because the previous prediction here was
+      backwards: a reflection changes the apparent bearing without changing the
+      in-band power much, so it should raise the actual scatter more than the
+      stated figure and drive the calibration ratio down from 1.09 toward the
+      recordings' 0.65. It does. At a reflected path 0.45 of the direct one the
+      ratio reads 0.66 over nine cells, against 1.18 for stationary noise and
+      1.09 once the interference was made bursty.
 
-      The other half is refuted. Spectral shape across the passband was the
-      suspect and is not it: the tilt is 3.3 dB synthetic against -0.4 to -3.8
-      on the captures, small and not even the same sign.
+      The recordings say the reflection is there. Their rotation tone fades by
+      17.3, 19.3 and 133.3 dB between its 5th and 95th percentile in 20 ms
+      windows and correlates window to window at 0.40, 0.85 and 0.97; the
+      synthetic tone was flat, an apparent 2.5 to 11.3 dB that is the noise
+      floor of the measurement, correlating at 0.004.
 
-      Fixing the time structure moved the calibration ratio from 1.18 to 1.09
-      against the recordings' 0.65, which is about a sixth of the gap. It also
-      made bearing error slightly worse rather than better -- 16.25 degrees
-      against 15.13 at a 512 buffer and 0.8 noise -- because at matched mean
-      power bursts hurt more than steady noise: error grows faster than
-      linearly in the loud windows and the quiet ones cannot go below zero.
-      That is the opposite of the reasoning that motivated the change, and the
-      change is kept because it matches a measurement, not because it helped.
+      Multipath is opt-in, not part of `representative()`, and that is a real
+      distinction rather than caution. Noise degrades the precision of a
+      bearing; a reflection changes what the bearing is, because it really does
+      arrive from elsewhere and the sum really does point between. Three
+      accuracy tests failed the moment it was on by default, which is the
+      correct response. `config_sweep --axis multipath=...` turns it on.
 
-      What is left points somewhere else entirely, and the sign says so. On
-      the recordings the stated uncertainty *understates* the scatter, at 0.65;
-      on synthetic signal it overstates, at 1.09. So real signal carries an
-      error the SNR does not see, rather than carrying more of the error it
-      does see. The captures scatter about ninety degrees around their own
-      whole-capture mean, which is fading and multipath, and the generator
-      models neither. That is the next thing to try, and it needs no new
-      recordings.
+      Two things it does not reproduce. A single always-present reflection
+      cannot match both the fade depth and the bearing error: 0.8 gives the
+      measured 19 dB null but a calibration of 0.49, while 0.45 gives the
+      measured calibration and only 9 dB of fade. Offset does not separate them
+      -- 15, 25 and 35 degrees all read 0.48 to 0.50 -- because the error comes
+      from the nulls, where the phase swings whatever the paths' separation.
+      The real channel likely has occasional deep nulls rather than a constant
+      companion, which would want the reflection's own amplitude to vary.
 
-      One measured difference is also still unmatched: 8 to 27 percent of real
-      windows are near silent against none here, because the envelope is
-      log-normal and never truly gates off.
+      And 8 to 27 percent of real windows are near silent against none here,
+      because the interference envelope is log-normal and never gates off.
+
 
 
 - [x] The estimator and the highpass cutoff were thought to trade against

@@ -67,6 +67,14 @@ struct Args {
     /// List the axes that can be swept, and exit.
     #[arg(long)]
     list_axes: bool,
+
+    /// Emit one JSON object per cell instead of the table.
+    ///
+    /// The table is for reading; this is for anything that wants to compute
+    /// with the results. Screen-scraping the table with awk is how a column
+    /// gets misread as another one, which has already happened here.
+    #[arg(long)]
+    jsonl: bool,
 }
 
 /// Stimulus axes, named for the physical quantity rather than the knob.
@@ -95,6 +103,10 @@ const STIMULUS_AXES: &[(&str, &str)] = &[
     ("rotation_hz", "rotation rate"),
     ("pulse_amplitude", "north pulse amplitude before gain"),
     ("seed", "noise realisation"),
+    (
+        "multipath",
+        "reflected path amplitude, relative to the direct one",
+    ),
 ];
 
 const CONFIG_AXES: &[&str] = &[
@@ -172,6 +184,7 @@ struct Stimulus {
     rotation_hz: f32,
     pulse_amplitude: f32,
     seed: u64,
+    multipath: f32,
 }
 
 impl Stimulus {
@@ -183,6 +196,7 @@ impl Stimulus {
             rotation_hz: config.doppler.expected_freq,
             pulse_amplitude: config.north_tick.expected_pulse_amplitude,
             seed: SignalImpairment::representative().seed,
+            multipath: 0.0,
         }
     }
 
@@ -198,6 +212,7 @@ impl Stimulus {
             "bearing" => self.bearing = number()?,
             "rotation_hz" => self.rotation_hz = number()?,
             "pulse_amplitude" => self.pulse_amplitude = number()?,
+            "multipath" => self.multipath = number()?,
             "seed" => {
                 self.seed = value
                     .parse::<u64>()
@@ -419,7 +434,8 @@ fn main() -> Result<()> {
             .collect();
     }
 
-    println!("{} cells, {:.1} s each\n", combinations.len(), args.seconds);
+    // Status, not data: it must not land in the middle of a JSONL stream.
+    eprintln!("{} cells, {:.1} s each", combinations.len(), args.seconds);
 
     // Work through the cells grouped by stimulus, so each signal is built
     // once however the axes were ordered, then report in the order asked for.
@@ -457,6 +473,7 @@ fn main() -> Result<()> {
             s.rotation_hz.to_bits(),
             s.pulse_amplitude.to_bits(),
             s.seed,
+            s.multipath.to_bits(),
         ));
     }
     order.sort_by_key(|&i| keys[i]);
@@ -510,6 +527,19 @@ fn main() -> Result<()> {
                         north_noise_rms: stimulus.north_noise,
                         north_pulse_amplitude: stimulus.pulse_amplitude,
                         seed: stimulus.seed,
+                        // Off unless asked for: a reflection changes what the
+                        // true bearing is, not just how well it is measured.
+                        multipath_ratio: stimulus.multipath,
+                        multipath_bearing_offset_deg: if stimulus.multipath > 0.0 {
+                            SignalImpairment::multipath().multipath_bearing_offset_deg
+                        } else {
+                            0.0
+                        },
+                        multipath_drift_hz: if stimulus.multipath > 0.0 {
+                            SignalImpairment::multipath().multipath_drift_hz
+                        } else {
+                            0.0
+                        },
                         ..SignalImpairment::representative()
                     },
                 );
@@ -539,6 +569,39 @@ fn main() -> Result<()> {
                 .max(6)
         })
         .collect();
+
+    if args.jsonl {
+        for row in &rows {
+            let mut object = serde_json::Map::new();
+            for ((key, _), value) in axes.iter().zip(&row.labels) {
+                object.insert(
+                    key.clone(),
+                    value
+                        .parse::<f64>()
+                        .map(|n| serde_json::json!(n))
+                        .unwrap_or_else(|_| serde_json::json!(value)),
+                );
+            }
+            object.insert("seeds".into(), serde_json::json!(args.seeds));
+            for (name, measured) in [
+                ("tick", row.tick_error),
+                ("bearing", row.bearing_error),
+                ("bias", row.bearing_bias),
+                ("scatter", row.bearing_scatter),
+                ("bearing_p95", row.bearing_p95),
+                ("stated", row.stated_sigma),
+                ("count", row.bearings),
+            ] {
+                object.insert(name.into(), serde_json::json!(measured.mean));
+                object.insert(
+                    format!("{name}_se"),
+                    serde_json::json!(measured.standard_error),
+                );
+            }
+            println!("{}", serde_json::Value::Object(object));
+        }
+        return Ok(());
+    }
 
     let bars = args.seeds > 1;
     let cells: Vec<Vec<String>> = rows

@@ -119,6 +119,39 @@ pub struct SignalImpairment {
     /// Sets how deep the quiet stretches are and how far the bursts rise.
     /// Zero is a flat envelope regardless of `envelope_correlation`.
     pub envelope_depth: f32,
+    /// Amplitude of a second propagation path, relative to the direct one.
+    ///
+    /// Reflected signal arrives from a different direction, so it carries a
+    /// different apparent bearing, and the two sum with a relative phase that
+    /// drifts as anything in the path moves. That produces both of the things
+    /// the recordings show and the generator did not: the tone fades, deeply
+    /// when the paths near cancellation, and the bearing wanders as the sum
+    /// swings between them.
+    ///
+    /// Measured on the captures, the rotation tone's amplitude in 20 ms
+    /// windows spans 17.3, 19.3 and 133.3 dB from its 5th to its 95th
+    /// percentile, and correlates window to window at 0.40, 0.85 and 0.97.
+    /// The synthetic tone was flat: an apparent 2.5 to 11.3 dB that is the
+    /// noise floor of the measurement, and a correlation of 0.004. A ratio of
+    /// r nulls to 20 log10((1 + r) / (1 - r)), so 0.8 gives 19 dB, which is
+    /// where two of the three sit.
+    ///
+    /// This is the error the signal-to-noise ratio cannot see. At a null the
+    /// phase of the sum is unstable while the in-band power barely moves, so
+    /// the bearing degrades without the SNR reporting that anything happened,
+    /// which is the sign the calibration shows: on the recordings the stated
+    /// uncertainty understates the scatter, and on synthetic signal it
+    /// overstates it.
+    pub multipath_ratio: f32,
+    /// Bearing the reflected path appears to arrive from, in degrees, as an
+    /// offset from the true one. Zero would make it indistinguishable from
+    /// the direct path and produce fading with no bearing error.
+    pub multipath_bearing_offset_deg: f32,
+    /// How fast the relative phase of the two paths drifts, in Hz.
+    ///
+    /// Sets the fading rate. The measured window-to-window correlation of the
+    /// tone envelope puts this below a few Hz.
+    pub multipath_drift_hz: f32,
     /// Seed, so a run is repeatable.
     pub seed: u64,
 }
@@ -134,8 +167,11 @@ impl SignalImpairment {
             north_noise_rms: 0.0,
             audio_low_hz: 300.0,
             audio_high_hz: 3400.0,
-            envelope_correlation: 0.94,
-            envelope_depth: 0.5,
+            envelope_correlation: 0.0,
+            envelope_depth: 0.0,
+            multipath_ratio: 0.0,
+            multipath_bearing_offset_deg: 0.0,
+            multipath_drift_hz: 0.0,
             seed: 0x51D3_7A19_C0DE_2B4F,
         }
     }
@@ -156,14 +192,39 @@ impl SignalImpairment {
     /// Interference that clumps in time the way the recordings' does.
     ///
     /// The envelope figures are chosen to land inside the range the three
-    /// captures measure rather than on any one of them: correlation 0.92
-    /// against their 0.90 to 0.94, and a depth that reproduces a p95-over-
-    /// median of about 3 against their 1.4 to 5.9.
+    /// captures measure rather than on any one of them: correlation 0.898
+    /// against their 0.90 to 0.94, and a depth reproducing a p95-over-median
+    /// of 3.58 against their 1.4 to 5.9.
     pub fn bursty() -> Self {
         Self {
             envelope_correlation: 0.94,
             envelope_depth: 0.5,
             ..Self::none()
+        }
+    }
+
+    /// A channel with a reflection in it, as the recordings have.
+    ///
+    /// Deliberately not part of `representative()`, and the distinction is not
+    /// bookkeeping. Noise and interference degrade the precision of a bearing;
+    /// multipath changes what the bearing *is*, because the reflection really
+    /// does arrive from somewhere else and the sum really does point between
+    /// them. A test asserting the pipeline recovers a known bearing to three
+    /// degrees is not made harder by this, it is made meaningless -- three of
+    /// them failed the moment it was switched on by default, which is the
+    /// correct response and the reason it is opt-in.
+    ///
+    /// The ratio is set for a null about 19 dB deep, which is where two of the
+    /// three captures sit; the third nulls far deeper and is not the case to
+    /// build a default around. The offset puts the reflection well away from
+    /// the direct path, and the drift is slow enough to reproduce the measured
+    /// envelope correlation of the tone.
+    pub fn multipath() -> Self {
+        Self {
+            multipath_ratio: 0.45,
+            multipath_bearing_offset_deg: 60.0,
+            multipath_drift_hz: 0.7,
+            ..Self::bursty()
         }
     }
 
@@ -400,9 +461,24 @@ where
         let t = i as f32 / sample_rate as f32;
         let bearing_radians = bearing_fn(t).to_radians();
         let doppler_phase = rotation_hz * t * 2.0 * PI - bearing_radians;
-        let tone = doppler_phase.sin()
+        let mut tone = doppler_phase.sin()
             + impairment.second_harmonic * (2.0 * doppler_phase).sin()
             + impairment.third_harmonic * (3.0 * doppler_phase).sin();
+        if impairment.multipath_ratio > 0.0 {
+            // The reflection carries its own apparent bearing and its own
+            // slowly drifting phase. Summing them in the signal, rather than
+            // perturbing the bearing afterwards, is what makes the fading and
+            // the bearing error the same event instead of two independent
+            // ones: they both come from the paths approaching cancellation.
+            let reflected_bearing =
+                bearing_radians + impairment.multipath_bearing_offset_deg.to_radians();
+            let drift = 2.0 * PI * impairment.multipath_drift_hz * t;
+            let reflected_phase = rotation_hz * t * 2.0 * PI - reflected_bearing + drift;
+            tone += impairment.multipath_ratio
+                * (reflected_phase.sin()
+                    + impairment.second_harmonic * (2.0 * reflected_phase).sin()
+                    + impairment.third_harmonic * (3.0 * reflected_phase).sin());
+        }
         samples.push(tone + audio[i]);
         samples.push(north_tick + north_noise(i));
     }
