@@ -340,6 +340,28 @@ for on every sweep.
       for one row, so its limits come from the measured spread instead.
       Runtime went to 52 and 76 seconds and about seven minutes.
 
+- [x] Re-ran the conclusions that rested on the coherent jitter or on a single
+      draw. One did not survive.
+
+      The DPLL's advantage in the `noisy_jittered` pipeline scenario is gone:
+      2.07 degrees against 5.92 has become 21.80 against 22.16. Nothing
+      regressed. That scenario's doppler noise was raised to 0.8 to match the
+      recordings, and at that level the doppler channel decides the bearing
+      almost entirely, so a sample of tick jitter cannot show through it. The
+      scenario stopped being limited by the thing it was being read for.
+
+      The advantage itself is real, and larger than was ever claimed for it.
+      Measured with the doppler channel quiet so the north channel limits,
+      over eight draws: 2.08 degrees against 2.98 at 0.01 RMS of north noise,
+      2.07 against 4.43 at 0.05, and 3.26 against 84.65 at 0.2, where the
+      simple tracker also gives up a third of its bearings.
+
+      The loop bandwidth sweep reproduces unchanged. Below 1 Hz never
+      acquires; 1 Hz takes 2.78 seconds; the shipped 2 Hz takes 0.52 with full
+      holdover and 0.0037 samples of steady-state tick error; above it
+      acquisition keeps improving and steady state degrades monotonically, to
+      0.0124 at 8 Hz. The trade and the choice both stand.
+
 - [x] Five copies of the tick jitter helper used `sin(0.37 k)`, a coherent
       94 Hz tone rather than jitter -- forty-seven times the loop bandwidth,
       so any second-order loop rejects it by construction, and anything
