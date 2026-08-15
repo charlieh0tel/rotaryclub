@@ -65,7 +65,7 @@ fn circular_median(angles: &[f64]) -> Option<f64> {
     Some(best)
 }
 
-fn median(values: &mut Vec<f64>) -> Option<f64> {
+fn median(values: &mut [f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
     }
