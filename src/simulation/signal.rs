@@ -121,27 +121,25 @@ pub struct SignalImpairment {
     pub envelope_depth: f32,
     /// Amplitude of a second propagation path, relative to the direct one.
     ///
-    /// Reflected signal arrives from a different direction, so it carries a
-    /// different apparent bearing, and the two sum with a relative phase that
-    /// drifts as anything in the path moves. That produces both of the things
-    /// the recordings show and the generator did not: the tone fades, deeply
-    /// when the paths near cancellation, and the bearing wanders as the sum
-    /// swings between them.
+    /// A synthetic stress case, not something measured. Reflected signal
+    /// arrives from a different direction and so carries a different apparent
+    /// bearing, and the two sum with a relative phase that drifts; the tone
+    /// fades where they near cancellation and the bearing swings between
+    /// them.
     ///
-    /// Measured on the captures, the rotation tone's amplitude in 20 ms
-    /// windows spans 17.3, 19.3 and 133.3 dB from its 5th to its 95th
-    /// percentile, and correlates window to window at 0.40, 0.85 and 0.97.
-    /// The synthetic tone was flat: an apparent 2.5 to 11.3 dB that is the
-    /// noise floor of the measurement, and a correlation of 0.004. A ratio of
-    /// r nulls to 20 log10((1 + r) / (1 - r)), so 0.8 gives 19 dB, which is
-    /// where two of the three sit.
+    /// It was added on the strength of the recordings' rotation tone varying
+    /// by 17 to 133 dB between its 5th and 95th percentile, which was read as
+    /// fading. It is not fading. The ft-70d capture was made by keying up
+    /// several times while walking around the array, and seventy percent of
+    /// it has no carrier at all -- between overs the receiver delivers its
+    /// own hiss, which is louder than the signal and has no tone in it. The
+    /// same measurement that showed the tone collapsing shows the channel
+    /// getting *louder* and the north pulses continuing, which is a
+    /// transmitter that stopped transmitting, not a path that cancelled.
     ///
-    /// This is the error the signal-to-noise ratio cannot see. At a null the
-    /// phase of the sum is unstable while the in-band power barely moves, so
-    /// the bearing degrades without the SNR reporting that anything happened,
-    /// which is the sign the calibration shows: on the recordings the stated
-    /// uncertainty understates the scatter, and on synthetic signal it
-    /// overstates it.
+    /// Kept because it is the only impairment here that makes a bearing
+    /// genuinely ambiguous rather than merely imprecise, which is worth being
+    /// able to generate. Claimed of nothing.
     pub multipath_ratio: f32,
     /// Bearing the reflected path appears to arrive from, in degrees, as an
     /// offset from the true one. Zero would make it indistinguishable from
@@ -203,7 +201,7 @@ impl SignalImpairment {
         }
     }
 
-    /// A channel with a reflection in it, as the recordings have.
+    /// A channel with a reflection in it. Synthetic; see `multipath_ratio`.
     ///
     /// Deliberately not part of `representative()`, and the distinction is not
     /// bookkeeping. Noise and interference degrade the precision of a bearing;
@@ -214,11 +212,13 @@ impl SignalImpairment {
     /// them failed the moment it was switched on by default, which is the
     /// correct response and the reason it is opt-in.
     ///
-    /// The ratio is set for a null about 19 dB deep, which is where two of the
-    /// three captures sit; the third nulls far deeper and is not the case to
-    /// build a default around. The offset puts the reflection well away from
-    /// the direct path, and the drift is slow enough to reproduce the measured
-    /// envelope correlation of the tone.
+    /// The parameters reproduce a null about 19 dB deep and were tuned to
+    /// bring the uncertainty calibration onto the recordings' apparent 0.65.
+    /// That target was itself an artifact -- it was measured over stretches
+    /// with no carrier on them, and reads 1.06 once they are excluded, which
+    /// synthetic signal already matched at 1.09. So these numbers close a gap
+    /// that was not there, and are a plausible reflection rather than a
+    /// measured one.
     pub fn multipath() -> Self {
         Self {
             multipath_ratio: 0.45,

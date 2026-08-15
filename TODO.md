@@ -151,41 +151,40 @@ for on every sweep.
       AGC is worth 0.902 to 0.943 detection at 0.20 RMS with false positives
       falling 0.025 to 0.001.
 
-- [ ] The synthetic channel now behaves like the recordings, and what closes
-      the gap is multipath rather than anything about the noise.
+- [x] The synthetic channel was thought not to behave like the recordings.
+      There was never a gap. Closed, and most of what was done about it should
+      not have been.
 
-      Predicted before measuring, because the previous prediction here was
-      backwards: a reflection changes the apparent bearing without changing the
-      in-band power much, so it should raise the actual scatter more than the
-      stated figure and drive the calibration ratio down from 1.09 toward the
-      recordings' 0.65. It does. At a reflected path 0.45 of the direct one the
-      ratio reads 0.66 over nine cells, against 1.18 for stationary noise and
-      1.09 once the interference was made bursty.
+      The figure that said so: stated uncertainty against observed scatter,
+      1.18 on synthetic signal and 0.65 on the captures. It was chased for a
+      release. The interference was made bursty to match the recordings' time
+      structure, which moved it to 1.09 and was worth doing on its own merits.
+      Then a multipath model was added, tuned until synthetic signal read 0.66,
+      and the gap declared closed.
 
-      The recordings say the reflection is there. Their rotation tone fades by
-      17.3, 19.3 and 133.3 dB between its 5th and 95th percentile in 20 ms
-      windows and correlates window to window at 0.40, 0.85 and 0.97; the
-      synthetic tone was flat, an apparent 2.5 to 11.3 dB that is the noise
-      floor of the measurement, correlating at 0.004.
+      The 0.65 was an artifact. The ft-70d capture was made by keying up
+      several times while walking around the array, and seventy percent of it
+      has no carrier on it -- between overs the receiver delivers its own
+      hiss. A bearing measured on hiss is a uniformly distributed number, and
+      averaging those in dragged the ratio down. Counting only the stretches
+      above 6 dB, the same capture reads 1.06 to 1.08, against synthetic
+      signal at 1.09.
 
-      Multipath is opt-in, not part of `representative()`, and that is a real
-      distinction rather than caution. Noise degrades the precision of a
-      bearing; a reflection changes what the bearing is, because it really does
-      arrive from elsewhere and the sum really does point between. Three
-      accuracy tests failed the moment it was on by default, which is the
-      correct response. `config_sweep --axis multipath=...` turns it on.
+      So the uncertainty figure was already calibrated, and the multipath
+      model was tuned to make synthetic signal worse until it matched a number
+      that meant nothing. The tell was available throughout and never looked
+      at: nobody asked whether the recordings had signal in them.
 
-      Two things it does not reproduce. A single always-present reflection
-      cannot match both the fade depth and the bearing error: 0.8 gives the
-      measured 19 dB null but a calibration of 0.49, while 0.45 gives the
-      measured calibration and only 9 dB of fade. Offset does not separate them
-      -- 15, 25 and 35 degrees all read 0.48 to 0.50 -- because the error comes
-      from the nulls, where the phase swings whatever the paths' separation.
-      The real channel likely has occasional deep nulls rather than a constant
-      companion, which would want the reflection's own amplitude to vary.
+      `bearing_uncertainty_test` now gates on carrier presence, which is what
+      stops this recurring. The multipath model stays, documented as a
+      synthetic stress case claimed of nothing -- it is still the only
+      impairment here that makes a bearing ambiguous rather than imprecise.
+      The burstiness stays too, on its own evidence.
 
-      And 8 to 27 percent of real windows are near silent against none here,
-      because the interference envelope is log-normal and never gates off.
+      What is still true, and was the one solid observation underneath all of
+      this: the recordings' interference does clump in time, correlating 0.90
+      to 0.94 window to window where stationary noise reads 0.002.
+
 
 
 

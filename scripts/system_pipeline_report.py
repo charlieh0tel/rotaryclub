@@ -191,12 +191,18 @@ for north_mode in ("dpll", "simple"):
 # the doppler passband, which is the quantity that decides a bearing, matched
 # to the three recordings: 0.2, 0.8 and 6.5.
 #
-# One caveat on reading these. At matched passband power the synthetic signal
-# is two to four times harsher than the recordings -- 6.1 degrees against 1.6
-# at a ratio of 0.2, 40.7 against 54.8 at 6.5 -- because flat noise is worse
-# for phase estimation than the shaped audio a radio actually delivers. The
-# levels match the physical measurement rather than the resulting error, which
-# is the honest way round but means these limits are pessimistic.
+# A caveat that used to live here, that synthetic signal is two to four times
+# harsher than the recordings at matched passband power, is withdrawn. It
+# compared against error measured over whole captures, and seventy percent of
+# the ft-70d capture has no carrier on it -- it was recorded by keying up
+# several times while walking around the array, so between overs the receiver
+# delivers hiss, and a bearing taken on hiss is a uniformly distributed
+# number. Counting only the stretches with a carrier, the uncertainty
+# calibration reads 1.06 on that capture against 1.09 on synthetic signal.
+#
+# So these limits are not known to be pessimistic, and the comparison that
+# said they were is not one that should be repeated without gating on carrier
+# presence first.
 
 # noisy_jittered injects a sample of deliberate tick jitter, so the tick error
 # columns there measure the stimulus, not the tracker: the DPLL averages that
@@ -327,12 +333,18 @@ for bearing_method in ("correlation", "zero_crossing"):
 # the doppler passband, which is the quantity that decides a bearing, matched
 # to the three recordings: 0.2, 0.8 and 6.5.
 #
-# One caveat on reading these. At matched passband power the synthetic signal
-# is two to four times harsher than the recordings -- 6.1 degrees against 1.6
-# at a ratio of 0.2, 40.7 against 54.8 at 6.5 -- because flat noise is worse
-# for phase estimation than the shaped audio a radio actually delivers. The
-# levels match the physical measurement rather than the resulting error, which
-# is the honest way round but means these limits are pessimistic.
+# A caveat that used to live here, that synthetic signal is two to four times
+# harsher than the recordings at matched passband power, is withdrawn. It
+# compared against error measured over whole captures, and seventy percent of
+# the ft-70d capture has no carrier on it -- it was recorded by keying up
+# several times while walking around the array, so between overs the receiver
+# delivers hiss, and a bearing taken on hiss is a uniformly distributed
+# number. Counting only the stretches with a carrier, the uncertainty
+# calibration reads 1.06 on that capture against 1.09 on synthetic signal.
+#
+# So these limits are not known to be pessimistic, and the comparison that
+# said they were is not one that should be repeated without gating on carrier
+# presence first.
 
 # noisy_jittered: see the note above the dpll limits for why this scenario
 # no longer separates the trackers on bearing.

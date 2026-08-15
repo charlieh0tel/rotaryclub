@@ -93,8 +93,13 @@ Bearing: 137.5° (raw: 136.8°) confidence: 0.95
   time, and the timing scatter of the north reference it was measured against. Empty when
   it cannot be estimated. This is precision rather than accuracy: a displacement every
   estimate shares is invisible to it. Measured against the bearing scatter actually seen,
-  it runs at about 1.1 on synthetic signal and about 0.65 on the recordings, and the
-  difference between those two is multipath.
+  it runs at about 1.1 on synthetic signal and about 1.06 on the recordings, counting only
+  the stretches that have a carrier on them.
+
+  That qualifier is the whole of a long detour. Ungated, the recordings read 0.65, and the
+  difference was taken as real for an entire release: seventy percent of the ft-70d capture
+  is the receiver's own hiss between overs, and a bearing measured on hiss is a uniformly
+  distributed number.
 
   **It is largely blind to reflections, and that is worth knowing before trusting it.**
   Noise degrades a bearing and moves the SNR this is derived from, so it sees noise by

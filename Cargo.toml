@@ -116,6 +116,10 @@ required-features = ["simulation"]
 name = "confidence_under_multipath"
 required-features = ["simulation"]
 
+[[example]]
+name = "dropout_census"
+required-features = ["simulation"]
+
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
 gui = ["dep:eframe", "dep:egui_plot"]

@@ -74,6 +74,27 @@ fn paired(raw: &[f64], stated: &[f64], window: usize) -> (f64, f64, f64) {
     )
 }
 
+/// Fraction of a capture with no carrier on it, and the same statistics with
+/// those stretches removed.
+///
+/// The ft-70d capture was made by keying up several times while walking
+/// around the array, so between overs the receiver delivers full-scale hiss
+/// with no tone in it. Every statistic taken over a whole capture includes
+/// those stretches, and a "bearing" measured on receiver noise is a uniformly
+/// distributed number. The calibration figure this project has been fitting
+/// its generator to was measured that way.
+fn report_gated(name: &str, raw: &[f64], stated: &[f64], snr: &[f64], floor_db: f64) {
+    let kept: Vec<usize> = (0..raw.len()).filter(|&i| snr[i] >= floor_db).collect();
+    let raw_kept: Vec<f64> = kept.iter().map(|&i| raw[i]).collect();
+    let stated_kept: Vec<f64> = kept.iter().map(|&i| stated[i]).collect();
+    let fraction = kept.len() as f64 / raw.len().max(1) as f64;
+    let (_, p50, _) = paired(&raw_kept, &stated_kept, 512);
+    println!(
+        "{name:<34} {:>9.2} {:>10.3} {:>12.2}",
+        floor_db, fraction, p50
+    );
+}
+
 fn report(name: &str, raw: &[f64], stated: &[f64]) {
     let global = scatter_about(raw, circular_mean(raw));
     let mean_stated = stated.iter().sum::<f64>() / stated.len() as f64;
@@ -155,5 +176,45 @@ fn main() {
         }
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         report(&name[..name.len().min(33)], &raw, &stated);
+    }
+
+    println!(
+        "\ncalibration with the no-carrier stretches removed\n{:<34} {:>9} {:>10} {:>12}",
+        "capture", "floor dB", "kept", "ratio"
+    );
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir("data")
+        .map(|e| {
+            e.filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().is_some_and(|x| x == "wav"))
+                .collect()
+        })
+        .unwrap_or_default();
+    paths.sort();
+    for path in paths {
+        let mut config = RdfConfig::default();
+        config.bearing.smoothing_window = 1;
+        let Ok(mut source) = WavFileSource::new(&path, config.audio.buffer_size) else {
+            continue;
+        };
+        let mut processor = RdfProcessor::new(&config, false, true).expect("processor");
+        let (mut raw, mut stated, mut snr) = (Vec::new(), Vec::new(), Vec::new());
+        while let Ok(Some(buffer)) = AudioSource::next_buffer(&mut source) {
+            for result in processor.process_audio(&buffer) {
+                if let Some(b) = result.bearing
+                    && let Some(u) = b.metrics.bearing_uncertainty_deg
+                {
+                    raw.push(b.raw_bearing as f64);
+                    stated.push(u as f64);
+                    snr.push(b.metrics.snr_db as f64);
+                }
+            }
+        }
+        if raw.len() < 2000 {
+            continue;
+        }
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for floor in [-100.0, 0.0, 3.0, 6.0, 10.0] {
+            report_gated(&name[..name.len().min(33)], &raw, &stated, &snr, floor);
+        }
     }
 }
