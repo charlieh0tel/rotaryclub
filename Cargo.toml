@@ -120,6 +120,10 @@ required-features = ["simulation"]
 name = "dropout_census"
 required-features = ["simulation"]
 
+[[example]]
+name = "shortest_signal"
+required-features = ["simulation"]
+
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
 gui = ["dep:eframe", "dep:egui_plot"]
