@@ -293,15 +293,49 @@ for on every sweep.
       through the system pipeline the split touches DPLL rows only and
       improves the noisy ones.
 
-- [ ] Sixteen files carry their own copy of the synthetic noise generator, and
-      they have diverged twice. The first divergence shifted the output range
-      and put a DC offset carrying a seventh of the in-band energy through
-      twelve of them; the second was the seed mixing, which was fixed in the
-      library and in none of the copies. Neither is live now -- every
-      remaining copy uses a single fixed seed, and the seed defect only bites
-      when nearby seeds are compared -- so this is a hazard rather than a bug.
-      `simulation::noise_at` is public for the purpose and one harness has
-      been moved onto it. The rest should follow.
+- [ ] The simple tracker can latch into detecting every other pulse. At the
+      `low_snr_dc` level it either tracks or halves, and which one happens is
+      decided by the noise draw: over sixteen draws the latch appears in about
+      one in five, and detection reads 0.894 rather than either of the two
+      values it actually takes. The dead time is 28.8 samples against a 29.95
+      sample period, so a detection landing early puts the next pulse inside
+      its shadow, and once that starts it sustains itself.
+
+      Found because the noise generators were unified and the new draw
+      happened to land on the bad side. The gate now averages sixteen draws
+      and its limits are set from the spread, so this is measured rather than
+      hidden, but the behaviour itself is untouched. The DPLL does not do it:
+      its gate rejects the early detection on timing and it coasts the gap.
+
+      Fixing it means shortening the dead time, which trades against
+      noise-trigger rejection, and it is the simple tracker, which is not to
+      be hardened. Recorded rather than acted on.
+
+- [x] Sixteen files carried their own copy of the synthetic noise generator,
+      and they had diverged three ways: the library's murmur finalizer, one
+      missing its final shift-xor, and a bare LCG with no finalizer. Five
+      copies of the jitter helper still used the coherent `sin(0.37 k)` that
+      was replaced with white noise in one place only. Three were pasted
+      inline rather than being functions at all. All of them now call
+      `simulation::noise_at`, with a named seed constant per harness.
+
+      None of the divergences was live, since every copy used one fixed seed,
+      but two of them had already produced wrong measurements.
+
+- [x] All three CI gates averaged their metrics over one noise draw. They now
+      average over several: sixteen for the system pipeline, eight for the
+      other two, pooled from raw samples where the harness keeps them so the
+      percentiles still describe a distribution. Sixteen puts every row's
+      standard error under 0.001 except the bimodal one above, which needs
+      about a hundred draws and forty minutes to pin to 0.02 -- not worth it
+      for one row, so its limits come from the measured spread instead.
+      Runtime went to 52 and 76 seconds and about seven minutes.
+
+- [ ] Five copies of the tick jitter helper still use `sin(0.37 k)`, which is
+      a coherent tone at 94 Hz rather than jitter and once produced a wrong
+      conclusion about the DPLL. The noise generators are unified; this one is
+      not, because changing it changes what several tests and two gates
+      measure. Worth doing deliberately rather than as part of a cleanup.
 
 - [ ] Price what the highpass is for, with a capture that bleeds audio into
       the north channel. That is the only argument for filtering high, and no

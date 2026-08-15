@@ -94,9 +94,9 @@ fn apply_deterministic_dropouts(positions: &[usize], stride: usize) -> Vec<usize
         .collect()
 }
 
-fn add_deterministic_noise(signal: &mut [f32], noise_peak: f32) {
+fn add_deterministic_noise(signal: &mut [f32], noise_peak: f32, draw: u64) {
     for (i, sample) in signal.iter_mut().enumerate() {
-        *sample += noise_at(i, 0x71C7_71C7_5EED_0001) * noise_peak;
+        *sample += noise_at(i, 0x71C7_71C7_5EED_0001u64.wrapping_add(draw)) * noise_peak;
     }
 }
 
@@ -166,6 +166,21 @@ fn compute_timing_metrics(
         false_positive_rate: unmatched_detections as f32 / expected_len,
         mean_abs_error_samples: mean(&errors),
         p95_abs_error_samples: percentile(&errors, 0.95),
+    }
+}
+
+/// Independent noise realisations averaged into each reported row.
+const DRAWS: u64 = 8;
+
+fn average_timing_metrics(runs: &[TimingMetrics]) -> TimingMetrics {
+    let n = runs.len() as f32;
+    let mean = |f: fn(&TimingMetrics) -> f32| runs.iter().map(f).sum::<f32>() / n;
+    TimingMetrics {
+        matched: runs.iter().map(|m| m.matched).sum::<usize>() / runs.len(),
+        detection_rate: mean(|m| m.detection_rate),
+        false_positive_rate: mean(|m| m.false_positive_rate),
+        mean_abs_error_samples: mean(|m| m.mean_abs_error_samples),
+        p95_abs_error_samples: mean(|m| m.p95_abs_error_samples),
     }
 }
 
@@ -309,30 +324,40 @@ fn main() {
                         expected = apply_deterministic_dropouts(&expected, stride);
                     }
 
-                    let mut north = build_north_signal(
+                    let north = build_north_signal(
                         num_samples,
                         &expected,
                         pulse_amplitude * scenario.amplitude_scale,
                     );
 
-                    if scenario.noise_peak > 0.0 {
-                        add_deterministic_noise(&mut north, scenario.noise_peak);
-                    }
-                    if let Some(stride) = scenario.impulse_stride {
-                        add_impulses(&mut north, stride, scenario.impulse_amplitude);
-                    }
+                    // Averaged over independent noise realisations. A
+                    // scenario with no noise is identical in every draw, so
+                    // only the noisy rows actually cost anything.
+                    let draws = if scenario.noise_peak > 0.0 { DRAWS } else { 1 };
+                    let runs: Vec<TimingMetrics> = (0..draws)
+                        .map(|draw| {
+                            let mut north = north.clone();
+                            if scenario.noise_peak > 0.0 {
+                                add_deterministic_noise(&mut north, scenario.noise_peak, draw);
+                            }
+                            if let Some(stride) = scenario.impulse_stride {
+                                add_impulses(&mut north, stride, scenario.impulse_amplitude);
+                            }
 
-                    let mut config = base_config.clone();
-                    config.north_tick.mode = mode;
+                            let mut config = base_config.clone();
+                            config.north_tick.mode = mode;
 
-                    let mut tracker =
-                        NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
-                    let mut detected = Vec::new();
-                    for chunk in north.chunks(chunk_size) {
-                        detected.extend(tracker.process_buffer(chunk));
-                    }
-
-                    let metrics = compute_timing_metrics(&expected, &detected, 3.0);
+                            let mut tracker =
+                                NorthReferenceTracker::new(&config.north_tick, sample_rate)
+                                    .unwrap();
+                            let mut detected = Vec::new();
+                            for chunk in north.chunks(chunk_size) {
+                                detected.extend(tracker.process_buffer(chunk));
+                            }
+                            compute_timing_metrics(&expected, &detected, 3.0)
+                        })
+                        .collect();
+                    let metrics = average_timing_metrics(&runs);
 
                     println!(
                         "{},{},{},{:.3},{},{},{:.6},{:.6},{:.6},{:.6}",

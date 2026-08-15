@@ -274,6 +274,34 @@ BASELINE_LIMITS[("simple", "zero_crossing", "low_snr_dc")].update(
     }
 )
 
+# The simple tracker on low_snr_dc is bimodal, and the limits below are set
+# from its spread rather than from a single run.
+#
+# At this noise level it either tracks or latches into detecting every other
+# pulse, and which one happens is decided by the noise draw. The dead time is
+# 28.8 samples against a 29.95 sample period, so a detection landing early puts
+# the following pulse inside its shadow, and once that starts it sustains
+# itself. Over sixteen draws the latch appears in about one in five, and
+# detection reads 0.894 with a standard error of 0.049 -- against 0.99 or 0.49
+# for any single draw.
+#
+# Sixteen draws is what the rest of the table needs many times over; every
+# other row here sits at a standard error under 0.001. Pinning this row to
+# 0.02 would take about a hundred draws and forty minutes of CI, which is not
+# worth it for one row. So the limits are the measured mean less three
+# standard errors, which still catches a real regression -- a genuine halving
+# would read 0.49 and fail -- while tolerating the draw-to-draw swing that is
+# a property of the tracker rather than of a change.
+for bearing_method in ("correlation", "zero_crossing"):
+    BASELINE_LIMITS[("simple", bearing_method, "low_snr_dc")].update(
+        {
+            "bearing_success_rate": 0.76,
+            "detection_rate": 0.74,
+            "mean_abs_bearing_error_deg": 86.0,
+        }
+    )
+
+
 
 def paths(out_dir: Path, profile: str) -> tuple[Path, Path, Path]:
     return (

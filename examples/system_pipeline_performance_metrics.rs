@@ -1,6 +1,7 @@
 use rotaryclub::config::{BearingMethod, NorthTrackingMode, RdfConfig};
 use rotaryclub::processing::RdfProcessor;
 use rotaryclub::signal_processing::FirBandpass;
+use rotaryclub::simulation::noise_at as deterministic_noise_at;
 use std::f32::consts::PI;
 use std::time::Instant;
 
@@ -58,13 +59,6 @@ struct Metrics {
     p95_abs_tick_error_samples: f32,
 }
 
-fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
-    let mut x = seed ^ ((index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
-    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let u = (((x >> 32) as u32) as f32) / (u32::MAX as f32);
-    2.0 * u - 1.0
-}
-
 /// Per-pulse timing jitter, in samples, as a fraction of `max_abs_jitter`.
 ///
 /// White and fractional. It used to be `sin(0.37 k).round()`, which repeats
@@ -73,11 +67,12 @@ fn deterministic_noise_at(index: usize, seed: u64) -> f32 {
 /// scenario therefore measured the stimulus being out of band rather than the
 /// tracker doing anything, and the DPLL's advantage in it was not earned.
 /// Real jitter has in-band content the loop has to follow.
-fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32) -> f64 {
+fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32, draw: u64) -> f64 {
     if max_abs_jitter <= 0 {
         0.0
     } else {
-        deterministic_noise_at(index, 0x51D3_7A19_C0DE_2B4Fu64) as f64 * max_abs_jitter as f64
+        deterministic_noise_at(index, 0x51D3_7A19_C0DE_2B4Fu64.wrapping_add(draw)) as f64
+            * max_abs_jitter as f64
     }
 }
 
@@ -148,6 +143,7 @@ fn expected_tick_positions(
     total_samples: usize,
     samples_per_rotation: f64,
     scenario: Scenario,
+    draw: u64,
 ) -> (Vec<f64>, Vec<f64>) {
     let mut jittered = Vec::new();
     let mut k = 0usize;
@@ -156,7 +152,7 @@ fn expected_tick_positions(
         if epoch >= total_samples as f64 {
             break;
         }
-        let jitter = deterministic_jitter_samples(k, scenario.north_jitter_samples);
+        let jitter = deterministic_jitter_samples(k, scenario.north_jitter_samples, draw);
         jittered.push((epoch + jitter).clamp(0.0, total_samples as f64 - 1.0));
         k += 1;
     }
@@ -199,12 +195,17 @@ fn north_pulse_at(global: usize, epoch: f64) -> f32 {
 ///
 /// Generated once for the whole run rather than per chunk, so the band
 /// limiting is continuous across chunk boundaries.
-fn doppler_audio(total_samples: usize, sample_rate: f32, scenario: Scenario) -> Vec<f32> {
+fn doppler_audio(
+    total_samples: usize,
+    sample_rate: f32,
+    scenario: Scenario,
+    draw: u64,
+) -> Vec<f32> {
     if scenario.doppler_passband_noise_to_tone <= 0.0 {
         return vec![0.0f32; total_samples];
     }
     let mut audio: Vec<f32> = (0..total_samples)
-        .map(|i| deterministic_noise_at(i, 0x0DDB_A11A_5EED_1234))
+        .map(|i| deterministic_noise_at(i, 0x0DDB_A11A_5EED_1234u64.wrapping_add(draw)))
         .collect();
     if let Ok(mut band) = FirBandpass::new(300.0, 3400.0, sample_rate, 255, 150.0) {
         band.process_buffer(&mut audio);
@@ -243,6 +244,7 @@ fn build_chunk(
     rotation_hz: f32,
     tick_positions: &[f64],
     doppler_audio: &[f32],
+    draw: u64,
 ) -> Vec<f32> {
     let omega = 2.0 * PI * rotation_hz / sample_rate;
     let bearing_rad = expected_bearing_deg.to_radians();
@@ -274,8 +276,8 @@ fn build_chunk(
                 .iter()
                 .map(|&epoch| north_pulse_at(global, epoch))
                 .sum::<f32>();
-        north +=
-            deterministic_noise_at(global, 0xFEED_9876_5432_1001) * (scenario.noise_peak * 0.35);
+        north += deterministic_noise_at(global, 0xFEED_9876_5432_1001u64.wrapping_add(draw))
+            * (scenario.noise_peak * 0.35);
         north += scenario.dc_offset * 0.25;
         if let Some(stride) = scenario.north_impulse_stride
             && stride > 0
@@ -346,6 +348,7 @@ fn run_case(
     scenario: Scenario,
     buffer_size: usize,
     expected_bearing_deg: f32,
+    draw: u64,
 ) -> Metrics {
     let mut config = RdfConfig::default();
     config.north_tick.mode = north_mode;
@@ -360,8 +363,8 @@ fn run_case(
     let total_chunks = WARMUP_ITERATIONS + ITERATIONS;
     let total_samples = total_chunks * buffer_size;
     let (tick_positions, predictable_positions) =
-        expected_tick_positions(total_samples, samples_per_rotation, scenario);
-    let audio = doppler_audio(total_samples, sample_rate, scenario);
+        expected_tick_positions(total_samples, samples_per_rotation, scenario, draw);
+    let audio = doppler_audio(total_samples, sample_rate, scenario, draw);
 
     let mut processor = RdfProcessor::new(&config, true, true).expect("rdf processor creation");
 
@@ -380,6 +383,7 @@ fn run_case(
             rotation_hz,
             &tick_positions,
             &audio,
+            draw,
         );
 
         let t0 = Instant::now();
@@ -458,6 +462,54 @@ fn bearing_method_name(method: BearingMethod) -> &'static str {
     }
 }
 
+/// Independent noise realisations averaged into each reported row.
+///
+/// Every row this harness printed used to be one draw, and one draw is not a
+/// measurement: the `low_snr_dc` scenario in simple mode is bimodal, reading
+/// either about 0.99 or about 0.49 depending only on the noise, because the
+/// dead time is 28.8 samples against a 29.95 sample period and a detection
+/// landing early puts the following pulse in its shadow. Which side a single
+/// draw lands on is not a property of the code under test.
+const DRAWS: u64 = 16;
+
+fn average_metrics(runs: &[Metrics]) -> Metrics {
+    let n = runs.len() as f64;
+    let mean64 = |f: fn(&Metrics) -> f64| runs.iter().map(f).sum::<f64>() / n;
+    let mean32 = |f: fn(&Metrics) -> f32| runs.iter().map(f).sum::<f32>() / n as f32;
+    Metrics {
+        bearing_success_rate: mean32(|m| m.bearing_success_rate),
+        detection_rate: mean32(|m| m.detection_rate),
+        false_positive_rate: mean32(|m| m.false_positive_rate),
+        mean_us_per_sample: mean64(|m| m.mean_us_per_sample),
+        p95_us_per_sample: mean64(|m| m.p95_us_per_sample),
+        mean_abs_bearing_error_deg: mean32(|m| m.mean_abs_bearing_error_deg),
+        p95_abs_bearing_error_deg: mean32(|m| m.p95_abs_bearing_error_deg),
+        max_abs_bearing_error_deg: mean32(|m| m.max_abs_bearing_error_deg),
+        mean_abs_tick_error_samples: mean32(|m| m.mean_abs_tick_error_samples),
+        p95_abs_tick_error_samples: mean32(|m| m.p95_abs_tick_error_samples),
+    }
+}
+
+/// Standard error of the mean for the accuracy columns, to stderr.
+///
+/// Not in the CSV, which the gate script parses; this is for choosing how many
+/// draws a row needs and for seeing which rows are unstable.
+fn report_spread(mode: &str, method: &str, scenario: &str, buffer: usize, runs: &[Metrics]) {
+    let n = runs.len() as f32;
+    let se = |f: fn(&Metrics) -> f32| {
+        let m = runs.iter().map(f).sum::<f32>() / n;
+        let var = runs.iter().map(|r| (f(r) - m) * (f(r) - m)).sum::<f32>() / (n - 1.0).max(1.0);
+        (var / n).sqrt()
+    };
+    eprintln!(
+        "spread {mode},{method},{scenario},{buffer},{:.4},{:.4},{:.4},{:.4}",
+        se(|m| m.bearing_success_rate),
+        se(|m| m.detection_rate),
+        se(|m| m.false_positive_rate),
+        se(|m| m.mean_abs_bearing_error_deg),
+    );
+}
+
 fn main() {
     let scenarios = [
         Scenario {
@@ -526,12 +578,25 @@ fn main() {
         for bearing_method in bearing_methods {
             for scenario in scenarios {
                 for &buffer_size in BUFFER_SIZES {
-                    let m = run_case(
-                        north_mode,
-                        bearing_method,
-                        scenario,
+                    let draws: Vec<Metrics> = (0..DRAWS)
+                        .map(|d| {
+                            run_case(
+                                north_mode,
+                                bearing_method,
+                                scenario,
+                                buffer_size,
+                                expected_bearing_deg,
+                                d,
+                            )
+                        })
+                        .collect();
+                    let m = average_metrics(&draws);
+                    report_spread(
+                        north_mode_name(north_mode),
+                        bearing_method_name(bearing_method),
+                        scenario.name,
                         buffer_size,
-                        expected_bearing_deg,
+                        &draws,
                     );
                     println!(
                         "{},{},{},{},{:.6},{:.6},{:.6},{:.9},{:.9},{:.6},{:.6},{:.6},{:.6},{:.6}",

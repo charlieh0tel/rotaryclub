@@ -81,6 +81,7 @@ fn make_doppler_buffer(
     omega: f32,
     phase_offset: f32,
     step_index: usize,
+    draw: u64,
 ) -> Vec<f32> {
     let second_omega = omega * 2.0;
     let third_omega = omega * 3.0;
@@ -90,7 +91,10 @@ fn make_doppler_buffer(
             let fundamental = (omega * t - phase_offset).sin();
             let second_tone = (second_omega * t - (phase_offset * 0.7)).sin();
             let third_tone = (third_omega * t - (phase_offset * 0.5)).sin();
-            let noise = deterministic_noise_at(i + step_index * buffer_size, 0xA5A5_1234_5EED_1111);
+            let noise = deterministic_noise_at(
+                i + step_index * buffer_size,
+                0xA5A5_1234_5EED_1111u64.wrapping_add(draw),
+            );
             scenario.amplitude * fundamental
                 + scenario.second_tone_ratio * second_tone
                 + scenario.third_tone_ratio * third_tone
@@ -105,6 +109,7 @@ fn run_case(
     scenario: Scenario,
     buffer_size: usize,
     expected_bearing_deg: f32,
+    draw: u64,
 ) -> (usize, Vec<f64>, Vec<f64>) {
     let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
@@ -139,7 +144,7 @@ fn run_case(
 
     for step in 0..WARMUP_ITERATIONS {
         let tick = make_north_tick(0, samples_per_rotation);
-        let buffer = make_doppler_buffer(scenario, buffer_size, omega, phase_offset, step);
+        let buffer = make_doppler_buffer(scenario, buffer_size, omega, phase_offset, step, draw);
         calc.preprocess(&buffer);
         let _ = calc.process_tick(&tick);
         calc.advance_buffer();
@@ -150,7 +155,7 @@ fn run_case(
     let mut errors_deg = Vec::with_capacity(ITERATIONS);
     for step in WARMUP_ITERATIONS..(WARMUP_ITERATIONS + ITERATIONS) {
         let tick = make_north_tick(0, samples_per_rotation);
-        let buffer = make_doppler_buffer(scenario, buffer_size, omega, phase_offset, step);
+        let buffer = make_doppler_buffer(scenario, buffer_size, omega, phase_offset, step, draw);
 
         let start = Instant::now();
         calc.preprocess(&buffer);
@@ -166,6 +171,13 @@ fn run_case(
     }
     (measured_count, times_us, errors_deg)
 }
+
+/// Independent noise realisations pooled into each reported row.
+///
+/// One draw is not a measurement. This harness is far steadier than the system
+/// pipeline one -- it has no tracker to latch -- but the reason to pool is the
+/// same, and it costs proportionally little here.
+const DRAWS: u64 = 8;
 
 fn main() {
     let scenarios = [
@@ -227,8 +239,18 @@ fn main() {
     for method in methods {
         for scenario in scenarios {
             for &buffer_size in BUFFER_SIZES {
-                let (measured_count, times_us, errors_deg) =
-                    run_case(method, scenario, buffer_size, expected_bearing_deg);
+                // Pooled over independent noise realisations rather than
+                // taken from one. Pooling the raw per-iteration samples, not
+                // the summaries, so the percentiles still describe a
+                // distribution rather than an average of percentiles.
+                let (mut measured_count, mut times_us, mut errors_deg) = (0usize, vec![], vec![]);
+                for draw in 0..DRAWS {
+                    let (c, t, e) =
+                        run_case(method, scenario, buffer_size, expected_bearing_deg, draw);
+                    measured_count += c;
+                    times_us.extend(t);
+                    errors_deg.extend(e);
+                }
                 let iterations = times_us.len();
                 let sum_us: f64 = times_us.iter().sum();
                 let mean_us = if iterations > 0 {
