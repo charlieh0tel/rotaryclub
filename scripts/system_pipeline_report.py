@@ -196,17 +196,32 @@ for north_mode in ("dpll", "simple"):
 # is the honest way round but means these limits are pessimistic.
 
 # noisy_jittered injects a sample of deliberate tick jitter, so the tick error
-# columns there measure the stimulus, not the tracker. The DPLL averages that
-# jitter away -- which is the point of a loop -- and so reads a larger tick
-# error than the simple tracker while producing a third of its bearing error.
-# Bearing is the metric that means something in this scenario.
+# columns there measure the stimulus, not the tracker: the DPLL averages that
+# jitter away, which is the point of a loop, and so reads a larger tick error
+# than the simple tracker -- 0.366 samples against 0.107.
 #
-# That claim used to rest on nothing. The jitter was sin(0.37 k), a coherent
-# 94 Hz modulation that a 2 Hz loop rejects by construction, so the DPLL's
-# advantage was the stimulus being out of band rather than the loop working.
-# With white fractional jitter, which has in-band content the loop must
-# actually follow, the advantage is not merely intact but wider: 2.07 degrees
-# against 5.92 where it had been 4.35 against 8.17.
+# This scenario no longer separates the two trackers on bearing, and the claim
+# that it did has been withdrawn. It used to read 2.07 degrees against 5.92,
+# and now reads 21.80 against 22.16, a ratio of 1.02 rising to 1.13 at the
+# largest buffer. Nothing regressed: the scenario's doppler noise was raised
+# to 0.8, the middle of what the recordings measure, and at that level the
+# doppler channel decides the bearing almost entirely. A sample of tick jitter
+# cannot show through it.
+#
+# Measured where the north channel is the limiting term instead -- doppler
+# noise at 0.05, over eight draws -- the loop's advantage is large and grows
+# with north noise: 2.08 degrees against 2.98 at 0.01 RMS, 2.07 against 4.43
+# at 0.05, and 3.26 against 84.65 at 0.2, where the simple tracker also loses
+# a third of its bearings. So the advantage is real and this scenario is not
+# where to look for it.
+#
+# The earlier version of this note has its own lesson. The jitter was
+# sin(0.37 k), a coherent 94 Hz modulation that a 2 Hz loop rejects by
+# construction, so the advantage it reported was the stimulus being out of
+# band rather than the loop working. Replacing it with white jitter was
+# supposed to settle that, and the numbers quoted for the replacement were one
+# draw taken before the noise seeds were decorrelated and before these rows
+# were averaged at all.
 for bearing_method in ("correlation", "zero_crossing"):
     BASELINE_LIMITS[("dpll", bearing_method, "noisy_jittered")].update(
         {
@@ -316,18 +331,8 @@ for bearing_method in ("correlation", "zero_crossing"):
 # levels match the physical measurement rather than the resulting error, which
 # is the honest way round but means these limits are pessimistic.
 
-# noisy_jittered injects a sample of deliberate tick jitter, so the tick error
-# columns there measure the stimulus, not the tracker. The DPLL averages that
-# jitter away -- which is the point of a loop -- and so reads a larger tick
-# error than the simple tracker while producing a third of its bearing error.
-# Bearing is the metric that means something in this scenario.
-#
-# That claim used to rest on nothing. The jitter was sin(0.37 k), a coherent
-# 94 Hz modulation that a 2 Hz loop rejects by construction, so the DPLL's
-# advantage was the stimulus being out of band rather than the loop working.
-# With white fractional jitter, which has in-band content the loop must
-# actually follow, the advantage is not merely intact but wider: 2.07 degrees
-# against 5.92 where it had been 4.35 against 8.17.
+# noisy_jittered: see the note above the dpll limits for why this scenario
+# no longer separates the trackers on bearing.
 for bearing_method in ("correlation", "zero_crossing"):
     BASELINE_LIMITS[("dpll", bearing_method, "noisy_jittered")].update(
         {

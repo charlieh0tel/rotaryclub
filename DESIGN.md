@@ -116,6 +116,20 @@ Channel assignment is configurable via `ChannelRole` enum.
   rebuilding what the DPLL already is. It is kept as a fallback and a
   comparison point, and `test_north_tick_detection_under_hum_clipping_and_drift`
   records where it stands.
+
+  What the loop is worth, measured with the doppler channel quiet so the north
+  channel is the limiting term, over eight noise draws: 2.08 degrees of bearing
+  against the simple tracker's 2.98 at 0.01 RMS of north noise, 2.07 against
+  4.43 at 0.05, and 3.26 against 84.65 at 0.2, where the simple tracker also
+  gives up a third of its bearings. The advantage is small when the channel is
+  clean and decisive when it is not.
+
+  It does not show at all in the `noisy_jittered` pipeline scenario, which is
+  where it used to be quoted from. That scenario carries doppler noise at 0.8,
+  the middle of what the recordings measure, and at that level the doppler
+  channel decides the bearing almost entirely: both trackers read about 22
+  degrees. A scenario has to be limited by the thing under test before it can
+  measure it.
 - **Pulse estimator separate from the loop**: they solve different problems.
   The estimator decides where one pulse arrived; the loop decides what the
   rotation is doing. Against a tight loop the estimator choice is worth
