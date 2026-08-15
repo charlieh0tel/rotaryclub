@@ -464,13 +464,25 @@ fn bearing_method_name(method: BearingMethod) -> &'static str {
 
 /// Independent noise realisations averaged into each reported row.
 ///
-/// Every row this harness printed used to be one draw, and one draw is not a
-/// measurement: the `low_snr_dc` scenario in simple mode is bimodal, reading
-/// either about 0.99 or about 0.49 depending only on the noise, because the
-/// dead time is 28.8 samples against a 29.95 sample period and a detection
-/// landing early puts the following pulse in its shadow. Which side a single
-/// draw lands on is not a property of the code under test.
-const DRAWS: u64 = 16;
+/// One draw is not a measurement: this scenario set contains a row that was
+/// bimodal, reading either 0.99 or 0.49 and never the 0.894 its mean claimed.
+///
+/// Four rather than sixteen, and the number is computed rather than picked.
+/// The requirement is that noise must not trip a limit, so for each row and
+/// each checked metric the count needed to keep a three-sigma excursion inside
+/// the margin is (3 sd / margin)^2. Measured over 32 draws, the largest such
+/// requirement across the whole matrix is 1.3. Four gives three times that.
+///
+/// Two things that calculation deliberately ignores. Timing spread is machine
+/// load, which no number of draws averages away. And the bearing-error limits
+/// on the near-uniform scenarios sit at or above 180 degrees, which a bearing
+/// error cannot exceed, so those checks cannot fail and should not size
+/// anything; excluded, the requirement falls from 14 to 1.3.
+///
+/// This is tied to the limits: tightening one shrinks its margin and raises
+/// the count needed. Re-run the sizing from the `spread` lines on stderr if
+/// a limit moves.
+const DRAWS: u64 = 4;
 
 fn average_metrics(runs: &[Metrics]) -> Metrics {
     let n = runs.len() as f64;
@@ -501,12 +513,31 @@ fn report_spread(mode: &str, method: &str, scenario: &str, buffer: usize, runs: 
         let var = runs.iter().map(|r| (f(r) - m) * (f(r) - m)).sum::<f32>() / (n - 1.0).max(1.0);
         (var / n).sqrt()
     };
+    // Every metric a limit is checked against, so the draw count can be
+    // chosen from the spread rather than guessed. The timing columns are
+    // deliberately absent: their spread is machine load, which more draws do
+    // not average away.
+    let mean = |f: fn(&Metrics) -> f32| runs.iter().map(f).sum::<f32>() / n;
     eprintln!(
-        "spread {mode},{method},{scenario},{buffer},{:.4},{:.4},{:.4},{:.4}",
+        "spread {mode},{method},{scenario},{buffer}\
+         ,{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\
+         ,{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
+        mean(|m| m.bearing_success_rate),
         se(|m| m.bearing_success_rate),
+        mean(|m| m.detection_rate),
         se(|m| m.detection_rate),
+        mean(|m| m.false_positive_rate),
         se(|m| m.false_positive_rate),
+        mean(|m| m.mean_abs_bearing_error_deg),
         se(|m| m.mean_abs_bearing_error_deg),
+        mean(|m| m.p95_abs_bearing_error_deg),
+        se(|m| m.p95_abs_bearing_error_deg),
+        mean(|m| m.max_abs_bearing_error_deg),
+        se(|m| m.max_abs_bearing_error_deg),
+        mean(|m| m.mean_abs_tick_error_samples),
+        se(|m| m.mean_abs_tick_error_samples),
+        mean(|m| m.p95_abs_tick_error_samples),
+        se(|m| m.p95_abs_tick_error_samples),
     );
 }
 

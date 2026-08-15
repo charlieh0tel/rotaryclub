@@ -126,7 +126,7 @@ Three harnesses, run in CI, each with limits in `scripts/*_report.py`.
 | --- | --- | --- |
 | `gate_bearing` | Bearing accuracy and throughput per method, scenario and buffer size | 8 |
 | `gate_north_tick` | Tick detection and timing per tracking mode, scenario and chunk size | 8 |
-| `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput | 16 |
+| `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput | 4 |
 
 Scenarios are `clean`, `noisy_jittered`, `harmonic_contaminated` and
 `low_snr_dc`, with the interference scaled to the in-band SNR the recordings
@@ -190,9 +190,21 @@ look and does not average away, so read these durations as a floor.
 Rules that earned their place.
 
 **One realisation is not a measurement.** Average over independent noise draws
-and report the standard error of the mean. Size the count from the measured
-spread rather than picking a round number; most rows here settle under 0.001
-with 8 to 16.
+and report the standard error of the mean.
+
+**Size the draw count, do not pick it.** For a gate the requirement is that
+noise must not trip a limit, so the count needed is (3 sd / margin)^2 for the
+worst row and metric, with the margin measured from the value to its limit.
+Guessing costs real time: sixteen draws on the pipeline gate turned out to be
+twelve times more than anything needed, and cutting to four took that gate from
+about seven minutes to twenty-three seconds. Two things must be left out of
+that sum -- timing columns, whose spread is machine load rather than noise, and
+checks that cannot fail, such as a bearing-error limit above the 180 degrees a
+bearing error can reach. Including the latter put the requirement at 14 instead
+of 1.3.
+
+The count is tied to the limits. Tightening one shrinks its margin and raises
+the count needed, so re-run the sizing when a limit moves.
 
 **Check for bimodality before quoting a mean.** A mean is only a summary if the
 distribution has one mode. Print the per-draw values for any cell whose error

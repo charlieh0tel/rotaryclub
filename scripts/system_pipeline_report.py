@@ -277,6 +277,12 @@ for bearing_method in ("correlation", "zero_crossing"):
             "p95_abs_tick_error_samples": 1.0,
         }
     )
+# The max_abs_bearing_error_deg limits below are at or above 180, which a
+# bearing error cannot exceed, so those particular checks cannot fail. They are
+# left in place because the column is still worth reporting, but they are not
+# coverage and should not be counted as such -- and they must not be used to
+# size draw counts, since a value of 177 against a limit of 181 looks like a
+# tight margin and is not one.
 BASELINE_LIMITS[("simple", "correlation", "low_snr_dc")].update(
     {
         "mean_abs_bearing_error_deg": 75.0,
