@@ -159,13 +159,18 @@ Channel assignment is configurable via `ChannelRole` enum.
 
 Test file (11.6s, moving radio source):
 - **Rotation detection:** 1601.0 Hz (99.9% accurate)
-- **Measurement rate:** 265 bearings/sec
+- **Measurement rate:** 1602 bearings/sec computed, one per north tick;
+  18,621 over the 11.62 s file. What a consumer sees is `--output-rate`,
+  10 Hz by default, since the rest are averaged into it. The 265 once quoted
+  here matched neither number and is not a rate this pipeline produces.
 - **Confidence:** signal-dependent; see `bearing_uncertainty_deg`. A clean
   synthetic signal reads about 0.97 and a bearing forty degrees out reads
   0.02. The 0.90-1.00 once quoted here described the weighted-sum score that
   floored near 0.59 whatever the signal did, and is not comparable.
-- **Latency:** <100ms
-- **CPU usage:** <5%
+- **Latency:** <100ms — unverified. No harness measures end-to-end latency;
+  the gates measure per-sample processing time, which is a different thing.
+- **CPU usage:** <5% — unverified, and load-dependent enough that the timing
+  columns in the gates fail outright on a loaded machine.
 
 ## Known Limitations
 
