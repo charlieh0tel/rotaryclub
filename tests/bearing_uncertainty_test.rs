@@ -27,8 +27,9 @@ use rotaryclub::processing::RdfProcessor;
 /// Signal-to-noise floor, in dB, below which a capture is taken to have no
 /// carrier and its bearings are excluded from calibration.
 ///
-/// Six rather than zero because the ratio is still climbing at zero: 0.85
-/// gated at 0 dB on the ft-70d capture, settling at 1.06 to 1.08 from 6 up.
+/// Six rather than zero because the ratio is still climbing at zero. Thirty
+/// percent of the ft-70d capture survives a zero dB floor and twenty-six
+/// percent survives this one.
 const CARRIER_FLOOR_DB: f32 = 6.0;
 use rotaryclub::rdf::{BearingCalculator, CorrelationBearingCalculator, NorthTick};
 use rotaryclub::simulation::noise_at;
@@ -397,15 +398,23 @@ fn test_coasted_ticks_report_growing_uncertainty() {
 /// evidence against the first came from a noise generator that turned out to
 /// be half a DC offset.
 ///
-/// Measured, stated against actual: 1.04 and 0.97 on the two wouxun captures,
-/// and 0.60 on the ft-70d one. The last is the badly degraded capture, whose
-/// bearings scatter by 55 degrees, and it understates. That is the reference
-/// term's known limit rather than the independence model's: as a signal
-/// degrades the tick's error stops being scatter and becomes a displacement
-/// the loop follows, which nothing inside the tracker can see. Both numbers
-/// say the same thing about that capture -- 33 degrees and 55 degrees are
-/// each far past usable -- but the direction of the error is the unsafe one
-/// and it is worth knowing where it sets in.
+/// Measured, stated against actual: 1.53 on ft-70d, 0.99 on wouxun test1 and
+/// 0.53 on wouxun test3. An earlier version of this comment had these values
+/// attached to the wrong files -- 0.60 on ft-70d and about 1.0 on the wouxuns
+/// -- and reasoned from that about the degraded capture understating. It is
+/// the other way round: ft-70d is the capture furthest from unity and it is
+/// conservative, while the understatement sits on a wouxun capture.
+///
+/// The one below 1 is the direction that matters, since a figure that claims
+/// better than it delivers is the unsafe error. Half the scatter actually
+/// seen is the reference term's known limit rather than the independence
+/// model's: as a signal degrades the tick's error stops being scatter and
+/// becomes a displacement the loop follows, which nothing inside the tracker
+/// can see.
+///
+/// These are medians over few windows -- seven for ft-70d after gating -- so
+/// they carry a wide interval and the spread between captures should not be
+/// read as structure.
 #[test]
 fn test_uncertainty_is_calibrated_against_real_captures() {
     let captures: Vec<std::path::PathBuf> = match std::fs::read_dir("data") {
@@ -430,27 +439,38 @@ fn test_uncertainty_is_calibrated_against_real_captures() {
         };
 
         let mut processor = RdfProcessor::new(&config, false, true).expect("processor");
-        let mut raw = Vec::new();
-        let mut stated = Vec::new();
+        // Runs of consecutive reports that all have a carrier, rather than one
+        // list of survivors. Only where there is a carrier: seventy percent of
+        // the ft-70d capture is receiver hiss between overs, and a bearing
+        // taken on hiss is uniformly distributed.
+        //
+        // The runs matter because of what happens next. Windows cut from the
+        // filtered list would span the silence just removed, putting two
+        // separate overs -- pointing in different directions, since the
+        // operator was walking around the array between them -- inside one
+        // window, and the local mean would then measure the distance between
+        // overs as though it were scatter within one. That is worth 15 to 40
+        // percent here: ft-70d reads 1.08 cut the wrong way and 1.53 cut this
+        // way, and the two wouxun captures move in opposite directions.
+        let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+        let mut run: Vec<(f64, f64)> = Vec::new();
         while let Ok(Some(buffer)) = AudioSource::next_buffer(&mut source) {
             for result in processor.process_audio(&buffer) {
                 if let Some(bearing) = result.bearing
                     && let Some(u) = bearing.metrics.bearing_uncertainty_deg
                 {
-                    // Only where there is a carrier. Seventy percent of
-                    // the ft-70d capture is receiver hiss between overs, and
-                    // a bearing taken on hiss is uniformly distributed.
-                    // Ungated this capture calibrates at 0.73; gated, 1.06.
                     if bearing.metrics.snr_db < CARRIER_FLOOR_DB {
+                        if !run.is_empty() {
+                            runs.push(std::mem::take(&mut run));
+                        }
                         continue;
                     }
-                    raw.push(bearing.raw_bearing as f64);
-                    stated.push(u as f64);
+                    run.push((bearing.raw_bearing as f64, u as f64));
                 }
             }
         }
-        if raw.len() < 2000 {
-            continue;
+        if !run.is_empty() {
+            runs.push(run);
         }
 
         // Scatter of the reported bearings about a local mean, so that a
@@ -476,31 +496,36 @@ fn test_uncertainty_is_calibrated_against_real_captures() {
         // round these captures read 0.16; paired, they read 0.6 to 0.7.
         let window = 512usize;
         let mut ratios = Vec::new();
-        for (bearings, claimed) in raw.chunks(window).zip(stated.chunks(window)) {
-            if bearings.len() < window {
-                break;
+        for chunk in runs.iter().flat_map(|r| r.chunks(window)) {
+            if chunk.len() < window {
+                continue;
             }
             let (mut c, mut s) = (0.0f64, 0.0f64);
-            for b in bearings {
+            for (b, _) in chunk {
                 let r = b.to_radians();
                 c += r.cos();
                 s += r.sin();
             }
             let mean = s.atan2(c);
-            let variance = bearings
+            let variance = chunk
                 .iter()
-                .map(|b| {
+                .map(|(b, _)| {
                     let d = (b.to_radians() - mean)
                         .sin()
                         .atan2((b.to_radians() - mean).cos());
                     d * d
                 })
                 .sum::<f64>()
-                / bearings.len() as f64;
+                / chunk.len() as f64;
             let actual = variance.sqrt().to_degrees();
-            let mut claimed = claimed.to_vec();
+            let mut claimed: Vec<f64> = chunk.iter().map(|(_, u)| *u).collect();
             claimed.sort_by(f64::total_cmp);
             ratios.push(claimed[claimed.len() / 2] / actual.max(f64::EPSILON));
+        }
+        // A median over a handful of windows is thin, and gating leaves
+        // ft-70d with only seven. Four is the floor for reporting one at all.
+        if ratios.len() < 4 {
+            continue;
         }
         ratios.sort_by(f64::total_cmp);
         let ratio = ratios[ratios.len() / 2];
@@ -536,9 +561,13 @@ fn test_uncertainty_is_calibrated_against_real_captures() {
 /// has to infer a reference from the reports themselves.
 ///
 /// The figure still reads more conservative here than on the recordings --
-/// about 1.3 against about 0.9 -- for the same reason the perf scenarios are
-/// harsher than the captures at matched passband power: flat noise scatters a
-/// per-rotation phase estimate more than shaped audio does.
+/// about 1.5 here against 0.5 to 1.5 across the three captures -- for the
+/// same reason the perf scenarios are harsher than the captures at matched
+/// passband power: flat noise scatters a per-rotation phase estimate more
+/// than shaped audio does.
+///
+/// That difference is the one TODO.md once recorded as closed. It is not:
+/// see the entry there for what the closure rested on.
 #[test]
 fn test_uncertainty_is_calibrated_across_impairment() {
     let config = RdfConfig::default();

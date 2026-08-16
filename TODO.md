@@ -151,17 +151,38 @@ for on every sweep.
       AGC is worth 0.902 to 0.943 detection at 0.20 RMS with false positives
       falling 0.025 to 0.001.
 
-- [x] The synthetic-versus-real calibration gap does not exist. Closed.
+- [ ] The synthetic-versus-real calibration gap. Reopened; the closure was
+      not supported.
 
-      Stated uncertainty against observed scatter read 1.18 on synthetic
-      signal and 0.65 on the captures. The 0.65 is an artifact: seventy
-      percent of the ft-70d capture has no carrier on it, since it was
-      recorded by keying up several times while walking around the array, and
-      a bearing measured on receiver hiss is a uniformly distributed number.
-      Gated above 6 dB the same capture reads 1.06 to 1.08, against synthetic
-      signal at 1.09.
+      What holds up: seventy percent of the ft-70d capture has no carrier on
+      it, since it was recorded by keying up several times while walking
+      around the array, and a bearing measured on receiver hiss is a uniformly
+      distributed number. Thirty percent survives a zero dB floor. Gating is
+      right and `bearing_uncertainty_test` gates.
 
-      `bearing_uncertainty_test` now gates on carrier presence.
+      What does not: that gating closed the gap. The closure compared a gated
+      capture at 1.06 to 1.08 against synthetic signal at 1.09. Re-measured,
+      the synthetic side reads about 1.5, not 1.09 -- the synthetic doppler
+      channel gained interference after that number was taken, which is the
+      change that made the synthetic measurement worth anything in the first
+      place. The captures read 1.53, 0.99 and 0.53. So the difference is still
+      there and one capture understates by half.
+
+      The closure also rested on a windowing that cannot answer the question.
+      Windows were cut from the list of surviving reports, so a window spanned
+      the silence just removed and its local mean was taken across two overs
+      pointing different ways. Cutting inside contiguous runs instead moves
+      every capture, by 15 to 40 percent and in both directions. The test now
+      windows contiguously.
+
+      `bearing_uncertainty_test`'s own doc had said all along that the figure
+      "reads more conservative here than on the recordings"; that and this
+      item contradicted each other for as long as both existed.
+
+      Open question: whether the remaining difference is the flat-noise
+      explanation the test offers, or something the reference term does on
+      real signal. Three captures and a handful of windows each is not enough
+      to say.
 
       The multipath model added to close the gap is kept as a synthetic stress
       case and documented as claimed of nothing; it is the only impairment
