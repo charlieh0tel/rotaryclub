@@ -326,17 +326,36 @@ impl NorthPulseEstimator {
     /// highpass's negative lobes. An earlier version of this comment said the
     /// lobes were suppressed by squaring and not by linear weighting; they
     /// are 3.3 percent of the main lobe under the first and 0.1 percent under
-    /// the second, small under both. Reproducing the four numbers from the
-    /// filter kernel alone gets the hard limiter exactly right -- 3.46 degrees
-    /// predicted against 3.45 measured, since that error is quantisation and
-    /// nothing else -- and gets every centroid wrong in both magnitude and
-    /// order, while an impulse is assumed. Give the pulse its measured width
-    /// of one to one and a half samples and the order is reproduced from one
-    /// sample upward, matching to 0.08 degrees.
+    /// the second, small under both. The evidence, and its limits:
     ///
-    /// So this ordering belongs to the pulse the switcher and the anti-alias
-    /// filter deliver, not to the exponent. The model says it inverts below
-    /// about one sample of width, which different hardware could reach.
+    /// Computing each estimator's response from the filter kernel alone, an
+    /// assumed impulse gets the hard limiter right -- 3.47 degrees predicted
+    /// from quantisation, 3.44 to 3.45 measured by two harnesses on both
+    /// wouxun captures -- and gets every centroid wrong in magnitude and
+    /// order. Model the pulse as a rectangle and jointly fit its width and a
+    /// white residual floor to four cells per capture: width comes out 1.5
+    /// samples and the floor 0.24 to 0.38 degrees, in line with the 0.28 the
+    /// loop-closed measurements bottom out at. The fitted width is effective
+    /// rather than measured -- census counts one to two raw samples above
+    /// half max, and swapping the rectangle for a triangle of equal rms width
+    /// moves cells by up to thirty percent.
+    ///
+    /// Held out of the fit, the model reproduces the sixteen window-sweep
+    /// cells it never saw to 0.08 degrees rms on test1 and 0.18 on test3,
+    /// including the non-monotonic energy-window shape (best at 4, worse at
+    /// 3 and 5) on both captures, and the full four-way ordering at the
+    /// fitted width. Two things it gets wrong: the clipped saturation level
+    /// (0.67 to 0.77 predicted, 0.89 to 0.92 measured, and the measured
+    /// level is nearly capture-independent, so something real is missing
+    /// there) and the unclipped odd moment's mid windows on test3, off by up
+    /// to 0.3 degrees.
+    ///
+    /// So the ordering belongs to the pulse the switcher and the anti-alias
+    /// filter deliver, not to the exponent -- as mechanism, supported; as a
+    /// complete quantitative account, not achieved. The model puts the
+    /// four-way ordering's onset near 1.3 samples of width and inverts it
+    /// well below one, which different hardware could reach and nothing here
+    /// has measured.
     ///
     /// A consequence worth knowing: clipped, nothing outside the positive
     /// lobe contributes, so the odd moment cannot use a wider window. It
