@@ -316,15 +316,27 @@ impl NorthPulseEstimator {
     /// a bipolar signal, negative weights and a denominator through zero,
     /// does not arise here. An earlier version of this comment said it did.
     ///
-    /// What decides it is how far the highpass's negative lobes sit below the
-    /// main lobe once raised to the exponent. Squaring suppresses them, so
-    /// they act as a small symmetric correction and folding them in helps:
-    /// the energy centroid reads 0.441 degrees per tick unclipped against
-    /// 0.688 clipped, with the window held at 4 so the figure is clipping
-    /// alone. Linear weighting does not suppress them, so folding them in
-    /// distorts the first moment instead: the amplitude centroid reads 0.704
-    /// clipped against 0.856 at the best unclipped window measured, and 1.308
-    /// unclipped at its own.
+    /// Measured, unclipped wins for the even moment and loses for the odd
+    /// one: the energy centroid reads 0.441 degrees per tick unclipped
+    /// against 0.688 clipped with the window held at 4, while the amplitude
+    /// centroid reads 0.704 clipped against 1.308 unclipped at its own window
+    /// and 0.856 at the best unclipped one.
+    ///
+    /// What decides it is the width of the pulse, not the size of the
+    /// highpass's negative lobes. An earlier version of this comment said the
+    /// lobes were suppressed by squaring and not by linear weighting; they
+    /// are 3.3 percent of the main lobe under the first and 0.1 percent under
+    /// the second, small under both. Reproducing the four numbers from the
+    /// filter kernel alone gets the hard limiter exactly right -- 3.46 degrees
+    /// predicted against 3.45 measured, since that error is quantisation and
+    /// nothing else -- and gets every centroid wrong in both magnitude and
+    /// order, while an impulse is assumed. Give the pulse its measured width
+    /// of one to one and a half samples and the order is reproduced from one
+    /// sample upward, matching to 0.08 degrees.
+    ///
+    /// So this ordering belongs to the pulse the switcher and the anti-alias
+    /// filter deliver, not to the exponent. The model says it inverts below
+    /// about one sample of width, which different hardware could reach.
     ///
     /// A consequence worth knowing: clipped, nothing outside the positive
     /// lobe contributes, so the odd moment cannot use a wider window. It
