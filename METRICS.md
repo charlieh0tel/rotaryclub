@@ -71,8 +71,32 @@ the collection and display side — come from the KN5R-RDF project.
 
 Everything measured against channel conditions uses the power of the
 interference *inside the Doppler passband*, 1350 to 1850 Hz, against the power
-of the rotation tone. The captures measure +7, +1 and −8 dB — ratios of 0.199,
-0.793 and 6.579 the other way up.
+of the rotation tone. The three conditions used throughout are +7, +1 and −8 dB
+— ratios of 0.199, 0.793 and 6.579 the other way up.
+
+Those three are defined conditions, not measured properties of the three
+recordings, and earlier versions of this document said otherwise. They were
+introduced as what the captures measure, from an FFT that was never checked in;
+`metric_in_band_snr` now performs that measurement and does not agree. Over
+whole files the captures give −8.4, +2.8 and +2.6 dB. Counting only the louder
+half of each recording gives −4.0, +15.8 and +12.2 dB.
+
+The gap between those two rows is the finding. A recording is transmissions
+separated by squelch noise, and a segment of squelch noise has no tone in it at
+all, so the per-segment ratio inside one file spans two to three orders of
+magnitude — ft-70d runs 0.013 at its tenth percentile and 53.9 at its
+ninetieth. Which single number a recording "has" is decided entirely by which
+segments are counted, and for these captures that choice is worth about 10 dB.
+The original selection rule was not recorded, which is why its result could not
+be reproduced.
+
+Nothing measured against these conditions is invalidated: the generators set
+their ratio by construction, so a row labelled −8 dB was produced at −8 dB
+whatever any recording does. What does not survive is the claim that the three
+conditions are the three captures. −8 dB is a fair description of ft-70d; +7 dB
+describes no whole recording here, and sits between the two rules for the
+cleaner wouxun capture. Read them as a span of plausible channels, and quote
+`metric_in_band_snr` with a stated rule when a recording itself is the subject.
 
 It is deliberately not the ratio over the whole channel. Real FM audio has most
 of its energy well below the passband, where it does no harm, so matching total
@@ -129,8 +153,9 @@ Three harnesses, run in CI, each with limits in `scripts/*_report.py`.
 | `gate_pipeline` | The whole stack: detection, bearing error, tick error, throughput | 8 |
 
 Scenarios are `clean`, `noisy_jittered`, `harmonic_contaminated` and
-`low_snr_dc`, with the interference scaled to the in-band SNR the recordings
-measure (+7, +1 and −8 dB).
+`low_snr_dc`, with the interference scaled to the three defined in-band SNRs
+(+7, +1 and −8 dB); see above for what those do and do not say about the
+recordings.
 
 Metrics are written as JSONL with a meta record carrying a hash of the sources
 that produced them; `check` refuses a file that a different version of the code
@@ -149,42 +174,52 @@ and the north loop already locked.
 
 | In-band SNR | 256 sample buffer | 1024 sample buffer |
 | ---: | ---: | ---: |
-| +7 dB (cleanest capture) | **45 ms** | 65 ms |
-| +1 dB (middle capture) | 200 ms | **140 ms** |
-| −8 dB (worst capture) | 940 ms | **640 ms** |
+| +7 dB | **45 ms** | 65 ms |
+| +1 dB | **200 ms** | 300 ms |
+| −8 dB (about ft-70d) | **940 ms** | 940 ms |
 
-So a 45 ms transmission on the cleanest channel recorded, around 150 ms on the
-middle one, and around two thirds of a second on the worst — where the
-rotation tone sits 8 dB below the audio on top of it.
+So a 45 ms transmission on a clean channel, a fifth of a second at +1 dB, and
+just under a second at −8 dB, where the rotation tone sits below the audio on
+top of it.
 
 The same criterion applied to the same window with no transmission in it is
 met 0.00 of the time in every cell, so these are not rates of the pipeline
 emitting something.
 
 `scripts/plot_shortest_signal.py` draws the curves from the harness's JSONL,
-marking each crossing. Worth looking at rather than reading off the table: the
-shape differs between buffer sizes, and the 1024 curve on a clean channel is a
-step rather than a ramp — flat at 0.71 until the burst covers enough whole
-buffers, then straight to 0.98.
+marking each crossing.
 
 Two things to read carefully.
 
-**Buffer size trades, in the direction physics suggests.** The small buffer
-wins where the signal is strong, 45 ms against 65, because its finer time
-resolution fits inside a shorter burst. The large buffer wins where the signal
-is weak, 640 ms against 940, because integration is what a weak signal needs.
-An earlier and coarser run of this measurement sampled seven durations and
-concluded buffer size barely mattered; it had too few points near each
-crossing to see either effect.
+**The small buffer is never worse.** It wins at +7 and +1 dB and ties at −8.
+An earlier version of this table had the large buffer winning on the two
+weaker channels, 140 ms against 200 and 640 against 940, and explained it as
+integration being what a weak signal needs. That reversal was an artifact of
+the paragraph below: the large buffer's looks are the more correlated of the
+two, so over-crediting raw look count flattered it most. Correcting that
+removed the effect entirely rather than shrinking it.
 
-**The stated uncertainty is that of the aggregate, not of one buffer.** The
-score is a median over the burst's bearings, so it is judged against what that
-median claims: the per-buffer figure over the root of the number of looks.
-Judging an aggregate against a single buffer's uncertainty makes the criterion
-insensitive to duration — the first version of this measurement did that and
-reported nothing detectable above the cleanest channel. The division is
-optimistic about the reference term, which is common to every look and does not
-average away, so read these durations as a floor.
+**The stated uncertainty is that of the aggregate, and its looks are not
+independent.** The score is a median over the burst's bearings, so it is judged
+against what that median claims — the per-buffer figure divided by the root of
+the number of looks. Judging it against a single buffer's uncertainty instead
+makes the criterion insensitive to duration; the first version of this
+measurement did that and reported nothing detectable above the cleanest
+channel.
+
+But the looks are one per rotation, 0.6 ms apart, while the work buffer spans
+several rotations, so consecutive bearings are computed from mostly the same
+samples. Their lag-1 correlation measures 0.886. Dividing by the root of the
+raw count therefore claimed 3.4 to 5.0 times the precision the aggregate
+actually has, measured against the scatter of the median across draws — and an
+AR(1) at that correlation predicts 4.06, so the discrepancy is fully accounted
+for. The harness now divides by the root of the effective count,
+`n(1−r)/(1+r)`, with r measured from the burst in hand. That agrees with the
+observed scatter to within 20 percent, conservative on a clean channel and
+about a fifth optimistic at the worst.
+
+It remains optimistic about the reference term, which is common to every look
+and does not average away at all, so read these durations as a floor.
 
 ## Measuring without fooling yourself
 

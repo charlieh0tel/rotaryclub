@@ -163,13 +163,54 @@ fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64) -> bool {
     // uncertainty asks a long burst for a precision it never needed, and
     // makes the whole criterion insensitive to duration.
     //
-    // Optimistic about the reference term, which is common to every look and
-    // so does not average away. That part is not separately reported, and the
-    // error is in the direction of crediting the system rather than the
-    // reverse, so treat the resulting durations as a floor.
-    let reported_stated = per_buffer / (bearings.len() as f64).sqrt();
+    // It shrinks by the root of the *effective* number of looks, not the raw
+    // count. The looks are one per rotation, 0.6 ms apart, while the work
+    // buffer spans several rotations, so consecutive bearings are computed
+    // from mostly the same samples: their lag-1 correlation measures 0.886.
+    // Dividing by the root of the raw count therefore claimed 3.4 to 5.0
+    // times the precision the aggregate actually has, measured against the
+    // scatter of the median across draws. Correcting to the effective count
+    // brings that agreement to within 20 percent, conservative on a clean
+    // channel and still about a fifth optimistic at the worst.
+    //
+    // Also optimistic about the reference term, which is common to every look
+    // and so does not average away at all. That part is not separately
+    // reported, and both errors credit the system rather than the reverse, so
+    // treat the resulting durations as a floor.
+    let reported_stated = per_buffer / effective_looks(&bearings).sqrt();
     wrapped_diff(reported, TRUTH_DEG as f64).abs() <= ERROR_LIMIT_DEG
         && reported_stated <= STATED_LIMIT_DEG
+}
+
+/// Effective number of independent looks in a correlated sequence.
+///
+/// For a sequence whose lag-1 autocorrelation is r, the variance of the mean
+/// is inflated by (1+r)/(1-r) over the independent case, so the count that
+/// behaves like independent looks is n(1-r)/(1+r). Measured from the burst in
+/// hand rather than assumed, since r rises with buffer size and falls as the
+/// channel worsens.
+fn effective_looks(bearings: &[f64]) -> f64 {
+    let n = bearings.len();
+    if n < 4 {
+        return n as f64;
+    }
+    let errors: Vec<f64> = bearings
+        .iter()
+        .map(|&b| wrapped_diff(b, TRUTH_DEG as f64))
+        .collect();
+    let mean = errors.iter().sum::<f64>() / n as f64;
+    let variance: f64 = errors.iter().map(|e| (e - mean) * (e - mean)).sum();
+    if variance <= 0.0 {
+        return n as f64;
+    }
+    let covariance: f64 = errors
+        .windows(2)
+        .map(|w| (w[0] - mean) * (w[1] - mean))
+        .sum();
+    // Negative correlation would inflate the count above n, which is not a
+    // claim this should ever make; clamp to the independent case.
+    let r = (covariance / variance).clamp(0.0, 0.999);
+    (n as f64 * (1.0 - r) / (1.0 + r)).max(1.0)
 }
 
 fn snr_db(noise: f32) -> f64 {

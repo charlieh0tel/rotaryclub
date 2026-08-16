@@ -59,8 +59,17 @@ fn add_north_pulse(channel: &mut [f32], epoch: f64, amplitude: f32) {
 #[derive(Debug, Clone, Copy)]
 pub struct SignalImpairment {
     /// Interfering audio power *inside the Doppler passband*, relative to the
-    /// rotation tone. Measured on the recordings in `data/`: 0.199, 0.793 and
-    /// 6.579.
+    /// rotation tone. The three conditions used throughout are 0.199, 0.793
+    /// and 6.579, which is +7, +1 and -8 dB.
+    ///
+    /// Defined conditions rather than measured properties of the recordings in
+    /// `data/`, though they were introduced as the latter. `metric_in_band_snr`
+    /// measures those files at -8.4, +2.8 and +2.6 dB over whole files, or
+    /// -4.0, +15.8 and +12.2 dB counting only the louder half of each: a
+    /// recording is transmissions separated by squelch noise, so its ratio
+    /// spans orders of magnitude and no single value describes it without a
+    /// stated rule for choosing segments. A signal built here sets its ratio by
+    /// construction, so what it is scaled to is exact whatever the captures do.
     ///
     /// Not the ratio over the whole channel, which is the natural thing to
     /// reach for and is wrong. Real audio sits well below the Doppler band, so
