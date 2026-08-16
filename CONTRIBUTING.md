@@ -216,33 +216,24 @@ Fix all warnings before submitting. If you believe a warning is a false positive
 Use Rust doc comments (`///`) for public APIs:
 
 ```rust
-/// Calculates bearing angle from Doppler-shifted audio using I/Q correlation.
+/// One-sigma bearing uncertainty, in degrees, from the signal-to-noise
+/// ratio and the reference the bearing was measured against.
 ///
-/// This method performs better in noisy conditions compared to zero-crossing
-/// detection by correlating the Doppler tone with quadrature reference signals.
+/// This is precision, not accuracy: it sees noise by construction and
+/// cannot see a displacement every estimate shares, such as a reflection
+/// or a mis-set north offset.
 ///
 /// # Arguments
 ///
-/// * `doppler_samples` - Audio samples containing the Doppler tone
-/// * `rotation_freq` - Antenna rotation frequency in Hz
-/// * `sample_rate` - Audio sample rate in Hz
-///
-/// # Returns
-///
-/// Bearing angle in degrees (0-360°), where 0° is north.
-///
-/// # Example
-///
-/// ```
-/// let bearing = calculate_bearing_correlation(&samples, 30.0, 48000.0);
-/// println!("Target bearing: {:.1}°", bearing);
-/// ```
-pub fn calculate_bearing_correlation(
-    doppler_samples: &[f32],
-    rotation_freq: f32,
-    sample_rate: f32,
-) -> f32 {
-    // Implementation...
+/// * `snr_db` - Estimated in-band Doppler SNR in dB
+/// * `independent_looks` - Number of decorrelated noise samples averaged
+/// * `north_tick` - The reference tick the bearing was measured against
+pub(super) fn bearing_uncertainty_deg(
+    snr_db: f32,
+    independent_looks: f32,
+    north_tick: &NorthTick,
+) -> Option<f32> {
+    // Implementation: see src/rdf/bearing.rs
 }
 ```
 
@@ -275,48 +266,42 @@ cargo test --all-features
 
 ### Writing Tests
 
-**Unit test example:**
+**Integration test example**, using the real API (`tests/` has many more):
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use approx::assert_relative_eq;
-
-    #[test]
-    fn test_bearing_calculation_known_signal() {
-        // Generate synthetic signal at known bearing
-        let samples = generate_test_signal(90.0, 30.0, 48000.0);
-
-        let bearing = calculate_bearing_correlation(&samples, 30.0, 48000.0);
-
-        // Allow small tolerance due to numerical precision
-        assert_relative_eq!(bearing, 90.0, epsilon = 2.0);
-    }
-
-    #[test]
-    fn test_north_wraparound() {
-        // Test that 359° and 1° are close
-        assert!(angle_difference(359.0, 1.0) < 5.0);
-    }
-}
-```
-
-**Integration test example** (`tests/bearing_integration.rs`):
-
-```rust
-use rotaryclub::bearing::BearingCalculator;
+use rotaryclub::config::RdfConfig;
+use rotaryclub::processing::RdfProcessor;
+use rotaryclub::simulation::{SignalImpairment, generate_impaired_signal};
 
 #[test]
-fn test_full_pipeline_with_wav_file() {
-    let audio_data = load_test_wav("data/doppler-test-2023-04-10-ft-70d.wav");
-    let calculator = BearingCalculator::new(48000.0);
+fn bearing_recovers_known_synthetic_truth() {
+    let config = RdfConfig::default();
+    let signal = generate_impaired_signal(
+        2.0,
+        config.audio.sample_rate,
+        config.doppler.expected_freq,
+        |_| 200.0, // true bearing, degrees
+        SignalImpairment::none(),
+    );
 
-    let bearing = calculator.process(&audio_data);
-
-    assert!(bearing >= 0.0 && bearing < 360.0);
+    let mut processor = RdfProcessor::new(&config, false, true).expect("processor");
+    let mut bearings = Vec::new();
+    for chunk in signal.chunks(config.audio.buffer_size * 2) {
+        for result in processor.process_audio(chunk) {
+            if let Some(b) = result.bearing {
+                bearings.push(b.raw_bearing);
+            }
+        }
+    }
+    let last = *bearings.last().expect("some bearings");
+    let error = ((last - 200.0 + 540.0).rem_euclid(360.0) - 180.0).abs();
+    assert!(error < 2.0, "bearing {last} vs truth 200");
 }
 ```
+
+The `simulation` feature must be enabled for the generator
+(`cargo test --features simulation`), which the integration tests in
+`tests/` already do via their target configuration.
 
 ### Test Coverage
 

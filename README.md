@@ -224,13 +224,13 @@ cargo test
 python3 scripts/north_tick_timing_report.py ci --profile baseline
 
 # Baseline artifacts:
-# - target/timing-metrics/gate_north_tick.csv
+# - target/timing-metrics/gate_north_tick.jsonl
 # - target/timing-metrics/north_tick_timing_baseline_summary.md
-# - target/timing-metrics/north_tick_timing_baseline_failed_rows.csv
+# - target/timing-metrics/north_tick_timing_baseline_failed_rows.jsonl
 # Strict artifacts (when run with --profile strict and --out-dir target/timing-metrics-strict):
-# - target/timing-metrics-strict/gate_north_tick.csv
+# - target/timing-metrics-strict/gate_north_tick.jsonl
 # - target/timing-metrics-strict/north_tick_timing_strict_summary.md
-# - target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv
+# - target/timing-metrics-strict/north_tick_timing_strict_failed_rows.jsonl
 
 # Build Debian package (requires cargo-deb)
 cargo install cargo-deb

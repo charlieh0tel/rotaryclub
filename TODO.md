@@ -331,7 +331,7 @@ for on every sweep.
 
 ## North Tick Tracking
 
-- [x] A slow AGC on the north channel. Done, off by default:
+- [x] A slow AGC on the north channel. Done, on by default:
       `north_tick.agc.enabled`. Peak-referenced rather than RMS, because the
       pulse is a 1.2-sample event every 30 and an RMS reference would both
       demand an amplitude of 1.5 and track the rotation rate.
