@@ -227,14 +227,31 @@ fn snr_db(noise: f32) -> f64 {
 }
 
 fn main() {
-    let jsonl = std::env::args().any(|a| a == "--jsonl");
+    let args: Vec<String> = std::env::args().collect();
+    let jsonl = args.iter().any(|a| a == "--jsonl");
+    // Optional cell filters, so a run that dies partway can be completed
+    // block by block rather than repeated whole: every cell is deterministic
+    // in (noise, buffer, draw), so partial outputs concatenate exactly.
+    let flag = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    let only_buffer: Option<usize> = flag("--buffer").map(|v| v.parse().expect("--buffer"));
+    let only_noise: Option<f32> = flag("--noise").map(|v| v.parse().expect("--noise"));
     // Log-spaced, so the knee is resolved rather than interpolated between
     // two points an octave apart.
     let durations_ms = [
         20.0f32, 30.0, 45.0, 65.0, 95.0, 140.0, 200.0, 300.0, 440.0, 640.0, 940.0, 1400.0, 2000.0,
     ];
-    let noises = [0.2f32, 0.8, 6.5];
-    let buffers = [256usize, 1024];
+    let noises: Vec<f32> = [0.2f32, 0.8, 6.5]
+        .into_iter()
+        .filter(|n| only_noise.is_none_or(|o| (o - n).abs() < 1e-6))
+        .collect();
+    let buffers: Vec<usize> = [256usize, 1024]
+        .into_iter()
+        .filter(|b| only_buffer.is_none_or(|o| o == *b))
+        .collect();
 
     if !jsonl {
         println!(

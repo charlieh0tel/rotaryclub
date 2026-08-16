@@ -182,9 +182,15 @@ So a 45 ms transmission on a clean channel, a fifth of a second at +1 dB, and
 just under a second at −8 dB, where the rotation tone sits below the audio on
 top of it.
 
-The same criterion applied to the same window with no transmission in it is
-met 0.00 of the time in every cell, so these are not rates of the pipeline
-emitting something.
+The control is the same criterion applied to a window of the longest
+duration, 2000 ms, with no transmission in it — the worst case, since a
+longer window offers more chunks and a smaller stated uncertainty for an
+aggregate of noise to hide behind. It reads 0.02 (1 draw in 48) at both
+buffer sizes, so the detection rates above sit far clear of the false-alarm
+floor. With no burst present the channel is the same hiss whatever the SNR
+label says, so the control varies only with buffer size. An earlier version
+of this measurement reported 0.00 from a zero-length control window that
+scored no chunks at all; 0.02 is the number that could actually have moved.
 
 `scripts/plot_shortest_signal.py` draws the curves from the harness's JSONL,
 marking each crossing.

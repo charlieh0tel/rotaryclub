@@ -239,8 +239,8 @@ def main() -> int:
     fig.text(
         0.012,
         0.895,
-        f"The same criterion with no transmission present is met {worst_control:.2f} of the "
-        f"time, so these rates are not counting bearings taken on noise",
+        f"The same criterion over a 2000 ms window with no transmission present is met "
+        f"{worst_control:.2f} of the time, so these rates are not counting bearings taken on noise",
         fontsize=9,
         color=INK,
         ha="left",
