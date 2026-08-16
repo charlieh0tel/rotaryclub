@@ -89,16 +89,18 @@ pub(super) fn validate_confidence_config(config: &ConfidenceConfig) -> Result<()
 ///
 /// For a real tone in additive noise at a signal-to-noise power ratio r,
 /// averaged over n independent looks, the phase estimate scatters by
-/// 1 / sqrt(r n). That is the whole of the doppler term.
+/// 1 / sqrt(r n). That is the whole of the doppler term, and everything
+/// hangs on n being counted right: a look is one decorrelation interval of
+/// the in-band noise, fs / 2B samples for a filter of noise-equivalent
+/// bandwidth B, because a real bandpass passes +-f and its noise
+/// decorrelates over the two-sided width.
 ///
-/// Not 1 / sqrt(2 r n), which is the same result for a complex exponential
-/// and is the form usually quoted. A real sinusoid carries its power at both
-/// +f and -f, and using the complex form here left the figure uniformly a
-/// factor of root two low: measured against the bearing scatter it read 0.73
-/// across a sixteenfold buffer range and a thirtyfold noise range, which is a
-/// constant error rather than a modelling one. The reference contributes whole and
-/// unreduced: an error in the north tick displaces every estimate equally, so
-/// no averaging within a buffer touches it.
+/// An earlier version counted fs / B intervals and compensated by dropping
+/// the factor of two from the complex-exponential form of the variance --
+/// two errors of root two that cancelled at the formula and did not cancel
+/// in what the formula meant. Counted properly against the filter's
+/// measured bandwidth, the variance is 1/(r n) with no adjustment, and the
+/// stated figure matches known-truth scatter without either fudge.
 ///
 /// This used to be built from the spread of the per-rotation phase estimates
 /// instead, and that understated the bearing scatter everywhere -- measured
@@ -122,7 +124,7 @@ pub(super) fn bearing_uncertainty_deg(
     north_tick: &NorthTick,
 ) -> Option<f32> {
     let reference = north_tick
-        .phase_variance
+        .reference_variance
         .filter(|v| v.is_finite() && *v >= 0.0)?;
     if !snr_db.is_finite() || !independent_looks.is_finite() {
         return None;
@@ -132,7 +134,29 @@ pub(super) fn bearing_uncertainty_deg(
         return None;
     }
     let looks = independent_looks.max(1.0);
-    let doppler_variance = 1.0 / (snr * looks);
+    // The small-error variance, valid while the estimate stays near the
+    // true phase.
+    let linear_variance = 1.0 / (snr * looks);
+    // Threshold correction. Below a few tens of snr x looks the estimator
+    // leaves the linear regime: the phase estimate is sometimes captured by
+    // noise outright, and those outliers land anywhere on the circle. The
+    // small-error formula cannot see them -- once the look accounting above
+    // was made honest (two inflations that previously papered over this
+    // regime are gone), it claimed 22 degrees against 36 of actual scatter
+    // at the worst recorded channel condition.
+    //
+    // The outlier probability is an exponential in snr x looks, calibrated
+    // at two measured points rather than derived: 0.11 at snr x looks 4.6
+    // and 0.08 at 6.7, from the known-truth scatter at the two conditions
+    // where the linear formula underclaims. A Rife-Boorstyn union bound was
+    // tried first and overshoots threefold here, because the correlation is
+    // not a discrete bin search. The form dies fast enough to leave the
+    // moderate conditions untouched: 0.009 by snr x looks of 20, under 1e-3
+    // by 35, so everything the linear formula already handled is unchanged.
+    let uniform_variance = (std::f32::consts::PI * std::f32::consts::PI) / 3.0;
+    let outlier_probability = (0.21 * (-(snr * looks) / 6.6).exp()).min(0.5);
+    let doppler_variance =
+        (1.0 - outlier_probability) * linear_variance + outlier_probability * uniform_variance;
     Some((doppler_variance + reference).sqrt().to_degrees())
 }
 

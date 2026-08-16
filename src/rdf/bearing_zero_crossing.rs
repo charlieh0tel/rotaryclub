@@ -147,6 +147,7 @@ impl ZeroCrossingBearingCalculator {
         // Reconstruct an ideal sine wave at the known bearing phase and north tick
         // frequency, then measure how much of the actual signal correlates with it.
         let omega = north_tick.frequency;
+        let mut tone_power_for_looks = 0.0f32;
         let snr_db = if omega > 0.0 {
             let mut projection_sum = 0.0f32;
             let mut power_sum = 0.0f32;
@@ -166,6 +167,7 @@ impl ZeroCrossingBearingCalculator {
             // projection ≈ A/2 for signal A*sin(ωt - φ), since sin² averages to 1/2.
             // Correlated power = 2 * projection² reconstructs the full signal power.
             let correlated_power = (2.0 * projection * projection).max(0.0).min(signal_power);
+            tone_power_for_looks = correlated_power;
             let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
             power_to_db(correlated_power / noise_power)
         } else {
@@ -179,7 +181,8 @@ impl ZeroCrossingBearingCalculator {
             signal_strength,
             bearing_uncertainty_deg: bearing_uncertainty_deg(
                 snr_db,
-                self.base.independent_looks(),
+                self.base
+                    .effective_looks(tone_power_for_looks, 2.0 * PI / samples_per_rotation),
                 north_tick,
             ),
         }
@@ -265,6 +268,7 @@ mod tests {
                 period: Some(period),
                 lock_quality: Some(1.0),
                 phase_variance: reference,
+                reference_variance: reference,
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: omega,

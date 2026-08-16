@@ -166,8 +166,12 @@ impl CorrelationBearingCalculator {
         let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
         let snr_db = power_to_db(correlated_power / noise_power);
 
-        let bearing_uncertainty_deg =
-            bearing_uncertainty_deg(snr_db, self.base.independent_looks(), north_tick);
+        let omega = 2.0 * PI / north_tick.period.unwrap_or(f32::MAX);
+        let bearing_uncertainty_deg = bearing_uncertainty_deg(
+            snr_db,
+            self.base.effective_looks(correlated_power, omega),
+            north_tick,
+        );
 
         // --- Signal Strength ---
         let signal_strength = if signal_power > MIN_SIGNAL_STRENGTH_POWER {
@@ -238,6 +242,10 @@ mod tests {
     fn test_bearing_from_known_phase() {
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
+            // These are tests of the correlation math on short buffers; the
+            // production 1023-tap filter has more group delay than the whole
+            // test signal, so they pin a short filter explicitly.
+            bandpass_taps: 127,
             expected_freq: 480.0,
             bandpass_low: 400.0,
             bandpass_high: 560.0,
@@ -261,6 +269,7 @@ mod tests {
             period: Some(samples_per_rotation),
             lock_quality: None,
             phase_variance: Some(0.0),
+            reference_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -293,6 +302,10 @@ mod tests {
     fn test_fractional_tick_offset_improves_alignment() {
         let sample_rate = 48_000.0;
         let doppler_config = DopplerConfig {
+            // These are tests of the correlation math on short buffers; the
+            // production 1023-tap filter has more group delay than the whole
+            // test signal, so they pin a short filter explicitly.
+            bandpass_taps: 127,
             expected_freq: 1_602.0,
             bandpass_low: 1_500.0,
             bandpass_high: 1_700.0,
@@ -332,6 +345,7 @@ mod tests {
             period: Some(samples_per_rotation),
             lock_quality: None,
             phase_variance: Some(0.0),
+            reference_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -341,6 +355,7 @@ mod tests {
             period: Some(samples_per_rotation),
             lock_quality: None,
             phase_variance: Some(0.0),
+            reference_variance: Some(0.0),
             fractional_sample_offset: true_fractional_offset,
             phase: 0.0,
             frequency: omega,
@@ -385,6 +400,10 @@ mod tests {
         // stream of confident 0-degree bearings.
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
+            // These are tests of the correlation math on short buffers; the
+            // production 1023-tap filter has more group delay than the whole
+            // test signal, so they pin a short filter explicitly.
+            bandpass_taps: 127,
             expected_freq: 480.0,
             bandpass_low: 400.0,
             bandpass_high: 560.0,
@@ -407,6 +426,7 @@ mod tests {
             period: Some(samples_per_rotation),
             lock_quality: None,
             phase_variance: Some(0.0),
+            reference_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -425,6 +445,10 @@ mod tests {
     fn test_correlation_confidence_uses_the_configured_half_point() {
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
+            // These are tests of the correlation math on short buffers; the
+            // production 1023-tap filter has more group delay than the whole
+            // test signal, so they pin a short filter explicitly.
+            bandpass_taps: 127,
             expected_freq: 480.0,
             bandpass_low: 400.0,
             bandpass_high: 560.0,
@@ -454,6 +478,7 @@ mod tests {
                 // the phase spread alone. None would mean "not estimable" and
                 // suppress the figure entirely, which is its own test.
                 phase_variance: Some(0.0),
+                reference_variance: Some(0.0),
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: omega,
@@ -487,6 +512,10 @@ mod tests {
     fn test_correlation_metrics_clean_signal() {
         let sample_rate = 48000.0;
         let doppler_config = DopplerConfig {
+            // These are tests of the correlation math on short buffers; the
+            // production 1023-tap filter has more group delay than the whole
+            // test signal, so they pin a short filter explicitly.
+            bandpass_taps: 127,
             expected_freq: 480.0,
             bandpass_low: 400.0,
             bandpass_high: 560.0,
@@ -509,6 +538,7 @@ mod tests {
             period: Some(samples_per_rotation),
             lock_quality: None,
             phase_variance: Some(0.0),
+            reference_variance: Some(0.0),
             fractional_sample_offset: 0.0,
             phase: 0.0,
             frequency: omega,
@@ -564,20 +594,28 @@ mod tests {
                 // A reference of known-zero scatter, so what this measures is
                 // the doppler term alone.
                 phase_variance: Some(0.0),
+                reference_variance: Some(0.0),
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: omega,
             };
 
             let bearing_radians = 45.0f32.to_radians();
-            let buffer: Vec<f32> = (0..samples)
+            let signal: Vec<f32> = (0..samples * 2)
                 .map(|i| {
                     let n = noise_at(i, 0x51D3);
                     (omega * i as f32 - bearing_radians).sin() + noise * n
                 })
                 .collect();
 
-            calc.process_buffer(&buffer, &north_tick)
+            // The filter streams across buffers in service, so its startup
+            // transient exists once per session, not once per buffer. A
+            // fresh calculator measuring its very first window would have
+            // the whole group delay's worth of unsettled output inside it;
+            // warm up on one buffer and measure the next, as production
+            // effectively does.
+            let _ = calc.process_buffer(&signal[..samples], &north_tick);
+            calc.process_buffer(&signal[samples..], &north_tick)
                 .expect("a bearing")
                 .metrics
                 .bearing_uncertainty_deg
