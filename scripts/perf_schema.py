@@ -264,6 +264,15 @@ def source_digest(roots: Sequence[str] = ("src", "metrics")) -> str:
     """
     digest = hashlib.sha256()
     for root in roots:
+        # rglob on a missing directory yields nothing and raises nothing, so
+        # running from the wrong working directory would hash the empty string
+        # and compare it against itself -- a guard that passes for any change.
+        if not Path(root).is_dir():
+            raise SystemExit(
+                f"source_digest: {root!r} is not a directory. Run these scripts "
+                f"from the repository root; the freshness check cannot work "
+                f"from anywhere else."
+            )
         for path in sorted(Path(root).rglob("*.rs")):
             digest.update(path.as_posix().encode())
             digest.update(path.read_bytes())
