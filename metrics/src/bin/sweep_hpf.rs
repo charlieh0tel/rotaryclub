@@ -11,21 +11,25 @@
 //! group delay included) is absorbed by the fit and does not affect the
 //! comparison.
 //!
-//! Two of the estimator columns are the ones the pipeline can actually
-//! select, and two are not. The shipped estimators take their window
-//! half-width from `NorthPulseEstimator::window_half_width_us` and their
-//! clipping from the parity of the weight exponent, which works out as:
+//! Three of the four estimator columns are configurations `--north-estimator`
+//! can select; one is not. Each selectable estimator takes its window
+//! half-width from `NorthPulseEstimator::window_half_width_us` and its
+//! clipping from the parity of the weight exponent:
 //!
-//!   amplitude centroid   half-width 2, weight |x|,  clipped   -> `amp`
-//!   energy centroid      half-width 4, weight x^2,  unclipped -> `energy(4,x2)`
+//!   hard limiter         half-width 0, peak index          -> `HL`
+//!   amplitude centroid   half-width 2, weight |x|, clipped -> `amp`
+//!   energy centroid      half-width 4, weight x^2, no clip -> `energy`
 //!
-//! The column once labelled `energy` was half-width 3 and clipped, which is
-//! neither. It is kept as `probe(3,x2,clip)` because the comparison against
-//! it is on the record, but it ships nowhere and no conclusion should rest
-//! on it. Reading it as the energy centroid reverses the estimator ordering
-//! at 5 kHz on ft-70d: against the unshipped column amplitude appears to
-//! win, 3.518 against 3.811, while the shipped energy centroid is 3.481 and
-//! actually wins.
+//! The fourth, `probe`, is half-width 3 and clipped. No configuration
+//! produces it, and none can: clipping follows from the exponent, and an
+//! even exponent never clips. It is kept because comparisons against it are
+//! on the record, not because it is a choice anyone can make.
+//!
+//! That distinction is not pedantry. This column was once labelled `energy`,
+//! so the obvious reading of the table compared against something
+//! unreachable. At 5 kHz on ft-70d that reverses the ordering: against
+//! `probe` amplitude appears to win, 3.518 against 3.811, while the energy
+//! centroid a user can actually select reads 3.481 and wins.
 
 use std::path::PathBuf;
 
@@ -250,13 +254,17 @@ struct Row {
     detected: usize,
     expected: usize,
     rate_hz: f64,
+    /// `--north-estimator hard-limiter`: the peak index alone.
     hard_limiter: Option<Residuals>,
-    /// Shipped amplitude centroid: half-width 2, weight |x|, clipped.
+    /// `--north-estimator amplitude-centroid`: half-width 2, weight |x|,
+    /// clipped.
     amplitude: Option<Residuals>,
-    /// Shipped energy centroid: half-width 4, weight x^2, unclipped.
+    /// `--north-estimator energy-centroid`: half-width 4, weight x^2, no
+    /// clipping.
     energy: Option<Residuals>,
-    /// Not shipped: half-width 3, weight x^2, clipped. Kept only because
-    /// earlier comparisons quoted it as though it were the energy centroid.
+    /// No configuration produces this: half-width 3, weight x^2, clipped,
+    /// and an even exponent never clips. Kept only because earlier
+    /// comparisons quoted it as though it were the energy centroid.
     probe: Option<Residuals>,
 }
 
@@ -306,7 +314,7 @@ fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
                 .iter()
                 .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 3, 2, true))
                 .collect();
-            // The shipped energy centroid: half-width 4 from its 85 us
+            // The energy centroid as configured: half-width 4 from its 85 us
             // window at 48 kHz, and unclipped because clips_negative() is the
             // parity of the exponent and 2 is even.
             let shipped_energy_epochs: Vec<f64> = peaks
@@ -318,8 +326,7 @@ fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
             let amplitude = summarize(&amplitude_epochs, nominal_period);
             let probe = summarize(&energy_epochs, nominal_period);
             let energy = summarize(&shipped_energy_epochs, nominal_period);
-            // Rate from the shipped energy centroid, which is what the
-            // pipeline would use.
+            // Rate from the energy centroid, the default estimator.
             let rate_hz = energy
                 .as_ref()
                 .or(hard_limiter.as_ref())
@@ -377,8 +384,8 @@ fn main() -> Result<()> {
                 "detected",
                 "rate (Hz)",
                 "HL rms °",
-                "amp* rms °",
-                "energy* rms °",
+                "amp rms °",
+                "energy rms °",
                 "probe rms °"
             );
         }

@@ -215,25 +215,26 @@ for on every sweep.
       does not exist. It was one noise draw, and it sat outside the spread of
       the twelve that followed.
 
-      The recordings outrank all of the above, and they say the shipped energy
+      The recordings outrank all of the above, and they say the energy
       centroid wins -- by more than this entry used to claim, because the
-      comparison was against the wrong column.
+      comparison was against a column no configuration can produce.
 
-      `sweep_hpf` reported four estimator columns and only two of them ship.
-      The one labelled `energy` was half-width 3 and clipped; the shipped
-      energy centroid is half-width 4 and unclipped, which was the column
-      labelled `unclipped`. The figures quoted here -- 0.688 at the shipped
-      cutoff and 1.624 at 5 kHz -- are both the unshipped column. The columns
-      are now named for what they are, with the shipped two starred.
+      `sweep_hpf` reports four estimator columns. Three are what
+      `--north-estimator` selects; the fourth is half-width 3 and clipped,
+      which nothing can select, since clipping follows from the exponent and
+      an even exponent never clips. That fourth column was the one labelled
+      `energy`, and the figures quoted here -- 0.688 at the default cutoff and
+      1.624 at 5 kHz -- are both from it. The columns are now named for what
+      they are.
 
-      Read against the right column, on wouxun test1 at the shipped 1 kHz and
-      63 taps: amplitude 0.704 degrees per tick against energy 0.441. On
-      test3, 0.642 against 0.337. That is a 35 to 47 percent margin, not the
-      two percent recorded. At 5 kHz the ordering does not reverse either --
-      energy 0.522 against amplitude 0.601. On ft-70d the two do tie, 3.479
-      against 3.472.
+      Read against the energy centroid proper, on wouxun test1 at the default
+      1 kHz and 63 taps: amplitude 0.704 degrees per tick against energy
+      0.441. On test3, 0.642 against 0.337. That is a 35 to 47 percent margin,
+      not the two percent recorded. At 5 kHz the ordering does not reverse
+      either -- energy 0.522 against amplitude 0.601. On ft-70d the two do
+      tie, 3.479 against 3.472.
 
-      So the shipped energy centroid stays, which is what this entry
+      So the energy centroid stays the default, which is what this entry
       concluded, but not for the reason it gave.
 
       Worth recording how this was nearly got wrong. The synthetic result was
