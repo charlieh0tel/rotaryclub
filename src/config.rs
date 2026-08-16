@@ -869,7 +869,17 @@ impl Default for DopplerConfig {
             expected_freq: 1_000_000.0 / 624.0, // 624 μs period
             bandpass_low: 1350.0,
             bandpass_high: 1850.0,
-            bandpass_taps: 127,
+            // 1023, because 127 could not realize the design: it delivered
+            // a noise-equivalent bandwidth of 1000 Hz against the 500
+            // nominal, +2.3 dB of ripple at the rotation tone and a -10.6 dB
+            // stopband -- twice the in-band noise a real 500 Hz filter
+            // admits, degrading every SNR-derived figure. At 1023 taps the
+            // measured NEB is 583 Hz, the stopband -42 dB, the tone flat,
+            // and the group delay 10.7 ms, which is nothing at these output
+            // rates. The uncertainty accounting measures the NEB from the
+            // taps either way, so a smaller budget costs accuracy but can no
+            // longer miscalibrate the stated figure.
+            bandpass_taps: 1023,
             bandpass_transition_hz: 100.0,
             zero_cross_hysteresis: 0.01,
             method: BearingMethod::Correlation,

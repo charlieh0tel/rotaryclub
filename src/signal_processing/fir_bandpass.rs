@@ -93,6 +93,41 @@ impl FirBandpass {
     }
 
     /// Get the group delay in samples (half the filter length for linear phase)
+    /// Noise-equivalent bandwidth in Hz, referenced to the response at
+    /// `reference_hz`: the width of the ideal rectangular filter that would
+    /// pass the same white-noise power at the reference gain.
+    ///
+    /// Measured from the taps rather than read off the design request,
+    /// because the two are not the same thing: 127 taps asked for a 500 Hz
+    /// passband with a 100 Hz transition and delivered an NEB of 1682 Hz
+    /// with a -10.6 dB stopband, and everything derived from the nominal
+    /// width -- the independent-look count above all -- inherited the
+    /// fiction. Whatever the filter actually is, this reports it.
+    pub fn noise_equivalent_bandwidth_hz(&self, sample_rate: f32, reference_hz: f32) -> f32 {
+        let taps = self.core.taps();
+        let response_power = |hz: f64| -> f64 {
+            let omega = 2.0 * std::f64::consts::PI * hz / sample_rate as f64;
+            let (mut re, mut im) = (0.0f64, 0.0f64);
+            for (n, &t) in taps.iter().enumerate() {
+                re += t * (omega * n as f64).cos();
+                im += t * (omega * n as f64).sin();
+            }
+            re * re + im * im
+        };
+        let reference = response_power(reference_hz as f64).max(f64::MIN_POSITIVE);
+        let points = 8192usize;
+        let df = sample_rate as f64 / 2.0 / points as f64;
+        let integral: f64 = (0..points)
+            .map(|k| response_power((k as f64 + 0.5) * df) * df)
+            .sum();
+        (integral / reference) as f32
+    }
+
+    /// The taps, for offline response analysis.
+    pub fn taps_for_probe(&self) -> &[f64] {
+        self.core.taps()
+    }
+
     pub fn group_delay_samples(&self) -> usize {
         self.core.group_delay_samples()
     }
