@@ -344,7 +344,13 @@ fn run_processing_loop(
                 phase_error_variance,
             };
             bearing_stats.update(adjusted_bearing);
-            println!("{}", formatter.format(&output));
+            // Empty means the formatter has no honest encoding for this
+            // record (KN5R with a non-finite bearing); print nothing rather
+            // than a blank line in a fixed-width stream.
+            let line = formatter.format(&output);
+            if !line.is_empty() {
+                println!("{line}");
+            }
             *last_output = Instant::now();
         }
     };

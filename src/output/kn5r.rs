@@ -23,6 +23,13 @@ pub struct Kn5rFormatter;
 
 impl Formatter for Kn5rFormatter {
     fn format(&self, output: &BearingOutput) -> String {
+        // A non-finite bearing has no honest encoding in this format: the
+        // saturating cast would render it as 0000, a clean-looking bearing
+        // due north -- wrong and looking right. No sentence at all is the
+        // only output a fixed-width consumer cannot misread.
+        if !output.bearing.is_finite() {
+            return String::new();
+        }
         let angle = (output.bearing * 10.0).round() as u16 % 3600;
         // Both fields are carried by the tracker in their own units and only
         // scaled here. The pipeline has no reason to know this format wants

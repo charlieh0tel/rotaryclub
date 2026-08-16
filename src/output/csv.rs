@@ -1,30 +1,39 @@
 use super::{BearingOutput, Formatter, iso8601_timestamp};
 
+/// A float as a CSV cell: the number, or empty where it does not exist --
+/// the same convention the optional columns already use. An unquoted NaN
+/// token is at best parser-dependent.
+fn csv_num(value: f32, precision: usize) -> String {
+    if value.is_finite() {
+        format!("{value:.precision$}")
+    } else {
+        String::new()
+    }
+}
+
 pub struct CsvFormatter;
 
 impl Formatter for CsvFormatter {
     fn format(&self, output: &BearingOutput) -> String {
-        let lock = output
-            .lock_quality
-            .map_or(String::new(), |q| format!("{:.2}", q));
+        let lock = output.lock_quality.map_or(String::new(), |q| csv_num(q, 2));
         let pev = output
             .phase_error_variance
-            .map_or(String::new(), |v| format!("{:.4}", v));
+            .map_or(String::new(), |v| csv_num(v, 4));
         format!(
-            "{},{:.1},{:.1},{:.2},{:.1},{},{:.2},{},{:.3},{:.4},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{}",
             iso8601_timestamp(),
-            output.bearing,
-            output.raw,
-            output.confidence,
-            output.snr_db,
+            csv_num(output.bearing, 1),
+            csv_num(output.raw, 1),
+            csv_num(output.confidence, 2),
+            csv_num(output.snr_db, 1),
             output
                 .bearing_uncertainty_deg
-                .map(|u| format!("{u:.2}"))
+                .map(|u| csv_num(u, 2))
                 .unwrap_or_default(),
-            output.signal_strength,
+            csv_num(output.signal_strength, 2),
             output.signal_present,
-            output.resultant_length,
-            output.tone_peak,
+            csv_num(output.resultant_length, 3),
+            csv_num(output.tone_peak, 4),
             lock,
             pev
         )

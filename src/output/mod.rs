@@ -67,3 +67,61 @@ pub fn iso8601_timestamp() -> String {
 pub fn timestamp_millis() -> u64 {
     Utc::now().timestamp_millis() as u64
 }
+
+#[cfg(test)]
+mod non_finite_tests {
+    use super::*;
+
+    fn bad_output() -> BearingOutput {
+        BearingOutput {
+            bearing: f32::NAN,
+            raw: f32::INFINITY,
+            confidence: f32::NAN,
+            snr_db: f32::NEG_INFINITY,
+            bearing_uncertainty_deg: Some(f32::NAN),
+            signal_strength: f32::NAN,
+            signal_present: false,
+            resultant_length: f32::NAN,
+            tone_peak: f32::NAN,
+            lock_quality: Some(f32::NAN),
+            phase_error_variance: Some(f32::NAN),
+        }
+    }
+
+    /// The wire stays valid whatever upstream delivers. The audio sources
+    /// zero non-finite samples, but the formatters must not depend on that:
+    /// a bare NaN token is not JSON, and the KN5R saturating cast renders a
+    /// nonexistent bearing as a clean-looking 0000 due north.
+    #[test]
+    fn json_stays_valid_on_non_finite_values() {
+        let line = JsonFormatter.format(&bad_output());
+        assert!(!line.contains("NaN") && !line.contains("inf"), "{line}");
+        // Every non-finite numeric must have become null.
+        assert!(line.contains(r#""bearing":null"#), "{line}");
+        assert!(line.contains(r#""lock_quality":null"#), "{line}");
+    }
+
+    #[test]
+    fn csv_leaves_non_finite_cells_empty() {
+        let line = CsvFormatter.format(&bad_output());
+        assert!(!line.contains("NaN") && !line.contains("inf"), "{line}");
+        // ts, then bearing/raw/confidence/snr empty: ",,,,"
+        assert!(line.contains(",,,,"), "{line}");
+    }
+
+    #[test]
+    fn kn5r_refuses_a_nonexistent_bearing() {
+        assert_eq!(Kn5rFormatter.format(&bad_output()), "");
+    }
+
+    #[test]
+    fn kn5r_sentence_is_fixed_width_for_finite_input() {
+        let mut ok = bad_output();
+        ok.bearing = 123.4;
+        ok.resultant_length = 0.5;
+        ok.tone_peak = 0.25;
+        let line = Kn5rFormatter.format(&ok);
+        assert_eq!(line.len(), 26, "{line}");
+        assert!(line.starts_with("C1234"));
+    }
+}
