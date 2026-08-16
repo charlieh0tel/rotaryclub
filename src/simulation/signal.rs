@@ -689,7 +689,8 @@ mod in_band_power_tests {
     #[test]
     fn generated_ratio_matches_stated() {
         let sr = 48000u32;
-        for stated in [6.579f32] {
+        let stated = 6.579f32;
+        {
             let sig = generate_impaired_signal(
                 8.0,
                 sr,
