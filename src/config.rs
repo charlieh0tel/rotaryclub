@@ -309,15 +309,27 @@ impl NorthPulseEstimator {
     /// Whether the negative part of the filtered pulse is discarded before
     /// weighting.
     ///
-    /// This follows from the exponent rather than being a choice. The
-    /// highpassed pulse is bipolar, so a linear moment over it is ill-posed:
-    /// negative weights, and a denominator that can pass through zero. A
-    /// squared one is not -- squaring already makes sign irrelevant -- and
-    /// discarding the negative lobes there throws away weight that sits
-    /// symmetrically about the peak. Measured, that costs the energy centroid
-    /// 0.69 degrees against 0.44 at the shipped cutoff -- holding the window
-    /// half-width fixed at 4, so the figure is clipping alone and not the
-    /// window. Widening from 3 to 4 while clipped changes nothing.
+    /// This follows from the exponent rather than being a choice, and the
+    /// reason is measured rather than structural. Not clipping does not mean
+    /// weighting by a signed value -- `centroid_offset` takes `|x|` when it
+    /// does not clip -- so the hazard usually quoted for a linear moment over
+    /// a bipolar signal, negative weights and a denominator through zero,
+    /// does not arise here. An earlier version of this comment said it did.
+    ///
+    /// What decides it is how far the highpass's negative lobes sit below the
+    /// main lobe once raised to the exponent. Squaring suppresses them, so
+    /// they act as a small symmetric correction and folding them in helps:
+    /// the energy centroid reads 0.441 degrees per tick unclipped against
+    /// 0.688 clipped, with the window held at 4 so the figure is clipping
+    /// alone. Linear weighting does not suppress them, so folding them in
+    /// distorts the first moment instead: the amplitude centroid reads 0.704
+    /// clipped against 0.856 at the best unclipped window measured, and 1.308
+    /// unclipped at its own.
+    ///
+    /// A consequence worth knowing: clipped, nothing outside the positive
+    /// lobe contributes, so the odd moment cannot use a wider window. It
+    /// saturates at 0.891 from a half-width of 3 upward, which is the ceiling
+    /// the even moment beats by 40 percent.
     pub(crate) fn clips_negative(self) -> bool {
         self.weight_exponent() % 2 == 1
     }
@@ -326,9 +338,12 @@ impl NorthPulseEstimator {
     ///
     /// Wider suits a weighting that spreads across the pulse and narrower one
     /// that concentrates on the peak, so it belongs to the estimator rather
-    /// than being one number for all of them. Measured optima on the captures
-    /// in `data/` at 48 kHz: two samples for the amplitude centroid, four for
-    /// the energy centroid.
+    /// than being one number for all of them. Both values are at their
+    /// measured optimum: sweeping the half-width on the wouxun captures, the
+    /// amplitude centroid reads 0.706, 0.704 then 0.891 flat from 3 upward,
+    /// and the energy centroid 0.475, 0.546, 0.441, 0.475, 0.470 degrees per
+    /// tick from a half-width of 2. So two samples for the amplitude centroid
+    /// and four for the energy centroid, at 48 kHz.
     pub(crate) fn window_half_width_us(self) -> f32 {
         match self {
             NorthPulseEstimator::HardLimiter => 0.0,
