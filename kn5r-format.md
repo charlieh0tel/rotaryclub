@@ -98,3 +98,41 @@ pipeline latency and the clock-call jitter.
 The timestamp. Fixing it means carrying a capture time along each buffer
 rather than reading the clock at the point of emission, which is a change to
 the pipeline rather than to this formatter.
+
+## Telling a bearing from squelch noise
+
+The pipeline reports a bearing for every buffer, including buffers holding
+nothing but squelch-open hiss, so anything plotting these sentences needs a
+rule for which ones to draw. The sentence carries two fields that could serve,
+and the one that looks right is the wrong one.
+
+Rates below are over about 48,000 hiss sentences and six seconds per channel
+condition, at the three in-band SNRs the recordings span. "False alarm" is the
+fraction of hiss sentences a rule admits; the rest is the fraction of real
+signal it keeps.
+
+| rule | false alarm | +7 dB | +1 dB | −8 dB |
+| --- | ---: | ---: | ---: | ---: |
+| magnitude > 0 | 25.7% | 100% | 99.6% | 90.0% |
+| magnitude ≥ 100 | 1.0% | 100% | 98.6% | 69.1% |
+| magnitude ≥ 300 | 0.0% | 100% | 96.1% | 44.2% |
+| **tone peak ≥ 320** | **1.6%** | **100%** | **99.6%** | **99.2%** |
+
+Magnitude is the natural field to reach for and it does not work at the weak
+end. A quarter of hiss sentences carry a nonzero magnitude, and raising the
+threshold far enough to reject them costs a third of the bearings on the worst
+channel. That is structural rather than bad luck: magnitude here is the mean
+resultant length, which this receiver derives from the estimated SNR as
+`exp(-1/(2·snr))`, a compressed restatement of SNR that flattens towards zero
+exactly where the decision is hard.
+
+Tone peak separates cleanly because it is an in-band amplitude, which is what
+presence is. The cost is that it is an absolute level: the threshold above is
+calibrated to the 0.9 RMS hiss the captures show, and a receiver at a
+different gain or squelch setting needs a different number. Magnitude is
+dimensionless and portable, and useless; tone peak discriminates and is not
+portable. A consumer wanting both would need a field the sentence does not
+have.
+
+This describes our output. Whether KR6DD's engine populates these fields
+identically at low SNR has not been checked against his code.
