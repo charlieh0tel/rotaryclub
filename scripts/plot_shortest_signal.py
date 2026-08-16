@@ -144,9 +144,15 @@ def main() -> int:
                 zorder=5,
             )
             # Two crossings close together would print on top of each other,
-            # so a label lifts clear of any already placed nearby.
+            # so a label lifts clear of any already placed nearby. Where they
+            # coincide exactly the second is dropped instead of stacked: two
+            # identical numbers one above the other read as two answers.
+            if any(abs(crossing - x) < 1e-6 for x in placed):
+                continue
             row = sum(1 for x in placed if 0.6 < crossing / x < 1.7)
             placed.append(crossing)
+            # Not colour-coded, and it does not need to be: each label sits
+            # directly under its own drop line, which is in the series colour.
             ax.annotate(
                 f"{crossing:.0f} ms",
                 (crossing, 0.0),
@@ -180,16 +186,17 @@ def main() -> int:
     axes[0].set_ylabel(
         "fraction of bursts yielding a usable bearing", fontsize=9, color=MUTED
     )
+    # High in the panel, where no curve reaches this far left.
     axes[0].text(
         FLOOR_MS * 0.78,
-        0.5,
+        0.86,
         "detector floor",
         ha="center",
         va="center",
         rotation=90,
         fontsize=7.5,
         color=MUTED,
-    )
+    ).set_path_effects([path_effects.withStroke(linewidth=3, foreground=FLOOR_FILL)])
     axes[0].annotate(
         "90%",
         (0.99, REQUIRED_RATE),
