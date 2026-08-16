@@ -37,7 +37,10 @@ struct Args {
     #[arg(short = 's', long)]
     swap_channels: bool,
 
-    #[arg(short = 'o', long, default_value = "0.0")]
+    /// North reference offset in degrees (added to all bearings)
+    #[arg(short = 'o', long, default_value = "0.0",
+          value_parser = rotaryclub::cli::parse_north_offset,
+          allow_negative_numbers = true)]
     north_offset: f32,
 
     #[arg(short = 'v', long, action = clap::ArgAction::Count)]
@@ -69,6 +72,10 @@ struct BearingData {
     snr_db: f32,
     uncertainty_deg: Option<f32>,
     signal_strength: f32,
+    /// The pipeline's own verdict on whether a signal was present, by the
+    /// threshold for the method in use. Presence decides validity; the
+    /// confidence decides quality. The display treats them accordingly.
+    signal_present: bool,
 }
 
 enum GuiUpdate {
@@ -163,6 +170,17 @@ fn start_processing(
     config: RdfConfig,
     tx: Sender<GuiUpdate>,
 ) -> anyhow::Result<StartResult> {
+    // Same guard as the CLI: the dump writer truncates its path on creation,
+    // so pointing it at the input would destroy the recording being read.
+    if let (Some(input), Some(dump)) = (&args.input, &args.dump_audio)
+        && rotaryclub::cli::same_file(input, dump)
+    {
+        anyhow::bail!(
+            "--dump-audio points at the input file {}; writing would destroy it",
+            input.display()
+        );
+    }
+
     let is_file_input = args.input.is_some();
     let default_speed = if is_file_input { 1.0_f32 } else { 0.0_f32 };
     let playback_speed = Arc::new(AtomicU32::new(default_speed.to_bits()));
@@ -264,6 +282,7 @@ fn send_tick_update(
             snr_db: b.metrics.snr_db,
             uncertainty_deg: b.metrics.bearing_uncertainty_deg,
             signal_strength: b.metrics.signal_strength,
+            signal_present: b.signal_present,
         }
     });
 
@@ -435,11 +454,12 @@ const COMPASS_HELP_TEXT: &str = "Compass rose encoding:
 - Needle width/tip size = bearing uncertainty (blunt is unsure)
 - Needle length/radius = signal strength
 - Trail = recent bearings with phosphor decay
-- Trail points require confidence >= 0.5";
+- Trail points require a signal-present verdict and confidence >= 0.5";
 
 struct TrailEntry {
     bearing: f32,
     confidence: f32,
+    signal_present: bool,
     /// 0 when the bearing is as certain as the display resolves, 1 at or
     /// beyond `UNCERTAINTY_FULL_SCALE_DEG`.
     blur: f32,
@@ -513,6 +533,7 @@ struct RdfGuiApp {
     latest_snr: Option<f32>,
     latest_uncertainty: Option<f32>,
     latest_signal_strength: Option<f32>,
+    latest_signal_present: Option<bool>,
     latest_rotation_freq: Option<f32>,
     latest_lock_quality: Option<f32>,
     latest_phase_error_var: Option<f32>,
@@ -547,6 +568,7 @@ impl RdfGuiApp {
             latest_snr: None,
             latest_uncertainty: None,
             latest_signal_strength: None,
+            latest_signal_present: None,
             latest_rotation_freq: None,
             latest_lock_quality: None,
             latest_phase_error_var: None,
@@ -582,6 +604,7 @@ impl RdfGuiApp {
             self.latest_snr = None;
             self.latest_uncertainty = None;
             self.latest_signal_strength = None;
+            self.latest_signal_present = None;
             self.latest_rotation_freq = None;
             self.latest_lock_quality = None;
             self.latest_phase_error_var = None;
@@ -647,6 +670,7 @@ impl RdfGuiApp {
                         self.history.compass_trail.push_back(TrailEntry {
                             bearing: b.bearing,
                             confidence: b.confidence,
+                            signal_present: b.signal_present,
                             blur: blur_from(b.uncertainty_deg),
                             strength: b.signal_strength,
                             time: time_secs,
@@ -657,6 +681,7 @@ impl RdfGuiApp {
                         self.latest_snr = Some(b.snr_db);
                         self.latest_uncertainty = b.uncertainty_deg;
                         self.latest_signal_strength = Some(b.signal_strength);
+                        self.latest_signal_present = Some(b.signal_present);
                     }
 
                     if let Some(lq) = lock_quality {
@@ -761,7 +786,11 @@ impl RdfGuiApp {
         }
 
         for entry in &self.history.compass_trail {
-            if entry.confidence < TRAIL_CONFIDENCE_THRESHOLD {
+            // Presence decides whether the dot exists at all -- a bearing the
+            // pipeline itself says has no signal behind it is not evidence,
+            // however its confidence happens to read. Confidence then decides
+            // quality among the dots that remain.
+            if !entry.signal_present || entry.confidence < TRAIL_CONFIDENCE_THRESHOLD {
                 continue;
             }
 
@@ -888,6 +917,16 @@ impl RdfGuiApp {
                 ui.label(egui::RichText::new(format!("{:.2}", s)).color(quality_color(s)));
             } else {
                 ui.label(dash);
+            }
+            // The verdict badge appears only when it is bad news: in service
+            // almost everything has a signal behind it, and a marker repeated
+            // on every good frame stops being read.
+            if self.latest_signal_present == Some(false) {
+                ui.label(
+                    egui::RichText::new("NO SIGNAL")
+                        .color(egui::Color32::from_rgb(255, 100, 100))
+                        .strong(),
+                );
             }
         });
 
