@@ -69,7 +69,12 @@ impl RdfProcessor {
         // configured buffer size so the result matches process_signal's
         // chunking exactly (same per-buffer bearing averaging), not just the
         // ring-capacity bound.
-        let chunk_interleaved = (self.audio_config.buffer_size * 2).max(2);
+        // Capped at the ring capacity as well as the configured buffer size.
+        // Without the cap a buffer_size above the capacity makes each chunk the
+        // same length as the input, so the split re-enters this branch on a
+        // slice it never shortened and recurses until the stack goes.
+        let chunk_interleaved =
+            (self.audio_config.buffer_size * 2).clamp(2, AudioRingBuffer::capacity() * 2);
         if interleaved.len() > AudioRingBuffer::capacity() * 2 {
             let mut results = Vec::new();
             for chunk in interleaved.chunks(chunk_interleaved) {
