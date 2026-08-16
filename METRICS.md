@@ -325,11 +325,17 @@ The rest, none of which run in CI:
 | `sweep_threshold` | Detection and false positives against pulse amplitude, noise and threshold |
 | `sweep_loop_bandwidth` | Loop bandwidth against acquisition, steady state and holdover |
 | `sweep_hpf` | Highpass cutoff against per-tick timing, on the captures |
-| `probe_uncertainty_reference` | Which scatter the stated uncertainty should be calibrated against, gated on carrier |
 | `probe_confidence_multipath` | Whether filtering on confidence improves the bearings kept |
 | `probe_agc` | AGC behaviour against north-channel noise, per tracking mode |
 | `probe_coast_budget` | How far the coasting budget lets the loop predict |
 | `probe_zero_crossing_bias` | Bias in the zero-crossing estimator across seeds and filter widths |
+
+`probe_uncertainty_reference` is retired: the calibration measurement it made
+lives in `tests/bearing_uncertainty_test.rs`, which windows inside contiguous
+carrier runs. The probe kept the older windowing that spans the silence
+between overs (15 to 40 percent off), halved its buffers through a
+frame-count confusion, and never propagated the file's sample rate -- three
+defects in a second implementation of a measurement the test already makes.
 | `metric_shortest_signal` | Shortest burst yielding a usable bearing, against noise and buffer size; `--jsonl` for `scripts/plot_shortest_signal.py` |
 | `compare_config` | Two configurations against one generated signal |
 

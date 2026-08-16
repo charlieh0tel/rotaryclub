@@ -64,7 +64,8 @@ for on every sweep.
       median over windows; both distributions are strongly skewed on real
       signal, so that landed in the quiet part of the run and read 0.16 where
       pairing the two inside each window reads 0.6 to 0.7.
-      `probe_uncertainty_reference` prints all of these side by side.
+      (`probe_uncertainty_reference` printed these side by side; it is
+      retired, and the calibration lives in `bearing_uncertainty_test`.)
 
       The buffer-length drift is real and monotonic, which took three
       measurements to establish. The offline table predicted the figure would
