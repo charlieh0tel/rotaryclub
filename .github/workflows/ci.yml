@@ -67,9 +67,9 @@ jobs:
       with:
         name: north-tick-timing-metrics
         path: |
-          target/timing-metrics/north_tick_timing_metrics.csv
+          target/timing-metrics/gate_north_tick.jsonl
           target/timing-metrics/north_tick_timing_baseline_summary.md
-          target/timing-metrics/north_tick_timing_baseline_failed_rows.csv
+          target/timing-metrics/north_tick_timing_baseline_failed_rows.jsonl
 
     - name: Upload bearing performance metrics
       if: always()
@@ -77,9 +77,9 @@ jobs:
       with:
         name: bearing-performance-metrics
         path: |
-          target/bearing-perf/bearing_performance_metrics.csv
+          target/bearing-perf/gate_bearing.jsonl
           target/bearing-perf/bearing_performance_baseline_summary.md
-          target/bearing-perf/bearing_performance_baseline_failed_rows.csv
+          target/bearing-perf/bearing_performance_baseline_failed_rows.jsonl
 
     - name: Upload system pipeline performance metrics
       if: always()
@@ -87,9 +87,9 @@ jobs:
       with:
         name: system-pipeline-performance-metrics
         path: |
-          target/system-pipeline-perf/system_pipeline_performance_metrics.csv
+          target/system-pipeline-perf/gate_pipeline.jsonl
           target/system-pipeline-perf/system_pipeline_performance_baseline_summary.md
-          target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.csv
+          target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.jsonl
 
     - name: Publish bearing performance summary
       if: always()
@@ -104,7 +104,7 @@ jobs:
       if: always()
       run: |
         python3 scripts/bearing_performance_report.py failed-rows \
-          target/bearing-perf/bearing_performance_baseline_failed_rows.csv \
+          target/bearing-perf/bearing_performance_baseline_failed_rows.jsonl \
           --title "Bearing Performance Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
@@ -121,7 +121,7 @@ jobs:
       if: always()
       run: |
         python3 scripts/north_tick_timing_report.py failed-rows \
-          target/timing-metrics/north_tick_timing_baseline_failed_rows.csv \
+          target/timing-metrics/north_tick_timing_baseline_failed_rows.jsonl \
           --title "Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
@@ -138,7 +138,7 @@ jobs:
       if: always()
       run: |
         python3 scripts/system_pipeline_report.py failed-rows \
-          target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.csv \
+          target/system-pipeline-perf/system_pipeline_performance_baseline_failed_rows.jsonl \
           --title "System Pipeline Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
@@ -208,15 +208,15 @@ jobs:
       with:
         name: strict-metrics
         path: |
-          target/timing-metrics-strict/north_tick_timing_metrics.csv
+          target/timing-metrics-strict/gate_north_tick.jsonl
           target/timing-metrics-strict/north_tick_timing_strict_summary.md
-          target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv
-          target/bearing-perf-strict/bearing_performance_metrics.csv
+          target/timing-metrics-strict/north_tick_timing_strict_failed_rows.jsonl
+          target/bearing-perf-strict/gate_bearing.jsonl
           target/bearing-perf-strict/bearing_performance_strict_summary.md
-          target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv
-          target/system-pipeline-perf-strict/system_pipeline_performance_metrics.csv
+          target/bearing-perf-strict/bearing_performance_strict_failed_rows.jsonl
+          target/system-pipeline-perf-strict/gate_pipeline.jsonl
           target/system-pipeline-perf-strict/system_pipeline_performance_strict_summary.md
-          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.csv
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.jsonl
 
     - name: Publish north tick timing strict summary
       if: always()
@@ -231,7 +231,7 @@ jobs:
       if: always()
       run: |
         python3 scripts/north_tick_timing_report.py failed-rows \
-          target/timing-metrics-strict/north_tick_timing_strict_failed_rows.csv \
+          target/timing-metrics-strict/north_tick_timing_strict_failed_rows.jsonl \
           --title "Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
@@ -248,7 +248,7 @@ jobs:
       if: always()
       run: |
         python3 scripts/bearing_performance_report.py failed-rows \
-          target/bearing-perf-strict/bearing_performance_strict_failed_rows.csv \
+          target/bearing-perf-strict/bearing_performance_strict_failed_rows.jsonl \
           --title "Bearing Performance Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
@@ -265,6 +265,6 @@ jobs:
       if: always()
       run: |
         python3 scripts/system_pipeline_report.py failed-rows \
-          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.csv \
+          target/system-pipeline-perf-strict/system_pipeline_performance_strict_failed_rows.jsonl \
           --title "System Pipeline Strict Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
