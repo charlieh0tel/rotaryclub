@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
+use crate::config::{AgcConfig, BearingMethod, ConfidenceConfig, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
@@ -133,6 +133,11 @@ impl CorrelationBearingCalculator {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
             confidence: metrics.score(self.base.confidence()),
+            signal_present: metrics.signal_strength
+                >= self
+                    .base
+                    .confidence()
+                    .resolved_min_signal_strength(BearingMethod::Correlation),
             metrics,
         })
     }

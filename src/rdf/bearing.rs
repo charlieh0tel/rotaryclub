@@ -61,9 +61,9 @@ pub fn phase_to_bearing(phase_radians: f32) -> f32 {
 /// `NaN` -- which is not valid JSON, so it breaks the consumer rather than the
 /// producer. A zero or negative half point scores every bearing zero, so a
 /// perfect fix reads as worthless and the GUI needle goes black. A NaN
-/// `min_signal_strength` disables the validity gate, since `x < NaN` is also
-/// always false, and one above 1.0 closes it permanently, so the zero-crossing
-/// method emits nothing at all with no diagnostic.
+/// `min_signal_strength` makes the reported signal verdict always false, since
+/// no comparison with NaN is ever true, so the output would claim there was
+/// never a signal.
 pub(super) fn validate_confidence_config(config: &ConfidenceConfig) -> Result<()> {
     if !config.half_confidence_deg.is_finite() || config.half_confidence_deg <= 0.0 {
         return Err(RdfError::Config(format!(
@@ -72,12 +72,13 @@ pub(super) fn validate_confidence_config(config: &ConfidenceConfig) -> Result<()
             config.half_confidence_deg
         )));
     }
-    if !config.min_signal_strength.is_finite() || !(0.0..=1.0).contains(&config.min_signal_strength)
+    if let Some(min) = config.min_signal_strength
+        && (!min.is_finite() || !(0.0..=1.0).contains(&min))
     {
         return Err(RdfError::Config(format!(
-            "bearing.confidence.min_signal_strength is {}, must be a finite number within \
-             [0, 1]; it is the fraction of expected signal below which no bearing is reported",
-            config.min_signal_strength
+            "bearing.confidence.min_signal_strength is {min}, must be a finite number within \
+             [0, 1]; it is the signal strength at or above which a bearing is reported as \
+             having a signal behind it"
         )));
     }
     Ok(())
@@ -248,6 +249,14 @@ pub struct BearingMeasurement {
     pub raw_bearing: f32,
     /// Combined confidence metric (0-1 range, higher is better)
     pub confidence: f32,
+    /// Whether the signal strength reached the threshold for this method.
+    ///
+    /// A reported verdict, not a filter: the measurement is produced either
+    /// way and a consumer is free to disagree with it. It exists because the
+    /// quantity that decides it is not the same quantity in both methods and
+    /// sits on a different scale in each, so a consumer applying one rule to
+    /// `signal_strength` across both would be wrong in one of them.
+    pub signal_present: bool,
     /// Detailed confidence metrics breakdown
     pub metrics: ConfidenceMetrics,
 }

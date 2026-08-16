@@ -661,30 +661,65 @@ pub struct ConfidenceConfig {
     /// stateable: the bearing is as good as the reference timing can be
     /// resolved to.
     pub half_confidence_deg: f32,
-    /// Signal strength below which no bearing is reported at all.
+    /// Signal strength at or above which the bearing is reported as having a
+    /// signal behind it.
     ///
-    /// This is a validity gate rather than a quality term. Signal strength
-    /// answers whether there was anything to measure, not whether the answer
-    /// is good: the zero-crossing detector goes on finding crossings as the
-    /// signal degrades, so it stays near unity long after the bearing has
-    /// stopped being usable.
+    /// `None` resolves per method; see `resolved_min_signal_strength`.
     ///
-    /// The floor is low on purpose, because the two methods do not measure
-    /// the same thing by this name. Zero crossing reports the fraction of
-    /// expected crossings it found, which is liveness. Correlation reports
-    /// the fraction of power that correlated with its reference, which also
-    /// falls when the reference is merely wrong -- a rotation rate mismatch
-    /// drops it well below a half while the channel is perfectly alive, and
-    /// suppressing the bearing there would hide the mismatch rather than
-    /// report it. Only genuine absence should reach this.
-    pub min_signal_strength: f32,
+    /// This decides a reported verdict, not whether anything is emitted. The
+    /// bearing, its uncertainty and every metric are reported either way, so
+    /// a consumer can apply its own rule or ignore this one. Suppressing
+    /// instead was considered and measured: on the worst channel the
+    /// recordings show, the bearings a gate would remove still point at
+    /// truth -- a resultant of 0.45 about 6 degrees off -- and an operator
+    /// watching scatter narrow cannot integrate what was never sent.
+    pub min_signal_strength: Option<f32>,
+}
+
+/// Signal strength separating hiss from signal, for the correlation method.
+///
+/// Correlation reports the fraction of power that correlated with its
+/// reference. On squelch-open hiss that is 0.000 at the 99th percentile,
+/// against 0.192 at the 5th percentile of the worst channel the recordings
+/// show, so a low floor separates them. It is low on purpose for a second
+/// reason: the figure also falls when the reference is merely wrong -- a
+/// rotation rate mismatch drops it well below a half while the channel is
+/// perfectly alive -- and calling that "no signal" would hide the mismatch
+/// rather than report it.
+pub const MIN_SIGNAL_STRENGTH_CORRELATION: f32 = 0.05;
+
+/// Signal strength separating hiss from signal, for the zero-crossing method.
+///
+/// Much higher because the metric is a different quantity: how close the
+/// crossing density is to the density the rotation tone implies. Noise
+/// crosses zero several times too often, which reads as far from the expected
+/// density, so hiss lands at 0.28 at worst against 0.743 at the weakest real
+/// signal measured. This sits in the gap, a factor of 1.8 above the one and
+/// 1.5 below the other.
+pub const MIN_SIGNAL_STRENGTH_ZERO_CROSSING: f32 = 0.5;
+
+impl ConfidenceConfig {
+    /// The signal strength separating hiss from signal, for a given method.
+    ///
+    /// Resolved per method rather than fixed, because the two methods report
+    /// different quantities under the same name and their populations sit on
+    /// different scales. No single value works: the zero-crossing floor would
+    /// discard most of the weakest real signal in correlation mode, and the
+    /// correlation floor sits below where zero-crossing reads pure hiss.
+    /// Setting the field explicitly overrides both.
+    pub fn resolved_min_signal_strength(&self, method: BearingMethod) -> f32 {
+        self.min_signal_strength.unwrap_or(match method {
+            BearingMethod::Correlation => MIN_SIGNAL_STRENGTH_CORRELATION,
+            BearingMethod::ZeroCrossing => MIN_SIGNAL_STRENGTH_ZERO_CROSSING,
+        })
+    }
 }
 
 impl Default for ConfidenceConfig {
     fn default() -> Self {
         Self {
             half_confidence_deg: 6.0,
-            min_signal_strength: 0.05,
+            min_signal_strength: None,
         }
     }
 }

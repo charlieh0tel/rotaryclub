@@ -295,6 +295,7 @@ fn run_processing_loop(
                 snr_db: bearing.metrics.snr_db,
                 bearing_uncertainty_deg: bearing.metrics.bearing_uncertainty_deg,
                 signal_strength: bearing.metrics.signal_strength,
+                signal_present: bearing.signal_present,
                 tone_peak: bearing.metrics.tone_peak,
                 resultant_length: bearing.metrics.resultant_length,
                 lock_quality: result.north_tick.lock_quality,

@@ -1,4 +1,4 @@
-use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
+use crate::config::{AgcConfig, BearingMethod, ConfidenceConfig, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
@@ -95,21 +95,15 @@ impl ZeroCrossingBearingCalculator {
         let metrics =
             self.calculate_metrics(&self.crossings, samples_per_rotation, north_tick, avg_phase);
 
-        // Signal strength is a validity gate, not a quality term. Here it is
-        // the fraction of the expected crossings that were found, so it does
-        // say whether there was anything to measure, and a buffer holding
-        // almost none of them has nothing to report. It is deliberately not
-        // in the confidence score: the detector goes on finding crossings as
-        // the signal degrades, so it stays near unity long after the bearing
-        // has stopped being usable.
-        if metrics.signal_strength < self.base.confidence().min_signal_strength {
-            return None;
-        }
-
         Some(BearingMeasurement {
             bearing_degrees: smoothed_bearing,
             raw_bearing,
             confidence: metrics.score(self.base.confidence()),
+            signal_present: metrics.signal_strength
+                >= self
+                    .base
+                    .confidence()
+                    .resolved_min_signal_strength(BearingMethod::ZeroCrossing),
             metrics,
         })
     }
@@ -125,9 +119,26 @@ impl ZeroCrossingBearingCalculator {
             return ConfidenceMetrics::default();
         }
 
+        // Crossing density against the density the rotation tone implies,
+        // scored by how close it is in *either* direction. This used to clamp
+        // the ratio at 1, which discarded the only direction that
+        // discriminates: broadband noise crosses zero far more often than a
+        // 1602 Hz tone, so hiss ran a ratio of 4.3 to 5.8 and the clamp folded
+        // it onto the same 1.000 that a perfect tone reads. Measured, the two
+        // populations do not overlap at all once the excess is kept -- real
+        // signal spans 0.99 to 1.29 across every channel condition in
+        // METRICS.md.
+        //
+        // Below 1 this is exactly the old fraction-of-expected-crossings, so
+        // nothing that already worked changes.
         let expected_crossings = self.base.work_buffer.len() as f32 / samples_per_rotation;
         let signal_strength = if expected_crossings > 0.0 {
-            (crossings.len() as f32 / expected_crossings).clamp(0.0, 1.0)
+            let ratio = crossings.len() as f32 / expected_crossings;
+            if ratio > 0.0 {
+                ratio.min(ratio.recip()).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
         } else {
             0.0
         };

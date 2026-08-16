@@ -1289,17 +1289,17 @@ fn test_confidence_config_guardrails() {
         ),
         (
             "minimum signal strength at NaN",
-            |c| c.min_signal_strength = f32::NAN,
+            |c| c.min_signal_strength = Some(f32::NAN),
             "min_signal_strength",
         ),
         (
             "minimum signal strength above full scale",
-            |c| c.min_signal_strength = 1.5,
+            |c| c.min_signal_strength = Some(1.5),
             "min_signal_strength",
         ),
         (
             "negative minimum signal strength",
-            |c| c.min_signal_strength = -0.1,
+            |c| c.min_signal_strength = Some(-0.1),
             "min_signal_strength",
         ),
     ];

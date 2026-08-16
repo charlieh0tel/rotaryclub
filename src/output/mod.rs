@@ -27,6 +27,10 @@ pub struct BearingOutput {
     /// be estimated.
     pub bearing_uncertainty_deg: Option<f32>,
     pub signal_strength: f32,
+    /// Whether the pipeline judged a signal to be present, by the threshold
+    /// for the method in use. Reported rather than enforced: everything else
+    /// in this struct is filled in either way.
+    pub signal_present: bool,
     /// Largest positive sample of the filtered Doppler signal, in full-scale
     /// units. Unscaled: the KN5R sentence wants thousandths and does that
     /// conversion itself.
