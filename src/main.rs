@@ -137,6 +137,13 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Validate the whole configuration before any input is opened. The
+    // real processor is built later against the source's actual sample
+    // rate; this early pass costs one throwaway construction and stops a
+    // config error from lighting the microphone first -- the stream used to
+    // start capturing and then die on the same error moments later.
+    rotaryclub::RdfProcessor::new(&config, args.remove_dc, true).map(drop)?;
+
     let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
         Some(path) => {
             eprintln!("Loading WAV file: {}", path.display());

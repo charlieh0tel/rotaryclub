@@ -59,11 +59,11 @@ struct Args {
     snr: Option<f32>,
 
     /// Rayleigh fading Doppler spread in Hz (CLI override)
-    #[arg(long)]
+    #[arg(long, value_parser = parse_positive_finite)]
     fading_hz: Option<f32>,
 
     /// Impulse noise rate in Hz (CLI override)
-    #[arg(long)]
+    #[arg(long, value_parser = parse_positive_finite)]
     impulse_rate: Option<f32>,
 }
 
@@ -122,6 +122,19 @@ struct Manifest {
 // different bearings to the same file.
 fn bearing_filename(prefix: &str, bearing: f32, trial: u32) -> String {
     format!("{}_b{:05.1}_t{:02}.wav", prefix, bearing, trial)
+}
+
+/// Positive and finite. NaN passes both a `> 0.0` and a `<= 0.0` guard as
+/// false, so downstream it either silently disables the feature (fading) or
+/// degenerates the interval arithmetic to an impulse at every sample
+/// (impulse rate) -- garbage test data rather than an error.
+fn parse_positive_finite(s: &str) -> std::result::Result<f32, String> {
+    let value: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
+    if value.is_finite() && value > 0.0 {
+        Ok(value)
+    } else {
+        Err("value must be a positive finite number".to_string())
+    }
 }
 
 fn parse_finite_db(s: &str) -> std::result::Result<f32, String> {
@@ -322,6 +335,18 @@ fn main() -> Result<()> {
     } else {
         TomlConfig::default()
     };
+
+    // Work scales with rotations x samples; an absurd rotation frequency is
+    // an effective hang (1 GHz over half a second schedules ~12.5 billion
+    // pulse iterations for 24,000 frames). Nyquist is the physical bound.
+    let rotation_hz = args.rotation.as_hz();
+    if rotation_hz <= 0.0 || rotation_hz >= args.sample_rate as f32 / 2.0 {
+        anyhow::bail!(
+            "rotation frequency {} Hz must be within (0, {} Hz) -- half the sample rate",
+            rotation_hz,
+            args.sample_rate as f32 / 2.0
+        );
+    }
 
     let bearings = parse_bearings(&args.bearings)?;
     let base_seed = args.seed.unwrap_or(0);

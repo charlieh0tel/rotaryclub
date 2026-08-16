@@ -26,6 +26,44 @@ pub struct RdfProcessor {
 
 impl RdfProcessor {
     pub fn new(config: &RdfConfig, remove_dc: bool, compute_bearings: bool) -> Result<Self> {
+        // A zero buffer size reaches slice::chunks(0), which panics; one
+        // above the ring capacity makes process_audio and process_signal
+        // chunk differently (measured at ~0.02 degrees of divergence), so
+        // the capacity is the honest upper bound.
+        let capacity = AudioRingBuffer::capacity();
+        if config.audio.buffer_size == 0 || config.audio.buffer_size > capacity {
+            return Err(crate::error::RdfError::Config(format!(
+                "audio.buffer_size is {}, must be within 1..={capacity} (the ring                  buffer capacity)",
+                config.audio.buffer_size
+            )));
+        }
+        // The doppler AGC clamps to these bounds and f32::clamp panics on a
+        // reversed or NaN pair -- at the first loud buffer, not here, unless
+        // this catches it first.
+        let agc = &config.agc;
+        {
+            for (name, value) in [
+                ("target_rms", agc.target_rms),
+                ("attack_time_ms", agc.attack_time_ms),
+                ("release_time_ms", agc.release_time_ms),
+                ("measurement_window_ms", agc.measurement_window_ms),
+                ("min_gain", agc.min_gain),
+                ("max_gain", agc.max_gain),
+            ] {
+                if !value.is_finite() || value <= 0.0 {
+                    return Err(crate::error::RdfError::Config(format!(
+                        "agc.{name} is {value}, must be a positive finite number"
+                    )));
+                }
+            }
+            if agc.min_gain >= agc.max_gain {
+                return Err(crate::error::RdfError::Config(format!(
+                    "agc gain bounds are {}..{}; they must be ordered, and the gain                      clamp panics on a reversed pair",
+                    agc.min_gain, agc.max_gain
+                )));
+            }
+        }
+
         let sample_rate = config.audio.sample_rate as f32;
         let north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
 

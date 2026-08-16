@@ -103,6 +103,38 @@ pub(super) fn validate_north_tick_config(config: &NorthTickConfig, sample_rate: 
         )));
     }
 
+    // NaN fails every comparison, so the DPLL's own upper-bound check on
+    // this value passes a NaN straight through, and the cast to samples
+    // yields a zero dead time -- noise peaks then qualify as adjacent ticks.
+    finite("min_interval_ms", config.min_interval_ms)?;
+    if config.min_interval_ms <= 0.0 {
+        return Err(RdfError::Config(format!(
+            "north_tick.min_interval_ms is {}, must be greater than 0; it is the              detector dead time and at 0 every noise peak is a candidate tick",
+            config.min_interval_ms
+        )));
+    }
+
+    // The AGC clamps its gain to these bounds, and f32::clamp panics on a
+    // reversed or NaN pair -- after enough pulses to start adapting, not at
+    // construction, which is the worst possible time to find out.
+    if config.agc.enabled {
+        finite("agc.time_constant_secs", config.agc.time_constant_secs)?;
+        if config.agc.time_constant_secs <= 0.0 {
+            return Err(RdfError::Config(format!(
+                "north_tick.agc.time_constant_secs is {}, must be greater than 0",
+                config.agc.time_constant_secs
+            )));
+        }
+        finite("agc.min_gain", config.agc.min_gain)?;
+        finite("agc.max_gain", config.agc.max_gain)?;
+        if config.agc.min_gain <= 0.0 || config.agc.min_gain >= config.agc.max_gain {
+            return Err(RdfError::Config(format!(
+                "north_tick.agc gain bounds are {}..{}; they must be positive and                  ordered, and the gain clamp panics on a reversed pair",
+                config.agc.min_gain, config.agc.max_gain
+            )));
+        }
+    }
+
     Ok(())
 }
 

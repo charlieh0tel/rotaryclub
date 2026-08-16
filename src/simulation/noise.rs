@@ -145,6 +145,14 @@ fn apply_additive_noise(signal: &mut [f32], config: &AdditiveNoiseConfig, rng: &
     let noise_power = sig_power / snr_linear;
     let noise_std = noise_power.sqrt();
 
+    // A finite but extreme snr_db underflows the linear ratio to zero, and
+    // an infinite standard deviation panics inside Normal::new. Nothing
+    // below about -200 dB is a measurement; refuse rather than unwrap.
+    assert!(
+        noise_std.is_finite(),
+        "snr_db {} produces a non-finite noise level; use a value above about -200 dB",
+        config.snr_db
+    );
     let normal = Normal::new(0.0, noise_std as f64).unwrap();
 
     for sample in signal.iter_mut() {
