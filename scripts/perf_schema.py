@@ -135,6 +135,12 @@ def unsupported_metrics(
             continue
         raw_se = row.get(f"{spec.name}_se")
         if raw_se is None:
+            # A missing spread column is not evidence of support; it is the
+            # absence of the evidence this check runs on. Skipping here made
+            # the whole check disappear the day a harness stopped emitting
+            # SE columns, with no diagnostic -- demonstrated by stripping
+            # them and moving a value to within 0.001 of its limit: PASS.
+            failures.append(f"{spec.name} (no {spec.name}_se column)")
             continue
         se = float(raw_se)
         if not math.isfinite(se):
