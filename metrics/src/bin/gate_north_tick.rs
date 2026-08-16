@@ -71,18 +71,29 @@ fn build_north_signal(num_samples: usize, pulse_positions: &[usize], amplitude: 
 /// was measuring the stimulus being out of band rather than the tracker doing
 /// anything, and it once earned the DPLL an advantage it had not. Real jitter
 /// has in-band content the loop has to follow.
-fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32) -> i32 {
+///
+/// Varies with the draw. Held fixed it was a constant part of the stimulus
+/// rather than a source of variation, so the standard errors reported for a
+/// jittered scenario described the noise alone and the jitter contributed
+/// nothing to the spread the support check reads.
+fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32, draw: u64) -> i32 {
     if max_abs_jitter <= 0 {
         0
     } else {
-        (noise_at(index, 0x1A77_E812_5EED_0005) * max_abs_jitter as f32).round() as i32
+        (noise_at(index, 0x1A77_E812_5EED_0005u64.wrapping_add(draw)) * max_abs_jitter as f32)
+            .round() as i32
     }
 }
 
-fn jittered_positions(base: &[usize], max_abs_jitter: i32, max_index: usize) -> Vec<usize> {
+fn jittered_positions(
+    base: &[usize],
+    max_abs_jitter: i32,
+    max_index: usize,
+    draw: u64,
+) -> Vec<usize> {
     let mut out = Vec::with_capacity(base.len());
     for (k, &pos) in base.iter().enumerate() {
-        let jitter = deterministic_jitter_samples(k, max_abs_jitter) as isize;
+        let jitter = deterministic_jitter_samples(k, max_abs_jitter, draw) as isize;
         let idx = (pos as isize + jitter).clamp(0, max_index as isize) as usize;
         out.push(idx);
     }
@@ -334,28 +345,35 @@ fn main() {
                             rotation_hz,
                         )
                     };
-                    let mut expected = jittered_positions(
-                        &base,
-                        scenario.jitter_samples,
-                        num_samples.saturating_sub(1),
-                    );
-                    if let Some(stride) = scenario.dropout_stride {
-                        expected = apply_deterministic_dropouts(&expected, stride);
-                    }
-
-                    let north = build_north_signal(
-                        num_samples,
-                        &expected,
-                        pulse_amplitude * scenario.amplitude_scale,
-                    );
-
-                    // Averaged over independent noise realisations. A
-                    // scenario with no noise is identical in every draw, so
-                    // only the noisy rows actually cost anything.
-                    let draws = if scenario.noise_peak > 0.0 { DRAWS } else { 1 };
+                    // Averaged over independent realisations of whatever the
+                    // scenario randomises -- the noise and the pulse jitter
+                    // both. A scenario with neither is identical in every
+                    // draw, so only those rows actually cost anything.
+                    let varies = scenario.noise_peak > 0.0 || scenario.jitter_samples > 0;
+                    let draws = if varies { DRAWS } else { 1 };
+                    // The truth positions move with the draw, so each draw is
+                    // built and scored against its own truth.
+                    let expected_for = |draw: u64| {
+                        let mut expected = jittered_positions(
+                            &base,
+                            scenario.jitter_samples,
+                            num_samples.saturating_sub(1),
+                            draw,
+                        );
+                        if let Some(stride) = scenario.dropout_stride {
+                            expected = apply_deterministic_dropouts(&expected, stride);
+                        }
+                        expected
+                    };
+                    let expected = expected_for(0);
                     let runs: Vec<TimingMetrics> = (0..draws)
                         .map(|draw| {
-                            let mut north = north.clone();
+                            let expected = expected_for(draw);
+                            let mut north = build_north_signal(
+                                num_samples,
+                                &expected,
+                                pulse_amplitude * scenario.amplitude_scale,
+                            );
                             if scenario.noise_peak > 0.0 {
                                 add_deterministic_noise(&mut north, scenario.noise_peak, draw);
                             }
@@ -402,7 +420,7 @@ fn main() {
                             "mean_abs_error_samples_se":
                                 se_of(&runs, |m| m.mean_abs_error_samples),
                             "p95_abs_error_samples_se": se_of(&runs, |m| m.p95_abs_error_samples),
-                            "draws": if scenario.noise_peak > 0.0 { DRAWS } else { 1 },
+                            "draws": draws,
                         })
                     );
                 }
