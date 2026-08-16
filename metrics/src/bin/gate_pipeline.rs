@@ -121,7 +121,7 @@ fn mean_f64(values: &[f64]) -> f64 {
 }
 
 /// Half-width, in samples, of the synthesized north pulse.
-const NORTH_PULSE_HALF_WIDTH: i64 = 12;
+const NORTH_PULSE_HALF_WIDTH: i64 = rotaryclub::simulation::NORTH_PULSE_KERNEL_HALF_WIDTH;
 
 /// Rotation epochs, which are generally fractional.
 ///
@@ -175,19 +175,10 @@ fn expected_tick_positions(
     (jittered.clone(), jittered)
 }
 
-/// A band-limited impulse at a fractional sample position, as an anti-aliased
-/// converter records a pulse far shorter than a sample.
+/// A band-limited impulse at a fractional sample position; one shared
+/// implementation in the simulation module.
 fn north_pulse_at(global: usize, epoch: f64) -> f32 {
-    let x = global as f64 - epoch;
-    if x.abs() > NORTH_PULSE_HALF_WIDTH as f64 {
-        return 0.0;
-    }
-    if x.abs() < f64::EPSILON {
-        return 1.0;
-    }
-    let px = std::f64::consts::PI * x;
-    let window = px / NORTH_PULSE_HALF_WIDTH as f64;
-    ((px.sin() / px) * (window.sin() / window)) as f32
+    rotaryclub::simulation::north_pulse_kernel(global as f64 - epoch)
 }
 
 /// Interfering audio for the doppler channel, band-limited to the voice band

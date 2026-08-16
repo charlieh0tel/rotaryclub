@@ -30,69 +30,114 @@ PHYSICAL_MAX = {}
 
 EPSILON = 1e-3
 
+# Strict transforms are relative rather than absolute offsets: the baseline
+# limits now sit close to measurement (a 1.5x margin on the error columns),
+# and subtracting a fixed 0.25 samples from a p95 limit of 0.19 would demand
+# a negative error.
 METRICS = [
-    MetricSpec("detection_rate", "min", lambda x: x + 0.02, "detection_rate", "{:.6f}"),
-    MetricSpec("false_positive_rate", "max", lambda x: x - 0.02, "false_positive_rate", "{:.6f}"),
+    MetricSpec("detection_rate", "min", lambda x: x + 0.01, "detection_rate", "{:.6f}"),
+    MetricSpec(
+        "false_positive_rate",
+        "max",
+        lambda x: x * 0.75,
+        "false_positive_rate",
+        "{:.6f}",
+    ),
     MetricSpec(
         "mean_abs_error_samples",
         "max",
-        lambda x: x - 0.15,
+        lambda x: x / 1.25,
         "mean_abs_error_samples",
         "{:.6f}",
     ),
     MetricSpec(
         "p95_abs_error_samples",
         "max",
-        lambda x: x - 0.25,
+        lambda x: x / 1.25,
         "p95_abs_error_samples",
         "{:.6f}",
     ),
 ]
 
-SCENARIO_DEFAULTS: Dict[str, Dict[str, float]] = {
-    "clean": {
-        "detection_rate": 0.95,
-        "false_positive_rate": 0.05,
-        "mean_abs_error_samples": 1.0,
-        "p95_abs_error_samples": 2.0,
+# Derived from a fresh run of the gate after the truth went fractional
+# (band-limited pulses at fractional epochs; commit history has the
+# measured worsts). Margin: detection -0.02, false positives +0.02,
+# error columns x1.5. The old per-scenario defaults sat 3-35x above
+# measurement and could not fail.
+BASELINE_LIMITS: Dict[Tuple[str, str], Dict[str, float]] = {
+    ("dpll", "clean"): {
+        "detection_rate": 0.979,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.24,
+        "p95_abs_error_samples": 0.84,
     },
-    "noisy_jittered": {
-        "detection_rate": 0.90,
-        "false_positive_rate": 0.08,
-        "mean_abs_error_samples": 1.3,
-        "p95_abs_error_samples": 2.5,
+    ("dpll", "dropout_burst"): {
+        "detection_rate": 0.978,
+        "false_positive_rate": 0.09,
+        "mean_abs_error_samples": 0.52,
+        "p95_abs_error_samples": 0.99,
     },
-    "dropout_burst": {
-        "detection_rate": 0.88,
-        "false_positive_rate": 0.10,
-        "mean_abs_error_samples": 1.4,
-        "p95_abs_error_samples": 2.6,
+    ("dpll", "freq_step"): {
+        "detection_rate": 0.979,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.45,
+        "p95_abs_error_samples": 1.08,
     },
-    "impulsive_interference": {
-        "detection_rate": 0.85,
-        "false_positive_rate": 0.15,
-        "mean_abs_error_samples": 1.5,
-        "p95_abs_error_samples": 2.8,
-    },
-    "long_drift": {
-        "detection_rate": 0.97,
+    ("dpll", "impulsive_interference"): {
+        "detection_rate": 0.978,
         "false_positive_rate": 0.03,
-        "mean_abs_error_samples": 0.8,
-        "p95_abs_error_samples": 1.5,
+        "mean_abs_error_samples": 0.51,
+        "p95_abs_error_samples": 0.99,
     },
-    "freq_step": {
-        "detection_rate": 0.93,
-        "false_positive_rate": 0.08,
-        "mean_abs_error_samples": 1.2,
-        "p95_abs_error_samples": 2.3,
+    ("dpll", "long_drift"): {
+        "detection_rate": 0.979,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.05,
+        "p95_abs_error_samples": 0.29,
+    },
+    ("dpll", "noisy_jittered"): {
+        "detection_rate": 0.978,
+        "false_positive_rate": 0.03,
+        "mean_abs_error_samples": 0.51,
+        "p95_abs_error_samples": 0.99,
+    },
+    ("simple", "clean"): {
+        "detection_rate": 0.979,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.12,
+        "p95_abs_error_samples": 0.19,
+    },
+    ("simple", "dropout_burst"): {
+        "detection_rate": 0.975,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.16,
+        "p95_abs_error_samples": 0.3,
+    },
+    ("simple", "freq_step"): {
+        "detection_rate": 0.98,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.18,
+        "p95_abs_error_samples": 0.36,
+    },
+    ("simple", "impulsive_interference"): {
+        "detection_rate": 0.299,
+        "false_positive_rate": 0.03,
+        "mean_abs_error_samples": 0.17,
+        "p95_abs_error_samples": 0.32,
+    },
+    ("simple", "long_drift"): {
+        "detection_rate": 0.98,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.12,
+        "p95_abs_error_samples": 0.19,
+    },
+    ("simple", "noisy_jittered"): {
+        "detection_rate": 0.975,
+        "false_positive_rate": 0.02,
+        "mean_abs_error_samples": 0.16,
+        "p95_abs_error_samples": 0.31,
     },
 }
-
-MODE_SCENARIO_OVERRIDES: Dict[Tuple[str, str], Dict[str, float]] = {
-    ("simple", "impulsive_interference"): {"detection_rate": 0.30},
-}
-
-BASELINE_LIMITS: Dict[Tuple[str, str], Dict[str, float]] = {}
 
 # Distinct (chunk_size, start_offset) rows expected per scenario. Most sweep
 # the full chunk x offset matrix; freq_step and long_drift use reduced sets.
@@ -101,11 +146,6 @@ EXPECTED_FINE_COUNT = {
     "freq_step": 2,
     "long_drift": 2,
 }
-for mode in ("dpll", "simple"):
-    for scenario, defaults in SCENARIO_DEFAULTS.items():
-        merged = dict(defaults)
-        merged.update(MODE_SCENARIO_OVERRIDES.get((mode, scenario), {}))
-        BASELINE_LIMITS[(mode, scenario)] = merged
 
 
 def paths(out_dir: Path, profile: str) -> tuple[Path, Path, Path]:

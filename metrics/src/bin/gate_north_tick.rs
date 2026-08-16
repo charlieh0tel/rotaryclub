@@ -37,30 +37,29 @@ fn generate_truth_pulses(
     duration_secs: f32,
     start_time_secs: f32,
     rotation_hz: f32,
-) -> Vec<usize> {
+) -> Vec<f64> {
+    // Fractional epochs, never rounded. Rounding the truth to whole samples
+    // made the timing column measure the harness's own quantization: the
+    // dpll's p95 read exactly 0.5000 -- E|U(-0.5,0.5)| -- the simple
+    // tracker's sub-sample estimator was never exercised at all, and a
+    // tracker recovering the true epoch was charged half a sample for it.
+    // gate_pipeline had this fix from the start; it now lives in one shared
+    // renderer both gates call.
     let n = (duration_secs * sample_rate) as usize;
     let mut t = start_time_secs;
     let mut out = Vec::new();
     while t < duration_secs {
-        let idx = (t * sample_rate).round() as isize;
-        if idx >= 0 && (idx as usize) < n {
-            out.push(idx as usize);
+        let idx = (t * sample_rate) as f64;
+        if idx >= 0.0 && idx < n as f64 {
+            out.push(idx);
         }
         t += 1.0 / rotation_hz;
     }
-    out.sort_unstable();
-    out.dedup();
     out
 }
 
-fn build_north_signal(num_samples: usize, pulse_positions: &[usize], amplitude: f32) -> Vec<f32> {
-    let mut signal = vec![0.0f32; num_samples];
-    for &idx in pulse_positions {
-        if idx < signal.len() {
-            signal[idx] = amplitude;
-        }
-    }
-    signal
+fn build_north_signal(num_samples: usize, epochs: &[f64], amplitude: f32) -> Vec<f32> {
+    rotaryclub::simulation::render_north_pulse_train(num_samples, epochs, amplitude)
 }
 
 /// Per-pulse timing jitter, in samples.
@@ -85,24 +84,20 @@ fn deterministic_jitter_samples(index: usize, max_abs_jitter: i32, draw: u64) ->
     }
 }
 
-fn jittered_positions(
-    base: &[usize],
-    max_abs_jitter: i32,
-    max_index: usize,
-    draw: u64,
-) -> Vec<usize> {
+fn jittered_positions(base: &[f64], max_abs_jitter: i32, max_index: usize, draw: u64) -> Vec<f64> {
     let mut out = Vec::with_capacity(base.len());
     for (k, &pos) in base.iter().enumerate() {
-        let jitter = deterministic_jitter_samples(k, max_abs_jitter, draw) as isize;
-        let idx = (pos as isize + jitter).clamp(0, max_index as isize) as usize;
-        out.push(idx);
+        let jitter = deterministic_jitter_samples(k, max_abs_jitter, draw) as f64;
+        out.push((pos + jitter).clamp(0.0, max_index as f64));
     }
-    out.sort_unstable();
-    out.dedup();
+    out.sort_by(f64::total_cmp);
+    // Jitter can push two epochs together; the detector's dead time means a
+    // pair closer than a sample is one pulse, not two.
+    out.dedup_by(|a, b| (*a - *b).abs() < 1.0);
     out
 }
 
-fn apply_deterministic_dropouts(positions: &[usize], stride: usize) -> Vec<usize> {
+fn apply_deterministic_dropouts(positions: &[f64], stride: usize) -> Vec<f64> {
     if stride <= 1 {
         return positions.to_vec();
     }
@@ -146,11 +141,7 @@ fn percentile(values: &[f32], p: f32) -> f32 {
     sorted[idx]
 }
 
-fn compute_timing_metrics(
-    expected: &[usize],
-    ticks: &[NorthTick],
-    tolerance: f32,
-) -> TimingMetrics {
+fn compute_timing_metrics(expected: &[f64], ticks: &[NorthTick], tolerance: f32) -> TimingMetrics {
     let expected: Vec<f32> = expected.iter().map(|&s| s as f32).collect();
     let detected: Vec<f32> = ticks
         .iter()
@@ -328,14 +319,12 @@ fn main() {
                         let mut t = start_time_secs;
                         while t < scenario.duration_secs {
                             let hz = if t < step_t { rotation_hz } else { step_hz };
-                            let idx = (t * sample_rate).round() as isize;
-                            if idx >= 0 && (idx as usize) < num_samples {
-                                positions.push(idx as usize);
+                            let idx = (t * sample_rate) as f64;
+                            if idx >= 0.0 && idx < num_samples as f64 {
+                                positions.push(idx);
                             }
                             t += 1.0 / hz;
                         }
-                        positions.sort_unstable();
-                        positions.dedup();
                         positions
                     } else {
                         generate_truth_pulses(

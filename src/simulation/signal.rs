@@ -342,6 +342,44 @@ fn in_band_power_segment(seg: &[f32], sample_rate: f32, low_hz: f32, high_hz: f3
     band / power_gain
 }
 
+/// Half-width, in samples, of the band-limited north pulse kernel.
+pub const NORTH_PULSE_KERNEL_HALF_WIDTH: i64 = 12;
+
+/// A band-limited impulse at a fractional sample position, as an anti-aliased
+/// converter records a pulse far shorter than a sample: a Lanczos-windowed
+/// sinc, evaluated at `sample - epoch`.
+///
+/// Shared between the harnesses so a truth built at fractional epochs is one
+/// implementation. A truth quantized to whole samples makes a timing gate
+/// measure its own rounding: exactly-0.5 p95s, a sub-sample estimator never
+/// exercised, and a tracker charged for interpolating correctly.
+pub fn north_pulse_kernel(offset: f64) -> f32 {
+    if offset.abs() > NORTH_PULSE_KERNEL_HALF_WIDTH as f64 {
+        return 0.0;
+    }
+    if offset.abs() < f64::EPSILON {
+        return 1.0;
+    }
+    let px = std::f64::consts::PI * offset;
+    let window = px / NORTH_PULSE_KERNEL_HALF_WIDTH as f64;
+    ((px.sin() / px) * (window.sin() / window)) as f32
+}
+
+/// A whole north channel: band-limited pulses at fractional epochs.
+pub fn render_north_pulse_train(num_samples: usize, epochs: &[f64], amplitude: f32) -> Vec<f32> {
+    let mut signal = vec![0.0f32; num_samples];
+    let half = NORTH_PULSE_KERNEL_HALF_WIDTH;
+    for &epoch in epochs {
+        let lo = ((epoch.floor() as i64) - half).max(0) as usize;
+        let hi =
+            (((epoch.ceil() as i64) + half).max(0) as usize).min(num_samples.saturating_sub(1));
+        for (n, slot) in signal.iter_mut().enumerate().take(hi + 1).skip(lo) {
+            *slot += amplitude * north_pulse_kernel(n as f64 - epoch);
+        }
+    }
+    signal
+}
+
 fn apply_envelope(audio: &mut [f32], sample_rate: u32, impairment: SignalImpairment) {
     let rho = impairment.envelope_correlation.clamp(0.0, 0.999);
     let depth = impairment.envelope_depth.max(0.0);
