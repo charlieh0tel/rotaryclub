@@ -364,7 +364,7 @@ fn main() -> Result<()> {
 
     if args.csv {
         println!(
-            "file,cutoff_hz,taps,detected,expected,rate_hz,limiter_rms_deg,limiter_p95_deg,energy_rms_deg,energy_p95_deg"
+            "file,cutoff_hz,taps,detected,expected,rate_hz,limiter_rms_deg,amplitude_rms_deg,energy_rms_deg,probe_rms_deg"
         );
     }
 
