@@ -288,6 +288,60 @@ const ENVELOPE_STEP_MS: f32 = 20.0;
 /// is renormalised to unit mean power, which keeps this independent of
 /// `passband_noise_to_tone`: changing how bursty the interference is must not
 /// change how much of it there is, or the two could never be swept separately.
+/// Mean power of `samples` inside `[low_hz, high_hz)`, measured exactly.
+///
+/// Hann-windowed direct correlation on 16384-sample segments, summed over the
+/// band's bin grid -- the coherent-gain factors cancel between bins, so the
+/// sum is the band power by Parseval. This replaces a probe bandpass FIR
+/// whose transition skirts passed out-of-band audio and credited it as
+/// in-band: scaled through that probe, every generated "in-band ratio" came
+/// out 12.3 percent low (0.57 dB), at every level, against an independent
+/// FFT. Scaling is linear in power, so one measurement and one scale factor
+/// make the generated ratio exact.
+pub fn in_band_power(samples: &[f32], sample_rate: f32, low_hz: f32, high_hz: f32) -> f64 {
+    const SEGMENT: usize = 16384;
+    if samples.len() < SEGMENT {
+        // Short signals get one segment of whatever length there is.
+        return in_band_power_segment(samples, sample_rate, low_hz, high_hz);
+    }
+    let mut total = 0.0f64;
+    let mut segments = 0usize;
+    for chunk in samples.chunks_exact(SEGMENT) {
+        total += in_band_power_segment(chunk, sample_rate, low_hz, high_hz);
+        segments += 1;
+    }
+    total / segments.max(1) as f64
+}
+
+fn in_band_power_segment(seg: &[f32], sample_rate: f32, low_hz: f32, high_hz: f32) -> f64 {
+    let n = seg.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let window: Vec<f32> = (0..n)
+        .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f32 / n as f32).cos())
+        .collect();
+    // Hann's incoherent power gain is the mean of w^2 = 3/8; dividing it out
+    // makes the summed bin powers read as the band's mean power.
+    let power_gain: f64 = window.iter().map(|w| (w * w) as f64).sum::<f64>() / n as f64;
+    let windowed: Vec<f32> = seg.iter().zip(&window).map(|(s, w)| s * w).collect();
+    let resolution = sample_rate / n as f32;
+    let mut hz = (low_hz / resolution).ceil() * resolution;
+    let mut band = 0.0f64;
+    while hz < high_hz {
+        let omega = 2.0 * PI * hz / sample_rate;
+        let (mut re, mut im) = (0.0f64, 0.0f64);
+        for (i, &s) in windowed.iter().enumerate() {
+            let phase = omega * i as f32;
+            re += (s * phase.cos()) as f64;
+            im += (s * phase.sin()) as f64;
+        }
+        band += 2.0 * ((re / n as f64).powi(2) + (im / n as f64).powi(2));
+        hz += resolution;
+    }
+    band / power_gain
+}
+
 fn apply_envelope(audio: &mut [f32], sample_rate: u32, impairment: SignalImpairment) {
     let rho = impairment.envelope_correlation.clamp(0.0, 0.999);
     let depth = impairment.envelope_depth.max(0.0);
@@ -411,20 +465,16 @@ where
         }
         apply_envelope(&mut raw, sample_rate, impairment);
         // Scale by what reaches the Doppler passband, not by total power.
-        // How much of the voice band gets there depends on both filters, so it
-        // is measured rather than assumed.
-        let mut probe = raw.clone();
-        if let Ok(mut band) = FirBandpass::new(
+        // How much of the voice band gets there depends on the audio filter
+        // and the envelope, so it is measured rather than assumed -- and
+        // measured exactly; see in_band_power for the probe-FIR skirt leak
+        // this replaces.
+        let passband_power = in_band_power(
+            &raw,
+            sample_rate as f32,
             DOPPLER_BAND_LOW_HZ,
             DOPPLER_BAND_HIGH_HZ,
-            sample_rate as f32,
-            AUDIO_BAND_TAPS,
-            100.0,
-        ) {
-            band.process_buffer(&mut probe);
-        }
-        let passband_power =
-            probe.iter().map(|s| (s * s) as f64).sum::<f64>() / num_samples.max(1) as f64;
+        );
         // A unit sine has power 1/2.
         let wanted = 0.5 * impairment.passband_noise_to_tone as f64;
         let scale = if passband_power > 0.0 {
@@ -540,6 +590,84 @@ mod tests {
         for bearing in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0] {
             let signal = generate_test_signal(0.1, 48000, 500.0, bearing);
             assert_eq!(signal.len(), 4800 * 2);
+        }
+    }
+}
+
+#[cfg(test)]
+mod in_band_power_tests {
+    use super::*;
+
+    /// The estimator against a known answer: a sine inside the band reads its
+    /// full power, one outside reads nothing.
+    #[test]
+    fn sine_power_lands_in_the_right_band() {
+        let sr = 48000.0f32;
+        let inside: Vec<f32> = (0..48000)
+            .map(|i| 0.7 * (2.0 * PI * 1602.564 * i as f32 / sr).sin())
+            .collect();
+        let p = in_band_power(&inside, sr, 1350.0, 1850.0);
+        let expected = 0.5 * 0.7f64 * 0.7f64;
+        assert!(
+            (p - expected).abs() / expected < 0.01,
+            "in-band sine: {p} vs {expected}"
+        );
+
+        let outside: Vec<f32> = (0..48000)
+            .map(|i| 0.7 * (2.0 * PI * 500.0 * i as f32 / sr).sin())
+            .collect();
+        let p = in_band_power(&outside, sr, 1350.0, 1850.0);
+        assert!(p < expected * 1e-3, "out-of-band sine leaked: {p}");
+    }
+
+    /// White noise is flat, so the band holds its bandwidth's share of the
+    /// total power.
+    #[test]
+    fn white_noise_reads_its_bandwidth_fraction() {
+        let sr = 48000.0f32;
+        let noise: Vec<f32> = (0..480_000).map(|i| noise_at(i, 0x1B5E_ED01)).collect();
+        let total = noise.iter().map(|s| (s * s) as f64).sum::<f64>() / noise.len() as f64;
+        let band = in_band_power(&noise, sr, 1350.0, 1850.0);
+        let expected = total * 500.0 / 24000.0;
+        assert!(
+            (band - expected).abs() / expected < 0.05,
+            "band fraction: {band} vs {expected}"
+        );
+    }
+
+    /// The generated in-band ratio equals the stated one. The scale is set
+    /// through in_band_power, which the two tests above validate against
+    /// analytic answers, so this is a wiring check rather than a tautology.
+    /// The probe-FIR scaling this replaced generated 12.3 percent low at
+    /// every level.
+    ///
+    /// Checked at the middle and worst ratios only. At the cleanest one the
+    /// tone-noise cross-term of a finite sample (about 0.007 in power for
+    /// this seed and length, against an interference power of 0.1) is larger
+    /// than any tolerance worth asserting; at these two it is 2 percent and
+    /// 0.2 percent of the interference respectively. The generation is
+    /// deterministic, so this is a fixed number, not flakiness -- but a
+    /// tolerance sized to swallow it at 0.199 would also swallow the bug
+    /// this test exists to catch.
+    #[test]
+    fn generated_ratio_matches_stated() {
+        let sr = 48000u32;
+        for stated in [0.793f32, 6.579] {
+            let sig = generate_impaired_signal(
+                8.0,
+                sr,
+                1602.564,
+                |_| 200.0,
+                SignalImpairment::at_passband_ratio(stated),
+            );
+            let dop: Vec<f32> = sig.iter().step_by(2).copied().collect();
+            let total = in_band_power(&dop, sr as f32, 1350.0, 1850.0);
+            // Unit tone contributes 1/2; the rest is the interference.
+            let measured = (total - 0.5) / 0.5;
+            assert!(
+                (measured - f64::from(stated)).abs() / f64::from(stated) < 0.03,
+                "stated {stated}, measured {measured}"
+            );
         }
     }
 }

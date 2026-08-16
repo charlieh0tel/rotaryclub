@@ -211,15 +211,12 @@ fn doppler_audio(
         band.process_buffer(&mut audio);
     }
 
-    // Scale by what lands in the doppler passband, not by total power. How
-    // much of the voice band reaches the passband depends on both filters, so
-    // it is measured rather than assumed.
-    let mut probe = audio.clone();
-    if let Ok(mut band) = FirBandpass::new(1350.0, 1850.0, sample_rate, 255, 100.0) {
-        band.process_buffer(&mut probe);
-    }
-    let passband_power =
-        probe.iter().map(|s| (s * s) as f64).sum::<f64>() / total_samples.max(1) as f64;
+    // Scale by what lands in the doppler passband, not by total power --
+    // measured exactly by the shared estimator rather than through a probe
+    // FIR whose skirts credited out-of-band audio as in-band (0.57 dB low,
+    // at every level). One implementation, shared with the generator in
+    // src/simulation, so the two cannot drift apart again.
+    let passband_power = rotaryclub::simulation::in_band_power(&audio, sample_rate, 1350.0, 1850.0);
     // A tone of amplitude a has power a^2 / 2.
     let tone_power = (scenario.amplitude * scenario.amplitude / 2.0) as f64;
     let wanted = tone_power * scenario.doppler_passband_noise_to_tone as f64;
