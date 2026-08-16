@@ -131,7 +131,7 @@ What other approaches could solve this problem?
 ### Prerequisites
 
 **Required:**
-- Rust 1.70 or later ([rustup.rs](https://rustup.rs/))
+- Rust 1.85 or later, for edition 2024 ([rustup.rs](https://rustup.rs/))
 - Linux with ALSA support
 - libasound2-dev (development headers)
 

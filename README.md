@@ -111,11 +111,12 @@ gates cover, and how to add a metric without fooling yourself.
   0.40 to 0.13. See `probe_confidence_multipath`.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
 - `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
-- `resultant_length`: Mean resultant length of the Doppler phase, `[0, 1]`. Whether the
-  looks agreed with each other — 1 when they all point the same way, 0 when scattered.
-  This is neither how strong the signal was (`signal_strength`) nor how uncertain the
-  answer is (`bearing_uncertainty_deg`), and a strong tone pointing inconsistently reads
-  high on the first and low on this.
+- `resultant_length`: Mean resultant length of the Doppler phase, `[0, 1]` — 1 when the
+  looks all point the same way, 0 when they are scattered. KR6DD averages the per-zero-crossing
+  phase vectors directly; here it is derived from the estimated SNR instead, as
+  `exp(-1/(2·snr))`, the resultant length a von Mises phase at that SNR has. So it is not
+  an independent measurement: on this receiver it is a restatement of `snr_db` on a
+  bounded scale, and it will not report scatter that the SNR estimate did not already see.
 - `tone_peak`: Largest positive sample of the filtered Doppler signal, in full-scale
   units `[0, 1]`.
 

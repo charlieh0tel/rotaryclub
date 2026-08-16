@@ -29,8 +29,11 @@ bearing = (phase_offset / 2π) × 360°
 
 ### North Tick Detection (Right Channel)
 1. Highpass filter at 1 kHz (isolate 20µs pulse transients)
-2. Peak detection at 0.19361 of the expected pulse height (0.15 of full scale
-   at the default pulse and filter) and 0.6ms minimum spacing
+2. Peak detection at a fraction of the expected pulse height, 0.6ms minimum
+   spacing. The fraction follows the gain control rather than the tracking
+   mode: 0.323 where the north AGC runs, 0.19361 where it does not (0.25 and
+   0.15 of full scale at the default pulse and filter). See the threshold
+   section below for why they differ.
 3. Sub-sample pulse estimation (configurable): the detected peak is an
    integer sample index, and one sample at 48 kHz is 12° of bearing, so the
    arrival time is estimated below the sample grid.
@@ -83,7 +86,9 @@ expected_freq: 1602.56, bandpass: 1350-1850 Hz
 method: Correlation  // or ZeroCrossing
 
 // North tick detection
-highpass_cutoff: 1000.0 Hz, threshold_fraction: 0.19361, min_interval_ms: 0.6
+highpass_cutoff: 1000.0 Hz, min_interval_ms: 0.6
+threshold_fraction: None  // resolved per gain control: 0.323 with the north
+                          // AGC, 0.19361 without; Some(x) overrides both
 mode: Dpll  // or Simple
 estimator: EnergyCentroid  // or AmplitudeCentroid, HardLimiter
 max_coast_ms: 1000.0, gate_sigma: 3.0
@@ -209,8 +214,9 @@ change reproduces them exactly. The shipped 0.19361 is 0.15 of full scale
 against the default 0.8 pulse through the default filter. What the fraction
 fixed is a bookkeeping failure rather than anything in this table -- an
 absolute threshold met a signal that scaled with `gain_db` while itself
-staying put, so attenuation silently defeated detection. In DPLL mode, with no
-noise, detection is total down to these amplitudes and collapses below them:
+staying put, so attenuation silently defeated detection. Without gain control,
+with no noise, detection is total down to these amplitudes and collapses below
+them:
 
   threshold  0.10  0.15  0.20  0.25  0.30  0.40
   cliff      0.15  0.25  0.32  0.42  0.50  0.60
@@ -218,8 +224,11 @@ noise, detection is total down to these amplitudes and collapses below them:
 Against the 0.8 the configuration expects, the shipped 0.15 therefore has a
 factor of 3.2 in hand on receiver level.
 
-Noise margin runs the other way. At the expected amplitude, detection and
-false positive rate against true RMS noise on the north channel:
+Noise margin runs the other way, and is the one place the two tables come
+from different trackers: the cliff above is the tracker without gain control,
+where the cliff exists at all, and the noise figures below are the DPLL, whose
+coasting is what carries it through a missed pulse. At the expected amplitude,
+detection and false positive rate against true RMS noise on the north channel:
 
   noise      0.00       0.05       0.10       0.20       0.30       0.40
   0.15  1.00/0.00  1.00/0.00  0.99/0.00  0.92/0.02  0.67/0.33  0.45/0.55
