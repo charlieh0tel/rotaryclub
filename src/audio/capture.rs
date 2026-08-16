@@ -89,9 +89,18 @@ impl AudioCapture {
                     // This runs on the real-time audio thread: never block.
                     // If the consumer lags and the channel fills, drop the
                     // chunk and account for it instead of stalling the driver.
+                    //
+                    // Non-finite samples are zeroed for the same reason the
+                    // WAV source zeroes them: a driver glitch should read as
+                    // a dropout, not poison the filters and the output. The
+                    // map is branch-light and allocation-free beyond the
+                    // to_vec the chunk needs anyway.
                     let chunk = AudioChunk {
                         gap_before_frames: pending_gap_frames,
-                        samples: data.to_vec(),
+                        samples: data
+                            .iter()
+                            .map(|&s| if s.is_finite() { s } else { 0.0 })
+                            .collect(),
                     };
                     match tx.try_send(Ok(chunk)) {
                         Ok(()) => pending_gap_frames = 0,

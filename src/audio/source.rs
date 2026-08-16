@@ -155,8 +155,17 @@ impl AudioSource for WavFileSource {
         let mut chunk = Vec::with_capacity(self.chunk_size);
         match self.sample_format {
             hound::SampleFormat::Float => {
+                // Any 32-bit pattern is a "valid" float, so a corrupted
+                // capture can carry NaN or infinity here, and nothing
+                // downstream rejects them: NaN fails every comparison, so it
+                // slides through the correlation gates and reaches the output
+                // formats, where JSON emits a bare NaN (not JSON) and the
+                // KN5R cast saturates to a clean-looking bearing due north.
+                // Zeroed instead, so a glitch burst looks like the dropout it
+                // is and the pipeline handles it as one.
                 for sample in self.reader.samples::<f32>().take(self.chunk_size) {
-                    chunk.push(sample?);
+                    let sample = sample?;
+                    chunk.push(if sample.is_finite() { sample } else { 0.0 });
                 }
             }
             hound::SampleFormat::Int => {
