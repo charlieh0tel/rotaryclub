@@ -43,10 +43,11 @@ struct Args {
     output_rate: f32,
 
     /// North reference offset in degrees (added to all bearings)
-    #[arg(short = 'o', long, default_value = "0.0")]
+    #[arg(short = 'o', long, default_value = "0.0", value_parser = parse_north_offset,
+          allow_negative_numbers = true)]
     north_offset: f32,
 
-    /// Increase output verbosity (-v for debug, -vv for trace)
+    /// Increase output verbosity (-v for info, -vv for debug, -vvv for trace)
     #[arg(short = 'v', long, action = clap::ArgAction::Count)]
     verbose: u8,
 
@@ -79,12 +80,31 @@ struct Args {
     list_devices: bool,
 }
 
+/// Reject a non-finite north offset.
+///
+/// It reaches the bearing itself rather than a quality figure, so a NaN here
+/// is not a confidence that reads badly -- it is a bearing that is NaN. The
+/// JSON formatter emits that as a bare `NaN`, which is not valid JSON, and the
+/// KN5R formatter casts it to 0000, which reads as a clean bearing due north.
+/// The second is worse than the first: it is wrong and looks right.
+fn parse_north_offset(s: &str) -> Result<f32, String> {
+    let offset: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
+    if offset.is_finite() {
+        Ok(offset)
+    } else {
+        Err("north offset must be a finite number of degrees".to_string())
+    }
+}
+
 fn parse_output_rate(s: &str) -> Result<f32, String> {
     let rate: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
-    if rate.is_finite() && rate > 0.0 {
+    // The lower bound is not pedantry: the rate becomes a Duration, and
+    // Duration::from_secs_f32 panics rather than saturating once the interval
+    // exceeds what it can hold. One output per hour is already absurd.
+    if rate.is_finite() && rate >= 1.0 / 3600.0 {
         Ok(rate)
     } else {
-        Err("output rate must be a positive, finite number of Hz".to_string())
+        Err("output rate must be a finite number of Hz, at least 1/3600".to_string())
     }
 }
 
