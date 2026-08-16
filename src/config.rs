@@ -315,7 +315,9 @@ impl NorthPulseEstimator {
     /// squared one is not -- squaring already makes sign irrelevant -- and
     /// discarding the negative lobes there throws away weight that sits
     /// symmetrically about the peak. Measured, that costs the energy centroid
-    /// 0.69 degrees against 0.44 at the shipped cutoff.
+    /// 0.69 degrees against 0.44 at the shipped cutoff -- holding the window
+    /// half-width fixed at 4, so the figure is clipping alone and not the
+    /// window. Widening from 3 to 4 while clipped changes nothing.
     pub(crate) fn clips_negative(self) -> bool {
         self.weight_exponent() % 2 == 1
     }

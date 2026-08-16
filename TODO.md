@@ -215,13 +215,26 @@ for on every sweep.
       does not exist. It was one noise draw, and it sat outside the spread of
       the twelve that followed.
 
-      The recordings outrank all of the above and say the two are a tie at the
-      shipped cutoff. `scripts/centroid_weighting_report.py` and
-      `metrics/src/bin/sweep_hpf.rs` compare the estimators on the captures, and
-      the latter over 121,073 ticks puts amplitude at 0.704 degrees per tick
-      against energy at 0.688 -- two percent. At 5 kHz the ordering reverses
-      and the gap is real, 0.664 against 1.624. Nothing recommends a change,
-      so the shipped energy centroid stays.
+      The recordings outrank all of the above, and they say the shipped energy
+      centroid wins -- by more than this entry used to claim, because the
+      comparison was against the wrong column.
+
+      `sweep_hpf` reported four estimator columns and only two of them ship.
+      The one labelled `energy` was half-width 3 and clipped; the shipped
+      energy centroid is half-width 4 and unclipped, which was the column
+      labelled `unclipped`. The figures quoted here -- 0.688 at the shipped
+      cutoff and 1.624 at 5 kHz -- are both the unshipped column. The columns
+      are now named for what they are, with the shipped two starred.
+
+      Read against the right column, on wouxun test1 at the shipped 1 kHz and
+      63 taps: amplitude 0.704 degrees per tick against energy 0.441. On
+      test3, 0.642 against 0.337. That is a 35 to 47 percent margin, not the
+      two percent recorded. At 5 kHz the ordering does not reverse either --
+      energy 0.522 against amplitude 0.601. On ft-70d the two do tie, 3.479
+      against 3.472.
+
+      So the shipped energy centroid stays, which is what this entry
+      concluded, but not for the reason it gave.
 
       Worth recording how this was nearly got wrong. The synthetic result was
       briefly written up as overturning the capture measurement behind the

@@ -10,6 +10,22 @@
 //! Residuals are scored against a straight line, so a constant delay (filter
 //! group delay included) is absorbed by the fit and does not affect the
 //! comparison.
+//!
+//! Two of the estimator columns are the ones the pipeline can actually
+//! select, and two are not. The shipped estimators take their window
+//! half-width from `NorthPulseEstimator::window_half_width_us` and their
+//! clipping from the parity of the weight exponent, which works out as:
+//!
+//!   amplitude centroid   half-width 2, weight |x|,  clipped   -> `amp`
+//!   energy centroid      half-width 4, weight x^2,  unclipped -> `energy(4,x2)`
+//!
+//! The column once labelled `energy` was half-width 3 and clipped, which is
+//! neither. It is kept as `probe(3,x2,clip)` because the comparison against
+//! it is on the record, but it ships nowhere and no conclusion should rest
+//! on it. Reading it as the energy centroid reverses the estimator ordering
+//! at 5 kHz on ft-70d: against the unshipped column amplitude appears to
+//! win, 3.518 against 3.811, while the shipped energy centroid is 3.481 and
+//! actually wins.
 
 use std::path::PathBuf;
 
@@ -235,9 +251,13 @@ struct Row {
     expected: usize,
     rate_hz: f64,
     hard_limiter: Option<Residuals>,
+    /// Shipped amplitude centroid: half-width 2, weight |x|, clipped.
     amplitude: Option<Residuals>,
-    centroid: Option<Residuals>,
-    unclipped: Option<Residuals>,
+    /// Shipped energy centroid: half-width 4, weight x^2, unclipped.
+    energy: Option<Residuals>,
+    /// Not shipped: half-width 3, weight x^2, clipped. Kept only because
+    /// earlier comparisons quoted it as though it were the energy centroid.
+    probe: Option<Residuals>,
 }
 
 fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
@@ -286,16 +306,21 @@ fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
                 .iter()
                 .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 3, 2, true))
                 .collect();
-            let unclipped_epochs: Vec<f64> = peaks
+            // The shipped energy centroid: half-width 4 from its 85 us
+            // window at 48 kHz, and unclipped because clips_negative() is the
+            // parity of the exponent and 2 is even.
+            let shipped_energy_epochs: Vec<f64> = peaks
                 .iter()
                 .map(|&p| p as f64 + centroid_offset_p(&filtered, p, 4, 2, false))
                 .collect();
 
             let hard_limiter = summarize(&limiter_epochs, nominal_period);
             let amplitude = summarize(&amplitude_epochs, nominal_period);
-            let centroid = summarize(&energy_epochs, nominal_period);
-            let unclipped = summarize(&unclipped_epochs, nominal_period);
-            let rate_hz = centroid
+            let probe = summarize(&energy_epochs, nominal_period);
+            let energy = summarize(&shipped_energy_epochs, nominal_period);
+            // Rate from the shipped energy centroid, which is what the
+            // pipeline would use.
+            let rate_hz = energy
                 .as_ref()
                 .or(hard_limiter.as_ref())
                 .map(|r| sample_rate as f64 / r.period)
@@ -309,8 +334,8 @@ fn analyze_file(path: &PathBuf, args: &Args) -> Result<Vec<Row>> {
                 rate_hz,
                 hard_limiter,
                 amplitude,
-                centroid,
-                unclipped,
+                energy,
+                probe,
             });
         }
     }
@@ -332,7 +357,7 @@ fn main() -> Result<()> {
 
     if args.csv {
         println!(
-            "file,cutoff_hz,taps,detected,expected,rate_hz,limiter_rms_deg,limiter_p95_deg,centroid_rms_deg,centroid_p95_deg"
+            "file,cutoff_hz,taps,detected,expected,rate_hz,limiter_rms_deg,limiter_p95_deg,energy_rms_deg,energy_p95_deg"
         );
     }
 
@@ -352,17 +377,17 @@ fn main() -> Result<()> {
                 "detected",
                 "rate (Hz)",
                 "HL rms °",
-                "amp rms °",
-                "energy rms °",
-                "unclipped rms °"
+                "amp* rms °",
+                "energy* rms °",
+                "probe rms °"
             );
         }
 
         for row in rows {
             let (hl_rms, _hl_p95) = format_residual(&row.hard_limiter);
             let (amp_rms, _amp_p95) = format_residual(&row.amplitude);
-            let (ce_rms, _ce_p95) = format_residual(&row.centroid);
-            let (un_rms, _un_p95) = format_residual(&row.unclipped);
+            let (ce_rms, _ce_p95) = format_residual(&row.energy);
+            let (un_rms, _un_p95) = format_residual(&row.probe);
             let cutoff = if row.cutoff <= 0.0 {
                 "none".to_string()
             } else {
