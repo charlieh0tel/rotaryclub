@@ -18,8 +18,11 @@
 //! truth about 5.6 percent of the time, so a long enough burst would pass on
 //! chance alone.
 //!
-//! And every cell has a control: the identical criterion applied to the same
-//! window with no burst in it, which is hiss throughout. A detection rate only
+//! And every (noise, buffer) pair has a control: the identical criterion
+//! applied to a window of the longest duration with no burst in it -- hiss
+//! throughout. The longest window is the worst case, since more chunks mean a
+//! smaller stated uncertainty for an aggregate of noise to hide behind, so it
+//! bounds the false-alarm rate of every shorter cell. A detection rate only
 //! means something above its own false-alarm rate, and bearings computed on
 //! hiss look exactly like bearings.
 
@@ -89,10 +92,16 @@ fn hiss(len: usize, sample_rate: f32, seed: u64) -> Vec<f32> {
     raw
 }
 
-/// One trial. `burst_secs` of zero is the control: hiss throughout.
+/// One trial: whether the criterion was met over the scoring window.
 ///
-/// Returns whether the criterion was met.
-fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64) -> bool {
+/// With `burst_present` false the same window is scored -- same length, same
+/// chunks, same aggregate and stated tests -- but the doppler channel is hiss
+/// throughout. That is the control. An earlier version used a zero-length
+/// burst as the control instead, and a zero-length window contains no chunk
+/// midpoints, so it scored nothing and reported 0.00 by construction; a
+/// regression that produced confident bearings on hiss would never have
+/// moved it.
+fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64, burst_present: bool) -> bool {
     let mut config = RdfConfig::default();
     config.audio.buffer_size = buffer_size;
     // Otherwise the first outputs of the burst carry pre-burst state and the
@@ -120,7 +129,7 @@ fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64) -> bool {
     let burst_end = burst_start + (burst_secs * sample_rate) as usize;
     let noise_floor = hiss(frames, sample_rate, impairment.seed ^ 0x4849_5353);
     for frame in 0..frames {
-        if frame < burst_start || frame >= burst_end {
+        if !burst_present || frame < burst_start || frame >= burst_end {
             signal[frame * 2] = noise_floor[frame];
         }
     }
@@ -250,7 +259,7 @@ fn main() {
             let mut t90: Option<f32> = None;
             for ms in durations_ms {
                 let hits = (0..DRAWS)
-                    .filter(|&draw| trial(ms / 1000.0, noise, buffer_size, draw))
+                    .filter(|&draw| trial(ms / 1000.0, noise, buffer_size, draw, true))
                     .count();
                 let r = hits as f64 / DRAWS as f64;
                 if t90.is_none() && r >= REQUIRED_RATE {
@@ -279,8 +288,13 @@ fn main() {
                     print!("{r:>7.2}");
                 }
             }
+            // Control at the longest duration, which is the worst case: a
+            // longer window offers more chunks and a smaller stated
+            // uncertainty for the aggregate to hide behind, so its false
+            // alarm rate bounds every shorter cell from above.
+            let control_ms = *durations_ms.last().expect("durations");
             let control_hits = (0..DRAWS)
-                .filter(|&draw| trial(0.0, noise, buffer_size, draw))
+                .filter(|&draw| trial(control_ms / 1000.0, noise, buffer_size, draw, false))
                 .count();
             let control = control_hits as f64 / DRAWS as f64;
             if jsonl {
@@ -290,7 +304,7 @@ fn main() {
                         "buffer_size": buffer_size,
                         "snr_db": snr_db(noise),
                         "passband_noise_to_tone": noise,
-                        "duration_ms": 0.0,
+                        "duration_ms": control_ms,
                         "rate": control,
                         "rate_se": (control * (1.0 - control) / DRAWS as f64).sqrt(),
                         "hits": control_hits,

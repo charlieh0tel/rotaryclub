@@ -294,7 +294,13 @@ fn run_processing_loop(
                 lock_quality: result.north_tick.lock_quality,
                 phase_error_variance,
             };
-            bearing_stats.update(adjusted_bearing);
+            // Only for file input, where the summary is printed at the
+            // end. Live mode ran this Vec unbounded -- about 864,000
+            // entries a day at the default rate -- for a summary nothing
+            // ever read.
+            if !throttle_output {
+                bearing_stats.update(adjusted_bearing);
+            }
             // Empty means the formatter has no honest encoding for this
             // record (KN5R with a non-finite bearing); print nothing rather
             // than a blank line in a fixed-width stream.
@@ -306,7 +312,27 @@ fn run_processing_loop(
         }
     };
 
+    // Ctrl-C requests a clean exit from the loop rather than killing the
+    // process: the default SIGINT termination skipped the dump writer's
+    // finalize, leaving buffered samples unwritten and the WAV header's
+    // size fields stale.
+    let interrupted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let interrupted = std::sync::Arc::clone(&interrupted);
+        // A second Ctrl-C falls back to the default handler via the flag
+        // check below being moot -- ctrlc keeps the handler installed, so
+        // pressing it again while a slow source blocks still only sets the
+        // flag; the source read itself is not interruptible.
+        let _ = ctrlc::set_handler(move || {
+            interrupted.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+
     while let Some(audio_data) = source.next_buffer()? {
+        if interrupted.load(std::sync::atomic::Ordering::SeqCst) {
+            eprintln!("Interrupted; finalizing...");
+            break;
+        }
         processor.advance_samples(source.take_dropped_frames());
 
         if let Some(writer) = dump_writer.as_mut() {

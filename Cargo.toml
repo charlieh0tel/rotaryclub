@@ -39,6 +39,7 @@ rolling-stats = "0.8"
 clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4"
 num-complex = "0.4"
+ctrlc = "3.5.2"
 
 [dev-dependencies]
 approx = "0.5"
