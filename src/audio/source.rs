@@ -128,7 +128,7 @@ impl WavFileSource {
         // Buffers are interleaved stereo, so an odd chunk size splits a frame
         // across reads: the dropped half-frame swaps every later sample's
         // channel and the stream is silently misinterpreted from there on.
-        if chunk_size == 0 || chunk_size % 2 != 0 {
+        if chunk_size == 0 || !chunk_size.is_multiple_of(2) {
             return Err(RdfError::Config(format!(
                 "chunk_size is {chunk_size}, must be a positive even number of                  interleaved samples (whole stereo frames)"
             )));
