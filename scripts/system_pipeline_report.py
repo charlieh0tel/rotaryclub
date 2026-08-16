@@ -244,10 +244,15 @@ for bearing_method in ("correlation", "zero_crossing"):
             "p95_abs_tick_error_samples": 1.0,
         }
     )
+    # 32 and 88 rather than the dpll's 30 and 85: when the generated in-band
+    # ratio became exact -- 0.57 dB harder than the old leaky scaling -- the
+    # worst simple zero-crossing rows moved to within their own noise of the
+    # shared limits and the support check refused them. Re-derived at the
+    # measured worst plus three inflated standard errors plus headroom.
     BASELINE_LIMITS[("simple", bearing_method, "noisy_jittered")].update(
         {
-            "mean_abs_bearing_error_deg": 30.0,
-            "p95_abs_bearing_error_deg": 85.0,
+            "mean_abs_bearing_error_deg": 32.0,
+            "p95_abs_bearing_error_deg": 88.0,
             "max_abs_bearing_error_deg": 180.0,
             "mean_abs_tick_error_samples": 0.3,
         }
@@ -325,14 +330,20 @@ BASELINE_LIMITS[("simple", "zero_crossing", "low_snr_dc")].update(
 #
 # The simple tracker now searches the whole dead time for its largest sample,
 # so the pulse wins over the trigger. Detection reads 0.995 to 0.997 with a
-# standard error under 0.0004, and the limits below are tight again. The
-# bearing limit is the measured worst row plus three standard errors.
+# standard error under 0.0004, and the limits below are tight again.
+#
+# The bearing limit is the measured worst row plus three inflated standard
+# errors plus one degree of headroom, re-derived at 81 when the generated
+# in-band ratio became exact: the old leaky scaling ran this scenario 0.57 dB
+# easy, and the worst simple row moved from about 74 to 75.6 degrees, leaving
+# the old 78 with less margin than the support check requires at eight draws.
+# The regression this limit exists to catch read 86 and clears it either way.
 for bearing_method in ("correlation", "zero_crossing"):
     BASELINE_LIMITS[("simple", bearing_method, "low_snr_dc")].update(
         {
             "bearing_success_rate": 0.99,
             "detection_rate": 0.99,
-            "mean_abs_bearing_error_deg": 78.0,
+            "mean_abs_bearing_error_deg": 81.0,
         }
     )
 
