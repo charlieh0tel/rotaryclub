@@ -29,10 +29,20 @@
 //! by which segments you count. That rule was never recorded alongside the
 //! +7, +1 and -8 dB, which is the reason they cannot be reproduced.
 //!
-//! So this reports the distribution rather than a single figure, plus one
-//! explicitly defined summary: the median over the segments in the upper half
-//! by tone power, which is the recording while somebody is talking. Any
-//! scenario scaled to a recording should name which of these it means.
+//! So this reports the distribution and the whole-file ratio, and nothing
+//! else. A "median over the loudest half" summary was tried and retired: it
+//! failed its own known-answer calibration by 3.4 dB (selecting on a tone
+//! estimate that shares its noise with the ratio), and measured for
+//! robustness it moved by 7 dB when the measurement window was merely
+//! halved, with the same segments selected -- a 341 ms segment straddles
+//! over-boundaries, so any single "while transmitting" number depends on
+//! segment length, resolution and rule, each worth several dB. Quote a
+//! percentile band with the rule stated instead.
+//!
+//! Noise inside the tone band is subtracted: the +-8 Hz collection band
+//! carries 16.4 Hz of the 500 Hz noise floor, which read as tone and biased
+//! the worst capture about 0.8 dB clean. The floor is estimated from the
+//! rest of the band, per segment.
 
 use rotaryclub::audio::WavFileSource;
 use rotaryclub::config::RdfConfig;
@@ -66,11 +76,9 @@ fn power_at(segment: &[f32], hz: f32, sample_rate: f32) -> f64 {
 struct InBand {
     /// Per-segment interference-over-tone ratios, ascending.
     ratios: Vec<f64>,
-    /// Median ratio over the segments in the upper half by tone power: the
-    /// recording while somebody is transmitting.
-    transmitting: f64,
     /// Whole-file ratio, summing both powers before dividing once. Dominated
-    /// by the quiet, and reported so the gap between the two is visible.
+    /// by the quiet between transmissions; the per-segment percentiles carry
+    /// the rest of the story.
     whole_file: f64,
     /// Where the tone was actually found, in Hz. A recording whose rotation
     /// sits away from nominal would otherwise have its tone counted as
@@ -142,12 +150,27 @@ fn measure(doppler: &[f32], sample_rate: f32, band_low: f32, band_high: f32) -> 
 
     let split = |spec: &[f64]| {
         let (mut tone, mut noise) = (0.0f64, 0.0f64);
+        let mut noise_bins = 0usize;
+        let mut tone_bins = 0usize;
         for (power, &hz) in spec.iter().zip(&bins) {
             if (hz - tone_hz).abs() <= TONE_HALF_WIDTH_HZ {
                 tone += power;
+                tone_bins += 1;
             } else {
                 noise += power;
+                noise_bins += 1;
             }
+        }
+        // The tone band also holds its share of the noise floor -- 16.4 Hz
+        // of the 500 -- which read as tone and biased the worst capture
+        // about 0.8 dB clean. Move the floor's share back where it belongs,
+        // clamping at zero for a segment whose tone band holds less than
+        // the floor predicts.
+        if noise_bins > 0 && tone_bins > 0 {
+            let floor_share = noise / noise_bins as f64 * tone_bins as f64;
+            let corrected = (tone - floor_share).max(0.0);
+            noise += tone - corrected;
+            tone = corrected;
         }
         (tone, noise)
     };
@@ -166,14 +189,6 @@ fn measure(doppler: &[f32], sample_rate: f32, band_low: f32, band_high: f32) -> 
     let mut ratios: Vec<f64> = per_segment.iter().map(|(_, r)| *r).collect();
     ratios.sort_by(f64::total_cmp);
 
-    // The upper half by tone power: the recording while somebody is talking.
-    let mut by_tone = per_segment.clone();
-    by_tone.sort_by(|a, b| b.0.total_cmp(&a.0));
-    let loud = &by_tone[..by_tone.len().div_ceil(2)];
-    let mut loud_ratios: Vec<f64> = loud.iter().map(|(_, r)| *r).collect();
-    loud_ratios.sort_by(f64::total_cmp);
-    let transmitting = loud_ratios[loud_ratios.len() / 2];
-
     let (tone, noise) = split(&spectrum);
     if tone <= 0.0 {
         return None;
@@ -181,7 +196,6 @@ fn measure(doppler: &[f32], sample_rate: f32, band_low: f32, band_high: f32) -> 
     let segments = spectra.len();
     Some(InBand {
         ratios,
-        transmitting,
         whole_file: noise / tone,
         tone_hz,
         segments,
@@ -199,12 +213,12 @@ fn main() {
              Tone integrated over plus or minus {TONE_HALF_WIDTH_HZ:.0} Hz of its peak.\n"
         );
         println!(
-            "{:<40} {:>9} {:>9} {:>9} {:>9} {:>9} {:>6}",
-            "source", "p10", "p50", "p90", "talking", "whole", "segs"
+            "{:<40} {:>9} {:>9} {:>9} {:>9} {:>6}",
+            "source", "p10", "p50", "p90", "whole", "segs"
         );
         println!(
-            "{:<40} {:>9} {:>9} {:>9} {:>9} {:>9} {:>6}",
-            "", "ratio", "ratio", "ratio", "dB", "dB", ""
+            "{:<40} {:>9} {:>9} {:>9} {:>9} {:>6}",
+            "", "ratio", "ratio", "ratio", "dB", ""
         );
     }
 
@@ -230,9 +244,8 @@ fn main() {
                     "source": format!("synthetic at_passband_ratio({stated})"),
                     "kind": "calibration",
                     "stated_noise_to_tone": stated,
-                    "transmitting": m.transmitting,
-                    "transmitting_snr_db": to_db(m.transmitting),
                     "whole_file": m.whole_file,
+                    "whole_file_snr_db": to_db(m.whole_file),
                     "p10": m.pct(0.10),
                     "p50": m.pct(0.50),
                     "p90": m.pct(0.90),
@@ -242,12 +255,11 @@ fn main() {
             );
         } else {
             println!(
-                "{:<40} {:>9.3} {:>9.3} {:>9.3} {:>9.1} {:>9.1} {:>6}  stated {stated}",
+                "{:<40} {:>9.3} {:>9.3} {:>9.3} {:>9.1} {:>6}  stated {stated}",
                 format!("synthetic, {stated} by construction"),
                 m.pct(0.10),
                 m.pct(0.50),
                 m.pct(0.90),
-                to_db(m.transmitting),
                 to_db(m.whole_file),
                 m.segments
             );
@@ -278,8 +290,6 @@ fn main() {
                 serde_json::json!({
                     "source": name,
                     "kind": "recording",
-                    "transmitting": m.transmitting,
-                    "transmitting_snr_db": to_db(m.transmitting),
                     "whole_file": m.whole_file,
                     "whole_file_snr_db": to_db(m.whole_file),
                     "p10": m.pct(0.10),
@@ -297,12 +307,11 @@ fn main() {
                 short
             };
             println!(
-                "{:<40} {:>9.3} {:>9.3} {:>9.3} {:>9.1} {:>9.1} {:>6}",
+                "{:<40} {:>9.3} {:>9.3} {:>9.3} {:>9.1} {:>6}",
                 short,
                 m.pct(0.10),
                 m.pct(0.50),
                 m.pct(0.90),
-                to_db(m.transmitting),
                 to_db(m.whole_file),
                 m.segments
             );

@@ -77,26 +77,30 @@ of the rotation tone. The three conditions used throughout are +7, +1 and −8 d
 Those three are defined conditions, not measured properties of the three
 recordings, and earlier versions of this document said otherwise. They were
 introduced as what the captures measure, from an FFT that was never checked in;
-`metric_in_band_snr` now performs that measurement and does not agree. Over
-whole files the captures give −8.4, +2.8 and +2.6 dB. Counting only the louder
-half of each recording gives −4.0, +15.8 and +12.2 dB.
+`metric_in_band_snr` now performs that measurement, calibrated against
+synthetic signals whose ratio is exact (it recovers the three conditions to
+within 0.1 dB), and does not agree: over whole files the captures give −9.5,
++2.6 and +2.4 dB.
 
-The gap between those two rows is the finding. A recording is transmissions
-separated by squelch noise, and a segment of squelch noise has no tone in it at
-all, so the per-segment ratio inside one file spans two to three orders of
-magnitude — ft-70d runs 0.013 at its tenth percentile and 53.9 at its
-ninetieth. Which single number a recording "has" is decided entirely by which
-segments are counted, and for these captures that choice is worth about 10 dB.
-The original selection rule was not recorded, which is why its result could not
-be reproduced.
+There is no per-recording number sharper than that, and the instrument itself
+demonstrated why. A recording is transmissions separated by squelch noise, so
+the per-segment ratio inside one file spans two to four orders of magnitude —
+ft-70d runs 0.014 at its tenth percentile and 146 at its ninetieth. Which
+single number a recording "has" is decided entirely by which segments are
+counted; the original selection rule behind +7/+1/−8 was never recorded, which
+is why the triple could not be reproduced. A "median over the loudest half"
+summary was tried and retired: it failed its own known-answer calibration by
+3.4 dB, and moved 7 dB when the measurement window was merely halved with the
+same segments selected. Quote a percentile band with the rule stated, never a
+single number.
 
 Nothing measured against these conditions is invalidated: the generators set
-their ratio by construction, so a row labelled −8 dB was produced at −8 dB
-whatever any recording does. What does not survive is the claim that the three
-conditions are the three captures. −8 dB is a fair description of ft-70d; +7 dB
-describes no whole recording here, and sits between the two rules for the
-cleaner wouxun capture. Read them as a span of plausible channels, and quote
-`metric_in_band_snr` with a stated rule when a recording itself is the subject.
+their ratio by construction — exactly, since the scale is now set by the same
+in-band estimator the calibration validates — so a row labelled −8 dB was
+produced at −8 dB whatever any recording does. What does not survive is the
+claim that the three conditions are the three captures. −8 dB is a fair
+description of ft-70d as a whole; +7 dB describes no whole recording here.
+Read them as a span of plausible channels.
 
 It is deliberately not the ratio over the whole channel. Real FM audio has most
 of its energy well below the passband, where it does no harm, so matching total
