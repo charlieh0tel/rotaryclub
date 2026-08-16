@@ -14,15 +14,15 @@
 //! captures. An RMS reference would also track the rotation rate, because the
 //! duty cycle does.
 //!
-//! It tracks the largest pulses, not the average of them. Averaging every
-//! detected peak is a positive feedback loop under noise, and detection
-//! gating does not break it because the false detections are detections: a
-//! noise trigger has a small peak, the average reads that as gain being too
-//! low, the gain rises, and more noise clears the threshold. Measured, at a
-//! north channel noise of 0.10 RMS that took detection from 0.979 to 0.791
-//! and false positives from 0.000 to 0.177. A decaying peak hold is immune to
-//! it: a small peak never raises the estimate, and only a genuinely weakening
-//! signal lets it fall.
+//! It follows the median of the recent pulse amplitudes, not their mean or
+//! their maximum. Averaging every detected peak is a positive feedback loop
+//! under noise, and detection gating does not break it because the false
+//! detections are detections: a noise trigger has a small peak, the average
+//! reads that as gain being too low, the gain rises, and more noise clears
+//! the threshold. Measured, at a north channel noise of 0.10 RMS that took
+//! detection from 0.979 to 0.791 and false positives from 0.000 to 0.177. A
+//! peak hold has the opposite failure, following a noise spike riding on a
+//! pulse down. The median follows neither end.
 //!
 //! It adapts on detected pulses once there are any. Before that there is a
 //! chicken and egg: a receiver quiet enough to need the gain is quiet enough
@@ -179,7 +179,7 @@ impl NorthPulseAgc {
     /// Note the filtered peak of a detected pulse.
     ///
     /// `filtered_peak` is measured after the current gain was applied, so it is
-    /// referred back through the gain before entering the peak hold.
+    /// referred back through the gain before entering the median window.
     pub fn observe(&mut self, filtered_peak: f32) {
         if self.frozen() || !filtered_peak.is_finite() || filtered_peak <= f32::EPSILON {
             return;

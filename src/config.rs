@@ -458,7 +458,7 @@ pub const THRESHOLD_FRACTION_UNAIDED: f32 = 0.19361;
 pub struct NorthTickConfig {
     /// Tracking mode (DPLL recommended)
     pub mode: NorthTrackingMode,
-    /// Slow gain control for this channel, off by default.
+    /// Slow gain control for this channel, on by default.
     pub agc: NorthAgcConfig,
     /// Sub-sample estimator for the pulse arrival time
     pub estimator: NorthPulseEstimator,
@@ -848,7 +848,9 @@ impl Default for BearingConfig {
             // 20 Hz because that is what the KN5R side emits: KR6DD's engine
             // divides each second into twenty batch sections and sends one
             // sentence per section. Nothing here needs that rate, but a
-            // consumer built against it may.
+            // consumer built against it may. This is the default for an
+            // embedder constructing the config directly; the binary always
+            // sets it from `--output-rate`, whose own default is 10 Hz.
             output_rate_hz: 20.0,
             north_offset_degrees: 0.0,
             north_tick_warning_timeout_secs: 2.0,
