@@ -39,11 +39,11 @@ struct Args {
     swap_channels: bool,
 
     /// Output rate in Hz
-    #[arg(short = 'r', long, default_value = "10.0", value_parser = parse_output_rate)]
+    #[arg(short = 'r', long, default_value = "10.0", value_parser = rotaryclub::cli::parse_output_rate)]
     output_rate: f32,
 
     /// North reference offset in degrees (added to all bearings)
-    #[arg(short = 'o', long, default_value = "0.0", value_parser = parse_north_offset,
+    #[arg(short = 'o', long, default_value = "0.0", value_parser = rotaryclub::cli::parse_north_offset,
           allow_negative_numbers = true)]
     north_offset: f32,
 
@@ -78,62 +78,6 @@ struct Args {
     /// List available input devices and exit
     #[arg(long)]
     list_devices: bool,
-}
-
-/// Reject a non-finite north offset.
-///
-/// It reaches the bearing itself rather than a quality figure, so a NaN here
-/// is not a confidence that reads badly -- it is a bearing that is NaN. The
-/// JSON formatter emits that as a bare `NaN`, which is not valid JSON, and the
-/// KN5R formatter casts it to 0000, which reads as a clean bearing due north.
-/// The second is worse than the first: it is wrong and looks right.
-fn parse_north_offset(s: &str) -> Result<f32, String> {
-    let offset: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
-    if offset.is_finite() {
-        Ok(offset)
-    } else {
-        Err("north offset must be a finite number of degrees".to_string())
-    }
-}
-
-fn parse_output_rate(s: &str) -> Result<f32, String> {
-    let rate: f32 = s.parse().map_err(|_| format!("invalid number: {s}"))?;
-    // The lower bound is not pedantry: the rate becomes a Duration, and
-    // Duration::from_secs_f32 panics rather than saturating once the interval
-    // exceeds what it can hold. One output per hour is already absurd.
-    if rate.is_finite() && rate >= 1.0 / 3600.0 {
-        Ok(rate)
-    } else {
-        Err("output rate must be a finite number of Hz, at least 1/3600".to_string())
-    }
-}
-
-/// Whether two paths name the same file, by device and inode where the
-/// filesystem can say, falling back to canonical-path equality.
-///
-/// The dump path usually does not exist yet, so it is the parent directory
-/// plus file name that gets canonicalised on that side.
-fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
-        return ma.dev() == mb.dev() && ma.ino() == mb.ino();
-    }
-    let canonical = |p: &std::path::Path| -> Option<std::path::PathBuf> {
-        if let Ok(c) = p.canonicalize() {
-            return Some(c);
-        }
-        let parent = p.parent()?;
-        let parent = if parent.as_os_str().is_empty() {
-            std::path::Path::new(".")
-        } else {
-            parent
-        };
-        Some(parent.canonicalize().ok()?.join(p.file_name()?))
-    };
-    match (canonical(a), canonical(b)) {
-        (Some(ca), Some(cb)) => ca == cb,
-        _ => false,
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -185,7 +129,7 @@ fn main() -> anyhow::Result<()> {
     // identity rather than by string, so a symlink or a relative spelling of
     // the same file is caught too.
     if let (Some(input), Some(dump)) = (&args.input, &args.dump_audio)
-        && same_file(input, dump)
+        && rotaryclub::cli::same_file(input, dump)
     {
         anyhow::bail!(
             "--dump-audio points at the input file {}; writing would destroy it",
