@@ -227,6 +227,10 @@ impl Stimulus {
 struct Cell {
     labels: Vec<String>,
     tick_error: f64,
+    /// Fraction of ticks discarded from `tick_error` for exceeding the
+    /// 3-sample cap. Without this a mis-tracking configuration reports a
+    /// smaller mean error than a tracking one.
+    tick_dropped: f64,
     bearing_error: f64,
     /// Mean signed error: the part of it every estimate shares.
     bearing_bias: f64,
@@ -291,6 +295,7 @@ impl Measured {
 struct Summary {
     labels: Vec<String>,
     tick_error: Measured,
+    tick_dropped: Measured,
     bearing_error: Measured,
     bearing_bias: Measured,
     bearing_scatter: Measured,
@@ -305,6 +310,7 @@ impl Summary {
         Self {
             labels: cells.first().map(|c| c.labels.clone()).unwrap_or_default(),
             tick_error: of(|c| c.tick_error),
+            tick_dropped: of(|c| c.tick_dropped),
             bearing_error: of(|c| c.bearing_error),
             bearing_bias: of(|c| c.bearing_bias),
             bearing_scatter: of(|c| c.bearing_scatter),
@@ -348,13 +354,22 @@ fn measure(config: &RdfConfig, signal: &[f32], truth: f32, period: f64) -> Resul
     let mut bearing_errors = Vec::new();
     let mut signed_errors = Vec::new();
     let mut stated = Vec::new();
+    let mut tick_outliers = 0usize;
     for result in &results {
         let time = result.north_tick.sample_index as f64
             + result.north_tick.fractional_sample_offset as f64;
         let k = (time / period).round();
         let error = time - k * period;
+        // The nearest-rotation fold aliases a whole-cycle slip back to a
+        // small error, and the cap discards what it cannot alias. Both are
+        // deliberate -- this column measures timing about the rotation, not
+        // gross tracking failures -- but silently dropping the failures let
+        // a configuration that mis-tracks report a smaller mean error than
+        // one that tracks. The dropped fraction is now carried alongside.
         if error.abs() < 3.0 {
             tick_errors.push(error.abs());
+        } else {
+            tick_outliers += 1;
         }
         if let Some(bearing) = result.bearing {
             let error = (((bearing.raw_bearing - truth) + 540.0).rem_euclid(360.0) - 180.0) as f64;
@@ -382,6 +397,7 @@ fn measure(config: &RdfConfig, signal: &[f32], truth: f32, period: f64) -> Resul
     Ok(Cell {
         labels: Vec::new(),
         tick_error: mean(&tail(&tick_errors, 0.2)),
+        tick_dropped: tick_outliers as f64 / results.len().max(1) as f64,
         bearing_error: mean(&bearing_tail.clone()),
         bearing_bias: bias,
         bearing_scatter: scatter,
@@ -585,6 +601,7 @@ fn main() -> Result<()> {
             object.insert("seeds".into(), serde_json::json!(args.seeds));
             for (name, measured) in [
                 ("tick", row.tick_error),
+                ("tick_dropped", row.tick_dropped),
                 ("bearing", row.bearing_error),
                 ("bias", row.bearing_bias),
                 ("scatter", row.bearing_scatter),
@@ -609,6 +626,7 @@ fn main() -> Result<()> {
         .map(|r| {
             vec![
                 r.tick_error.render(4, bars),
+                r.tick_dropped.render(3, bars),
                 r.bearing_error.render(3, bars),
                 r.bearing_bias.render(3, bars),
                 r.bearing_scatter.render(3, bars),
@@ -619,7 +637,7 @@ fn main() -> Result<()> {
         })
         .collect();
     let measured = [
-        "tick", "bearing", "bias", "scatter", "b p95", "stated", "count",
+        "tick", "t drop", "bearing", "bias", "scatter", "b p95", "stated", "count",
     ];
     let measured_width: Vec<usize> = measured
         .iter()
