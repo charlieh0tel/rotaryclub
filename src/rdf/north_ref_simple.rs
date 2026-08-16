@@ -206,6 +206,7 @@ impl SimpleNorthTracker {
             period: self.samples_per_rotation,
             lock_quality: self.lock_quality(),
             phase_variance: self.reference_phase_variance(),
+            reference_variance: self.reference_phase_variance(),
             fractional_sample_offset,
             phase: 0.0,
             frequency,
@@ -307,6 +308,7 @@ impl SimpleNorthTracker {
                 period: self.samples_per_rotation,
                 lock_quality: self.lock_quality(),
                 phase_variance: self.reference_phase_variance(),
+                reference_variance: self.reference_phase_variance(),
                 fractional_sample_offset,
                 phase: 0.0, // By definition, tick = north = 0 radians
                 frequency,

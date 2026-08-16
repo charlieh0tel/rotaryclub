@@ -14,6 +14,7 @@ fn make_north_tick(samples_per_rotation: f32) -> NorthTick {
         // tracker cannot estimate it, which correctly suppresses the
         // uncertainty figure and any confidence built on it.
         phase_variance: Some(0.0),
+        reference_variance: Some(0.0),
         fractional_sample_offset: 0.0,
         phase: 0.0,
         frequency: 2.0 * PI / samples_per_rotation,
@@ -590,6 +591,7 @@ fn test_bearing_buffer_boundary_phase_jump_cases() {
                 period: Some(samples_per_rotation),
                 lock_quality: None,
                 phase_variance: None,
+                reference_variance: None,
                 fractional_sample_offset: 0.0,
                 phase: 0.0,
                 frequency: 2.0 * PI / samples_per_rotation,

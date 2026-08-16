@@ -41,6 +41,25 @@ pub struct NorthTick {
     /// The simple tracker has no oscillator, and derives the same quantity
     /// from the scatter of the intervals between its detections.
     pub phase_variance: Option<f32>,
+    /// Timing variance of the tick actually emitted, in radians squared --
+    /// the quantity a bearing's uncertainty needs from its reference.
+    ///
+    /// For the simple tracker this is the same as `phase_variance`: what it
+    /// emits is what it detected. For the DPLL the two differ by the loop's
+    /// whole memory -- the emitted tick rests on an oscillator averaging
+    /// hundreds of detections, so charging a bearing with raw detection
+    /// scatter overstated the reference by a factor around twenty-six and
+    /// capped confidence at 0.74 on a perfect signal. The DPLL derives this
+    /// the same way the simple tracker derives its figure, from the interval
+    /// scatter of the ticks it emits, plus the square of the systematic
+    /// phase offset its own statistics currently track (the lag while it
+    /// follows a rate change).
+    ///
+    /// What no internal statistic can carry: a displacement the loop follows
+    /// perfectly, a detection bias moving slowly enough that the oscillator
+    /// agrees with it. That is the same blindness the doppler term has to a
+    /// reflection, and it lives in the same row of METRICS.md's table.
+    pub reference_variance: Option<f32>,
     /// Fractional timing offset (samples) relative to `sample_index`.
     /// Positive means the effective tick time is after `sample_index`.
     pub fractional_sample_offset: f32,

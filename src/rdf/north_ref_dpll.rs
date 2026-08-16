@@ -33,6 +33,10 @@ const MAX_PHASE_TIMING_CORRECTION_SAMPLES: f32 = 0.5;
 #[cfg(test)]
 const MAX_TOTAL_FRACTIONAL_OFFSET_SAMPLES: f32 = 0.5;
 const MIN_PHASE_CORRECTION_SAMPLES: usize = 16;
+/// EMA weight for the emitted-interval variance; matches the simple
+/// tracker's period smoothing so the two reference figures answer at the
+/// same timescale.
+const EMITTED_INTERVAL_SMOOTHING: f32 = 0.1;
 /// Ticks of history, and phase-error spread, before the oscillator is treated
 /// as locked well enough to overrule a detection or to predict without one.
 const MIN_LOCKED_SAMPLES: usize = 64;
@@ -75,6 +79,36 @@ struct RollingWindowStats {
 }
 
 impl RollingWindowStats {
+    /// Lag-1 autocorrelation of the windowed values.
+    ///
+    /// White is what the loop's phase errors look like when the reduction
+    /// its averaging performs is real: independent quantization dither,
+    /// destroyed by the loop's memory. Correlated errors mean the loop is
+    /// following something -- a rate change it lags, a drift, detections
+    /// dragged coherently -- and averaging does not remove what it follows.
+    fn lag1_autocorrelation(&self) -> Option<f32> {
+        let n = self.window.len();
+        if n < 8 {
+            return None;
+        }
+        let mean = (self.sum / n as f64) as f32;
+        let mut var = 0.0f64;
+        let mut cov = 0.0f64;
+        let mut prev: Option<f32> = None;
+        for &v in &self.window {
+            let d = v - mean;
+            var += (d * d) as f64;
+            if let Some(p) = prev {
+                cov += ((p - mean) * d) as f64;
+            }
+            prev = Some(v);
+        }
+        if var <= 0.0 {
+            return Some(0.0);
+        }
+        Some((cov / var) as f32)
+    }
+
     fn new(max_len: usize) -> Self {
         Self {
             window: VecDeque::with_capacity(max_len),
@@ -169,6 +203,16 @@ pub struct DpllNorthTracker {
     // Rolling statistics for lock quality
     phase_error_stats: RollingWindowStats,
     freq_stats: RollingWindowStats,
+    /// EMA variance of the intervals between EMITTED ticks, in samples
+    /// squared -- the same statistic the simple tracker keeps, applied to
+    /// what this tracker actually reports rather than to its raw detections.
+    /// See `reference_variance`.
+    emitted_interval_variance: Option<f32>,
+    /// (compensated sample, effective fraction) of the last emitted real
+    /// tick, for the interval above. Kept as integer-plus-fraction because
+    /// past 2^24 an f32 absolute time cannot represent a sample.
+    last_emitted: Option<(usize, f32)>,
+    emitted_intervals_seen: u32,
     lock_quality_weights: LockQualityWeights,
 
     // Pre-allocated buffer for filtering
@@ -405,6 +449,9 @@ impl DpllNorthTracker {
             sample_counter: 0,
             sample_rate,
             phase_error_stats: RollingWindowStats::new(LOCK_STATS_WINDOW_TICKS),
+            emitted_interval_variance: None,
+            last_emitted: None,
+            emitted_intervals_seen: 0,
             freq_stats: RollingWindowStats::new(LOCK_STATS_WINDOW_TICKS),
             lock_quality_weights: config.lock_quality_weights,
             filter_buffer: Vec::new(),
@@ -471,10 +518,65 @@ impl DpllNorthTracker {
             period: Some(2.0 * PI / self.frequency),
             lock_quality: self.lock_quality(),
             phase_variance: self.phase_error_stats.variance(),
+            reference_variance: self.reference_variance(),
             fractional_sample_offset,
             phase: 0.0,
             frequency: self.frequency,
         }]
+    }
+
+    /// Timing variance of the emitted tick, in radians squared.
+    ///
+    /// Derived exactly the way the simple tracker derives its figure: half
+    /// the scatter of the intervals between emitted ticks, converted through
+    /// the rotation rate -- plus the square of the systematic phase offset
+    /// the loop's own statistics currently track, which is its lag while it
+    /// follows a rate change.
+    ///
+    /// This replaces charging bearings with raw detection scatter, which
+    /// overstated the emitted tick's error by a factor around twenty-six at
+    /// the shipped bandwidth and capped confidence at 0.74 on a perfect
+    /// signal. The raw scatter stays available as `phase_variance`.
+    ///
+    /// A displacement the loop follows perfectly -- a detection bias moving
+    /// slowly enough that the oscillator agrees with it -- is invisible to
+    /// this statistic and to any other computed from inside the loop; it is
+    /// the reference-side analogue of the doppler term's blindness to a
+    /// reflection, and it is documented as such rather than papered over
+    /// with a constant chosen for the worst regime.
+    fn reference_variance(&self) -> Option<f32> {
+        if self.emitted_intervals_seen < 2 {
+            return None;
+        }
+        let interval_variance = self.emitted_interval_variance?;
+        if !interval_variance.is_finite() || self.frequency <= FREQUENCY_EPSILON {
+            return None;
+        }
+        let raw = self.phase_error_stats.variance()?;
+        // The reduction the loop's averaging performs is only claimable
+        // while the loop demonstrates lock; unlocked, the oscillator is not
+        // the estimate the reduction describes and the raw detection scatter
+        // is the honest figure -- exactly the conservatism the old design
+        // applied everywhere, now applied only where it is earned.
+        if !self.locked() {
+            return Some(raw);
+        }
+        let per_tick_samples2 = interval_variance / 2.0;
+        let systematic = self.phase_error_stats.mean().unwrap_or(0.0);
+        let reduced = per_tick_samples2 * self.frequency * self.frequency + systematic * systematic;
+        // Locked, the claim is blended by the measured whiteness of the
+        // loop's own phase errors. White errors are the regime where
+        // averaging works; positively correlated ones mean the loop is
+        // following something, and what it follows lands in the emitted
+        // tick undiminished, so that fraction of the raw scatter is charged
+        // in full. No constant here is fitted: the weight is the lag-1
+        // autocorrelation itself.
+        let whiteness_penalty = self
+            .phase_error_stats
+            .lag1_autocorrelation()
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        Some(reduced + whiteness_penalty * (raw - reduced).max(0.0))
     }
 
     /// Samples since a pulse was last accepted at the given position.
@@ -675,6 +777,13 @@ impl DpllNorthTracker {
                 phase_variance: self
                     .phase_error_stats
                     .variance()
+                    .map(|v| v + self.coast_drift_variance(next)),
+                // A predicted tick's uncertainty grows with the coast, and
+                // the interval statistic cannot see that (coasted intervals
+                // are exactly the period); the same drift term the raw
+                // figure carries applies here.
+                reference_variance: self
+                    .reference_variance()
                     .map(|v| v + self.coast_drift_variance(next)),
                 fractional_sample_offset: self.last_tick_fraction,
                 phase: 0.0,
@@ -881,11 +990,31 @@ impl DpllNorthTracker {
             // converting before subtracting loses the quantity being measured.
             self.last_tick_fraction = fractional_sample_offset
                 + (reported_sample as i64 - compensated_sample as i64) as f32;
+            // Interval between emitted ticks, integer part differenced in
+            // integers for the same 2^24 reason as above.
+            if let Some((last_sample, last_frac)) = self.last_emitted {
+                let interval = (compensated_sample as i64 - last_sample as i64) as f32
+                    + self.last_tick_fraction
+                    - last_frac;
+                let deviation = interval - period;
+                let squared = deviation * deviation;
+                self.emitted_interval_variance = Some(
+                    self.emitted_interval_variance
+                        .map(|prev| {
+                            (1.0 - EMITTED_INTERVAL_SMOOTHING) * prev
+                                + EMITTED_INTERVAL_SMOOTHING * squared
+                        })
+                        .unwrap_or(squared),
+                );
+                self.emitted_intervals_seen = self.emitted_intervals_seen.saturating_add(1);
+            }
+            self.last_emitted = Some((compensated_sample, self.last_tick_fraction));
             ticks.push(NorthTick {
                 sample_index: reported_sample,
                 period: Some(period),
                 lock_quality: self.lock_quality(),
                 phase_variance: self.phase_error_stats.variance(),
+                reference_variance: self.reference_variance(),
                 fractional_sample_offset,
                 phase: 0.0,
                 frequency: self.frequency,
