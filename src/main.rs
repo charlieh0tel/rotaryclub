@@ -108,6 +108,34 @@ fn parse_output_rate(s: &str) -> Result<f32, String> {
     }
 }
 
+/// Whether two paths name the same file, by device and inode where the
+/// filesystem can say, falling back to canonical-path equality.
+///
+/// The dump path usually does not exist yet, so it is the parent directory
+/// plus file name that gets canonicalised on that side.
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+        return ma.dev() == mb.dev() && ma.ino() == mb.ino();
+    }
+    let canonical = |p: &std::path::Path| -> Option<std::path::PathBuf> {
+        if let Ok(c) = p.canonicalize() {
+            return Some(c);
+        }
+        let parent = p.parent()?;
+        let parent = if parent.as_os_str().is_empty() {
+            std::path::Path::new(".")
+        } else {
+            parent
+        };
+        Some(parent.canonicalize().ok()?.join(p.file_name()?))
+    };
+    match (canonical(a), canonical(b)) {
+        (Some(ca), Some(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -149,6 +177,20 @@ fn main() -> anyhow::Result<()> {
     if args.swap_channels {
         config.audio.doppler_channel = ChannelRole::Right;
         config.audio.north_tick_channel = ChannelRole::Left;
+    }
+
+    // The dump writer truncates its path on creation, so pointing it at the
+    // input would destroy the recording being read -- the reader is already
+    // open, and the data is gone before the first buffer arrives. Compared by
+    // identity rather than by string, so a symlink or a relative spelling of
+    // the same file is caught too.
+    if let (Some(input), Some(dump)) = (&args.input, &args.dump_audio)
+        && same_file(input, dump)
+    {
+        anyhow::bail!(
+            "--dump-audio points at the input file {}; writing would destroy it",
+            input.display()
+        );
     }
 
     let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
