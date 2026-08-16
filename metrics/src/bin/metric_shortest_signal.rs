@@ -101,6 +101,21 @@ fn hiss(len: usize, sample_rate: f32, seed: u64) -> Vec<f32> {
 /// midpoints, so it scored nothing and reported 0.00 by construction; a
 /// regression that produced confident bearings on hiss would never have
 /// moved it.
+/// Chunks whose midpoint the scoring window contains -- the real resolution
+/// of the duration axis. Adjacent duration cells with the same count are the
+/// same measurement.
+fn chunks_scored(burst_secs: f32, buffer_size: usize, sample_rate: f32) -> usize {
+    let burst_start = (LEAD_IN_SECS * sample_rate) as usize;
+    let burst_end = burst_start + (burst_secs * sample_rate) as usize;
+    let total = ((LEAD_IN_SECS + burst_secs + TAIL_SECS) * sample_rate) as usize;
+    (0..total.div_ceil(buffer_size))
+        .filter(|k| {
+            let mid = k * buffer_size + buffer_size / 2;
+            mid >= burst_start && mid < burst_end.max(burst_start + 1)
+        })
+        .count()
+}
+
 fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64, burst_present: bool) -> bool {
     let mut config = RdfConfig::default();
     config.audio.buffer_size = buffer_size;
@@ -198,10 +213,19 @@ fn trial(burst_secs: f32, noise: f32, buffer_size: usize, draw: u64, burst_prese
 /// behaves like independent looks is n(1-r)/(1+r). Measured from the burst in
 /// hand rather than assumed, since r rises with buffer size and falls as the
 /// channel worsens.
+/// Worst lag-1 correlation measured for these overlapping work buffers.
+/// Assumed where a burst is too short to estimate its own -- assuming
+/// independence there instead credited the shortest cells, which are the
+/// cells that decide T90, with certainty they had not earned.
+const WORST_MEASURED_LAG1: f64 = 0.9;
+
 fn effective_looks(bearings: &[f64]) -> f64 {
     let n = bearings.len();
+    let ar1 = |r: f64, n: f64| (n * (1.0 - r) / (1.0 + r)).max(1.0);
     if n < 4 {
-        return n as f64;
+        // Too short to estimate r at all; the conservative assumption is the
+        // worst correlation this geometry measures, not independence.
+        return ar1(WORST_MEASURED_LAG1, n as f64);
     }
     let errors: Vec<f64> = bearings
         .iter()
@@ -210,16 +234,21 @@ fn effective_looks(bearings: &[f64]) -> f64 {
     let mean = errors.iter().sum::<f64>() / n as f64;
     let variance: f64 = errors.iter().map(|e| (e - mean) * (e - mean)).sum();
     if variance <= 0.0 {
-        return n as f64;
+        return ar1(WORST_MEASURED_LAG1, n as f64);
     }
     let covariance: f64 = errors
         .windows(2)
         .map(|w| (w[0] - mean) * (w[1] - mean))
         .sum();
-    // Negative correlation would inflate the count above n, which is not a
-    // claim this should ever make; clamp to the independent case.
-    let r = (covariance / variance).clamp(0.0, 0.999);
-    (n as f64 * (1.0 - r) / (1.0 + r)).max(1.0)
+    // The plug-in estimator is biased low by roughly (1 + 3r)/n, which at
+    // the short-burst sample sizes that set T90 inflated the effective count
+    // in the direction that credits the system. Corrected first-order, then
+    // clamped: negative correlation would inflate the count above n, which
+    // is not a claim this should ever make.
+    let raw = covariance / variance;
+    let corrected = raw + (1.0 + 3.0 * raw) / n as f64;
+    let r = corrected.clamp(0.0, 0.999);
+    ar1(r, n as f64)
 }
 
 fn snr_db(noise: f32) -> f64 {
@@ -299,6 +328,10 @@ fn main() {
                             "draws": DRAWS,
                             "error_limit_deg": ERROR_LIMIT_DEG,
                             "stated_limit_deg": STATED_LIMIT_DEG,
+                            // The duration axis's real resolution: cells
+                            // sharing this count are the same measurement,
+                            // and T90 moves in steps of one buffer.
+                            "chunks_scored": chunks_scored(ms / 1000.0, buffer_size, 48000.0),
                         })
                     );
                 } else {
