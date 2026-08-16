@@ -641,18 +641,17 @@ mod in_band_power_tests {
     /// The probe-FIR scaling this replaced generated 12.3 percent low at
     /// every level.
     ///
-    /// Checked at the middle and worst ratios only. At the cleanest one the
-    /// tone-noise cross-term of a finite sample (about 0.007 in power for
-    /// this seed and length, against an interference power of 0.1) is larger
-    /// than any tolerance worth asserting; at these two it is 2 percent and
-    /// 0.2 percent of the interference respectively. The generation is
-    /// deterministic, so this is a fixed number, not flakiness -- but a
-    /// tolerance sized to swallow it at 0.199 would also swallow the bug
-    /// this test exists to catch.
+    /// Checked at the worst ratio only. The tone-noise cross-term of one
+    /// finite draw is roughly +-0.02 in power whatever the ratio -- measured
+    /// across seeds it flips sign, so it is zero-mean, not a bias -- which
+    /// makes it 10 percent of the interference at the cleanest ratio, 3 at
+    /// the middle one, and 0.4 at the worst. Only the last supports a
+    /// tolerance tight enough to catch the bug this test exists to catch,
+    /// and the scale plumbing is level-independent, so one level pins it.
     #[test]
     fn generated_ratio_matches_stated() {
         let sr = 48000u32;
-        for stated in [0.793f32, 6.579] {
+        for stated in [6.579f32] {
             let sig = generate_impaired_signal(
                 8.0,
                 sr,
@@ -665,7 +664,7 @@ mod in_band_power_tests {
             // Unit tone contributes 1/2; the rest is the interference.
             let measured = (total - 0.5) / 0.5;
             assert!(
-                (measured - f64::from(stated)).abs() / f64::from(stated) < 0.03,
+                (measured - f64::from(stated)).abs() / f64::from(stated) < 0.02,
                 "stated {stated}, measured {measured}"
             );
         }
