@@ -178,13 +178,24 @@ and the north loop already locked.
 
 | In-band SNR | 256 sample buffer | 1024 sample buffer |
 | ---: | ---: | ---: |
-| +7 dB | **45 ms** | 65 ms |
+| +7 dB | **95 ms** | 140 ms |
 | +1 dB | **200 ms** | 300 ms |
 | −8 dB (about ft-70d) | **940 ms** | 940 ms |
 
-So a 45 ms transmission on a clean channel, a fifth of a second at +1 dB, and
+So a tenth of a second on a clean channel, a fifth of a second at +1 dB, and
 just under a second at −8 dB, where the rotation tone sits below the audio on
 top of it.
+
+The clean-channel cells doubled from an earlier version of this table (45 and
+65 ms) when two small-sample leaks in the stated-uncertainty test were closed
+— bursts too short to estimate their own look-correlation now assume the
+worst measured one instead of independence, and the lag-1 estimator's small-n
+bias is corrected — and the generated conditions became exact rather than
+0.6 dB easy. Those cells are decided by the stated test, so they moved most;
+the weak-channel cells are error-limited and did not move. T90's resolution
+is one buffer (5.3 ms at 256, 21.3 ms at 1024): each cell now carries the
+number of chunks it scored, and adjacent cells sharing that count are the
+same measurement.
 
 The control is the same criterion applied to a window of the longest
 duration, 2000 ms, with no transmission in it — the worst case, since a
