@@ -563,3 +563,19 @@ for on every sweep.
       bearing path does not survive: it was scored against the rounded pulses,
       and there is no separate bearing-path bias to find. What remains at five
       to ten seconds is about 0.2 degrees, at the correlation floor.
+
+- [ ] Why are the simple tracker's low_snr_dc bearings more uniform than
+      the DPLL's, given the identical doppler input?
+
+      At -8 dB in-band the pipeline gate reads dpll 40-63 degrees mean
+      error and simple 90 -- pure uniform -- although the simple ticks
+      are the better ones in that scenario (0.17 samples against 0.36).
+      Bisected in a worktree at dafc774: the 127-to-1023-tap filter
+      change moves simple from 75.6 to 90.4 alone and leaves the dpll
+      rows unchanged; substituting the crystal-nominal omega for the
+      tracker's EMA frequency does not move it, so the period-jitter
+      lever arm is not the mechanism; the mode gap itself (75 against
+      39) predates the filter change. Something about how simple-mode
+      ticks combine with the bearing path at heavy noise is not
+      understood, and the pipeline limit at 97 documents rather than
+      explains it.
