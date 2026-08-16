@@ -265,10 +265,23 @@ def source_digest(roots: Sequence[str] = ("src", "metrics")) -> str:
     Exact in both directions: unchanged code keeps its digest across a commit,
     and an edit changes it whether or not anything was committed.
 
-    Covers the library and the instruments that produce the metrics. `examples`
-    is deliberately not covered: nothing there feeds a gate.
+    Covers the library, the instruments, and the manifests that pin the
+    dependencies -- the filter designer and the noise generator live in
+    crates, so a lockfile bump changes every measured number just as surely
+    as an edit to src/ does. `examples` is deliberately not covered: nothing
+    there feeds a gate. The report scripts are not covered either: they hold
+    the limits, and changing a limit does not change what was measured.
     """
     digest = hashlib.sha256()
+    for manifest in ("Cargo.toml", "Cargo.lock", "metrics/Cargo.toml"):
+        path = Path(manifest)
+        if not path.is_file():
+            raise SystemExit(
+                f"source_digest: {manifest!r} is missing. Run these scripts "
+                f"from the repository root."
+            )
+        digest.update(path.as_posix().encode())
+        digest.update(path.read_bytes())
     for root in roots:
         # rglob on a missing directory yields nothing and raises nothing, so
         # running from the wrong working directory would hash the empty string
