@@ -521,7 +521,8 @@ fn test_bearing_rotation_rate_mismatch_sweep() {
             };
             let label = case.label();
             assert!(
-                (err - nominal_err).abs() <= 120.0,
+                // Measured max 72.4 deg post-Tier-3; bound carries headroom.
+                (err - nominal_err).abs() <= 100.0,
                 "perturbation={} method={} nominal_err={:.2} deg mismatch_err={:.2} deg",
                 label,
                 method_name,
@@ -728,7 +729,8 @@ fn test_bearing_am_depth_and_brief_fade_sweep() {
                 method_name
             );
             assert!(
-                (err - baseline_err).abs() <= 120.0,
+                // Measured max 0.12 deg post-Tier-3; bound carries headroom.
+                (err - baseline_err).abs() <= 2.0,
                 "perturbation={} method={} baseline_err={:.2} deg perturb_err={:.2} deg",
                 label,
                 method_name,
@@ -826,7 +828,8 @@ fn test_bearing_harmonic_contamination_sweep() {
                 method_name
             );
             assert!(
-                (err - reference_err).abs() <= 120.0,
+                // Measured max 0.04 deg post-Tier-3; bound carries headroom.
+                (err - reference_err).abs() <= 2.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
                 label,
                 method_name,
@@ -926,7 +929,8 @@ fn test_bearing_channel_gain_phase_imbalance_sweep() {
                 method_name
             );
             assert!(
-                (err - reference_err).abs() <= 120.0,
+                // Measured max 7.5 deg post-Tier-3; bound carries headroom.
+                (err - reference_err).abs() <= 15.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
                 label,
                 method_name,
@@ -1026,7 +1030,8 @@ fn test_bearing_impulsive_burst_offset_sweep() {
                 method_name
             );
             assert!(
-                (err - reference_err).abs() <= 120.0,
+                // Measured max 0.55 deg post-Tier-3; bound carries headroom.
+                (err - reference_err).abs() <= 3.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
                 label,
                 method_name,
@@ -1129,7 +1134,8 @@ fn test_bearing_low_snr_plus_dc_offset_interaction() {
                 method_name
             );
             assert!(
-                (err - reference_err).abs() <= 120.0,
+                // Measured max 0.22 deg post-Tier-3; bound carries headroom.
+                (err - reference_err).abs() <= 2.0,
                 "perturbation={} method={} ref_err={:.2} deg perturb_err={:.2} deg",
                 label,
                 method_name,
@@ -1357,4 +1363,119 @@ fn test_confidence_config_guardrails() {
         .is_ok(),
         "default confidence config rejected"
     );
+}
+
+#[test]
+fn test_signal_strength_and_signal_present_separate_hiss_from_tone() {
+    // Correlation separates cleanly: on hiss almost no power correlates
+    // with the reference, on a tone almost all of it does. Zero-crossing is
+    // asserted on the tone side only -- see the ignored test below for why
+    // its hiss side cannot currently be locked in.
+    let sample_rate = 48_000.0;
+    let rotation = 1602.564;
+    let len = 8192;
+    let doppler_config = DopplerConfig::default();
+    let agc_config = AgcConfig::default();
+    let tick = make_north_tick(sample_rate / rotation);
+
+    let tone = make_signal(sample_rate, rotation, 45.0, len);
+    let hiss: Vec<f32> = (0..len)
+        .map(|i| 0.3 * deterministic_noise_at(i, 7))
+        .collect();
+
+    for method in [Method::Correlation, Method::ZeroCrossing] {
+        let mut tone_calc = new_calculator(method, &doppler_config, &agc_config, sample_rate);
+        let on_tone = tone_calc
+            .process_buffer(&tone, &tick)
+            .expect("tone should yield a measurement");
+        assert!(
+            on_tone.signal_present,
+            "{method:?}: tone read signal_strength {:.3}, below its floor",
+            on_tone.metrics.signal_strength
+        );
+    }
+
+    let mut hiss_calc = new_calculator(
+        Method::Correlation,
+        &doppler_config,
+        &agc_config,
+        sample_rate,
+    );
+    if let Some(on_hiss) = hiss_calc.process_buffer(&hiss, &tick) {
+        assert!(
+            !on_hiss.signal_present,
+            "correlation: hiss read signal_strength {:.3}, above its floor",
+            on_hiss.metrics.signal_strength
+        );
+    }
+}
+
+// The review measured the zero-crossing separation at 0.203 (hiss) against
+// 0.991 (tone) -- through the 127-tap bandpass, whose -10.6 dB stopband
+// leaked enough broadband noise to keep the crossing density high. The
+// realized 1023-tap filter (-42 dB) turns hiss into narrowband noise
+// centered in the passband, whose crossing density matches the tone's:
+// measured 0.910 on pure hiss, far above MIN_SIGNAL_STRENGTH_ZERO_CROSSING.
+// The density metric's discriminating power came from the old filter's
+// defect, and the floor's documentation in config.rs still describes the
+// pre-fix populations. Locking the current behavior in would cement a
+// signal_present verdict of true on open-squelch hiss; this stays ignored
+// until the metric is redesigned or the floor re-derived.
+#[test]
+#[ignore = "zc crossing-density no longer separates hiss after the 1023-tap filter fix"]
+fn test_zero_crossing_signal_strength_separates_hiss() {
+    let sample_rate = 48_000.0;
+    let rotation = 1602.564;
+    let len = 8192;
+    let doppler_config = DopplerConfig::default();
+    let agc_config = AgcConfig::default();
+    let tick = make_north_tick(sample_rate / rotation);
+    let hiss: Vec<f32> = (0..len)
+        .map(|i| 0.3 * deterministic_noise_at(i, 7))
+        .collect();
+
+    let mut calc = new_calculator(
+        Method::ZeroCrossing,
+        &doppler_config,
+        &agc_config,
+        sample_rate,
+    );
+    if let Some(on_hiss) = calc.process_buffer(&hiss, &tick) {
+        assert!(
+            !on_hiss.signal_present,
+            "zero_crossing: hiss read signal_strength {:.3}, above its floor",
+            on_hiss.metrics.signal_strength
+        );
+    }
+}
+
+#[test]
+fn test_resolved_min_signal_strength_per_method_and_override() {
+    use rotaryclub::config::{
+        BearingMethod, MIN_SIGNAL_STRENGTH_CORRELATION, MIN_SIGNAL_STRENGTH_ZERO_CROSSING,
+    };
+
+    let defaults = ConfidenceConfig::default();
+    assert_eq!(
+        defaults.resolved_min_signal_strength(BearingMethod::Correlation),
+        MIN_SIGNAL_STRENGTH_CORRELATION
+    );
+    assert_eq!(
+        defaults.resolved_min_signal_strength(BearingMethod::ZeroCrossing),
+        MIN_SIGNAL_STRENGTH_ZERO_CROSSING
+    );
+    // The two floors must differ; a shared value is exactly the bug the
+    // per-method resolution exists to prevent.
+    assert_ne!(
+        MIN_SIGNAL_STRENGTH_CORRELATION,
+        MIN_SIGNAL_STRENGTH_ZERO_CROSSING
+    );
+
+    let overridden = ConfidenceConfig {
+        min_signal_strength: Some(0.33),
+        ..ConfidenceConfig::default()
+    };
+    for method in [BearingMethod::Correlation, BearingMethod::ZeroCrossing] {
+        assert_eq!(overridden.resolved_min_signal_strength(method), 0.33);
+    }
 }

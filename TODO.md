@@ -4,6 +4,46 @@
   (memory growth is fixed: dumps stream to disk incrementally)
 - Add criterion benchmarks for DSP pipeline (FIR filters, AGC, I/Q correlation)
 
+## Review long tail
+
+- [ ] Zero-crossing `signal_strength` no longer separates hiss from tone.
+      Measured 0.910 on pure hiss against the documented 0.28 worst case: the
+      old 0.203/0.991 separation was an artifact of the 127-tap filter's
+      -10.6 dB stopband leaking broadband noise, and the realized 1023-tap
+      filter turns hiss into narrowband noise whose crossing density matches
+      the tone's. In zero-crossing mode `signal_present` now reads true on
+      open squelch. Crossing density cannot discriminate behind an honest
+      bandpass; a redesign (crossing-time regularity, or the correlation
+      figure) wants deciding, not just a re-derived floor. The ignored test
+      `test_zero_crossing_signal_strength_separates_hiss` pins the defect,
+      and the population figures documented at
+      `MIN_SIGNAL_STRENGTH_ZERO_CROSSING` are stale until then.
+
+- [ ] Two sources of truth for the rotation frequency. The bearing
+      calculators take `doppler_config.expected_freq` at construction (noise
+      bandwidth, zero-crossing expectations) and the tick's tracked
+      `frequency`/`period` at runtime. A tracker locked far from nominal is
+      exactly when the two disagree, and which one each computation should
+      use has never been decided per use.
+
+- [ ] The bearing smoothing window fills with duplicates. Ticks arrive per
+      rotation (~1602/s) while the work buffer advances per buffer, so
+      consecutive entries in the size-5 smoother are computed from largely
+      the same audio. The smoothing constant does not mean what it appears
+      to; either the window should skip until the buffer has refreshed or
+      the default should be documented as near-cosmetic.
+
+- [ ] f32 phase accumulation. `north_tick.phase + samples_since_tick *
+      omega` style expressions lose sub-sample phase resolution as
+      magnitudes grow (a 24-bit mantissa is down to 1/16 sample granularity
+      by ~768k samples); the trackers difference integer sample counts for
+      this reason, but the bearing-side phase arithmetic has not been
+      audited to the same standard.
+
+- [ ] T90 first-crossing bias in `metric_shortest_signal`: time-to-90% is
+      scored at the first crossing of the threshold, which on a noisy
+      trajectory is biased early relative to sustained convergence.
+
 ## Measured with sweep_config
 
 Five grids run once the sweep tool existed. Two of them found bugs in the

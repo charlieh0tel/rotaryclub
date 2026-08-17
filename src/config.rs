@@ -742,6 +742,12 @@ pub const MIN_SIGNAL_STRENGTH_CORRELATION: f32 = 0.05;
 /// density, so hiss lands at 0.28 at worst against 0.743 at the weakest real
 /// signal measured. This sits in the gap, a factor of 1.8 above the one and
 /// 1.5 below the other.
+///
+/// Those populations were measured through the 127-tap bandpass and do not
+/// survive the realized 1023-tap filter, which narrows hiss into the
+/// passband where its crossing density matches the tone's (measured 0.910).
+/// See the TODO entry on zero-crossing signal_strength; until it is
+/// resolved this floor separates nothing in practice.
 pub const MIN_SIGNAL_STRENGTH_ZERO_CROSSING: f32 = 0.5;
 
 impl ConfidenceConfig {
