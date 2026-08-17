@@ -47,13 +47,13 @@ jobs:
       run: cargo test --all-features --verbose
 
     - name: Check bearing performance metrics
-      run: python3 scripts/bearing_performance_report.py ci --profile baseline
+      run: python3 scripts/bearing_performance_report.py ci
 
     - name: Check north tick timing metrics
-      run: python3 scripts/north_tick_timing_report.py ci --profile baseline
+      run: python3 scripts/north_tick_timing_report.py ci
 
     - name: Check system pipeline performance metrics
-      run: python3 scripts/system_pipeline_report.py ci --profile baseline
+      run: python3 scripts/system_pipeline_report.py ci
 
     - name: Build examples
       run: cargo build --examples --verbose
