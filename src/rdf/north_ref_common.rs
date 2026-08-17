@@ -291,7 +291,17 @@ pub(super) fn estimate_fraction(
         }
     };
 
-    let half = half_width as isize;
+    // When the full window does not fit -- a short tail at stream start, or
+    // a peak flushed at the very end of the last buffer -- shrink it
+    // symmetrically to what is available rather than abandoning the
+    // estimate: a window truncated on one side would bias the centroid
+    // toward the other, but a narrower symmetric one is merely noisier.
+    let left_extent = peak_index + tail.len() as isize;
+    let right_extent = buffer.len() as isize - 1 - peak_index;
+    let half = (half_width as isize).min(left_extent).min(right_extent);
+    if half < 1 {
+        return 0.0;
+    }
     let mut weighted = 0.0f64;
     let mut total = 0.0f64;
     for index in (peak_index - half)..=(peak_index + half) {
