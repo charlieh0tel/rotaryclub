@@ -525,6 +525,14 @@ fn test_north_tracking_frequency_step() {
         f2_hz,
         f1_hz
     );
+    // The worst error after the step is the step itself, carried until the
+    // seed fires; anything much beyond it means the oscillator overshot or
+    // was thrown past the target rather than jumped onto it.
+    assert!(
+        step_metrics.max_abs_error_after_step_hz < 40.0,
+        "Step overshoot {:.1}Hz exceeds the 32Hz step plus margin",
+        step_metrics.max_abs_error_after_step_hz
+    );
     let settle_time = step_metrics
         .settle_time_secs
         .expect("Frequency step should settle within test duration");
