@@ -45,7 +45,7 @@ struct Scenario {
     north_impulse_amplitude: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Metrics {
     bearing_success_rate: f32,
     detection_rate: f32,
@@ -57,6 +57,12 @@ struct Metrics {
     max_abs_bearing_error_deg: f32,
     mean_abs_tick_error_samples: f32,
     p95_abs_tick_error_samples: f32,
+    /// Raw per-tick samples, kept so the row's percentiles can be computed
+    /// over the pool of every draw rather than as means of per-draw
+    /// summaries -- a mean of eight maxima diluted a one-draw defect
+    /// eightfold before it met a limit named max.
+    raw_bearing_errors: Vec<f32>,
+    raw_tick_errors: Vec<f32>,
 }
 
 /// Per-pulse timing jitter, in samples, as a fraction of `max_abs_jitter`.
@@ -451,6 +457,8 @@ fn run_case(
         },
         mean_abs_tick_error_samples: mean_f32(&tick_errors),
         p95_abs_tick_error_samples: percentile_f32(&tick_errors, 0.95),
+        raw_bearing_errors: bearing_errors,
+        raw_tick_errors: tick_errors,
     }
 }
 
@@ -515,17 +523,40 @@ fn average_metrics(runs: &[Metrics]) -> Metrics {
     let n = runs.len() as f64;
     let mean64 = |f: fn(&Metrics) -> f64| runs.iter().map(f).sum::<f64>() / n;
     let mean32 = |f: fn(&Metrics) -> f32| runs.iter().map(f).sum::<f32>() / n as f32;
+    // Rates and means average across draws; the tail columns are computed
+    // over the POOL of every draw's per-tick samples, and the max is the
+    // true worst anywhere. A mean of per-draw p95s or maxima reads as a
+    // tail statistic while diluting a minority-of-draws defect by the draw
+    // count.
+    let pooled_bearing: Vec<f32> = runs
+        .iter()
+        .flat_map(|m| m.raw_bearing_errors.iter().copied())
+        .collect();
+    let pooled_tick: Vec<f32> = runs
+        .iter()
+        .flat_map(|m| m.raw_tick_errors.iter().copied())
+        .collect();
     Metrics {
         bearing_success_rate: mean32(|m| m.bearing_success_rate),
         detection_rate: mean32(|m| m.detection_rate),
         false_positive_rate: mean32(|m| m.false_positive_rate),
         mean_us_per_sample: mean64(|m| m.mean_us_per_sample),
         p95_us_per_sample: mean64(|m| m.p95_us_per_sample),
-        mean_abs_bearing_error_deg: mean32(|m| m.mean_abs_bearing_error_deg),
-        p95_abs_bearing_error_deg: mean32(|m| m.p95_abs_bearing_error_deg),
-        max_abs_bearing_error_deg: mean32(|m| m.max_abs_bearing_error_deg),
-        mean_abs_tick_error_samples: mean32(|m| m.mean_abs_tick_error_samples),
-        p95_abs_tick_error_samples: mean32(|m| m.p95_abs_tick_error_samples),
+        mean_abs_bearing_error_deg: if pooled_bearing.is_empty() {
+            360.0
+        } else {
+            mean_f32(&pooled_bearing)
+        },
+        p95_abs_bearing_error_deg: if pooled_bearing.is_empty() {
+            360.0
+        } else {
+            percentile_f32(&pooled_bearing, 0.95)
+        },
+        max_abs_bearing_error_deg: pooled_bearing.iter().copied().fold(0.0f32, f32::max),
+        mean_abs_tick_error_samples: mean_f32(&pooled_tick),
+        p95_abs_tick_error_samples: percentile_f32(&pooled_tick, 0.95),
+        raw_bearing_errors: Vec::new(),
+        raw_tick_errors: Vec::new(),
     }
 }
 

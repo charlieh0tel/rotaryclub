@@ -294,7 +294,6 @@ fn main() {
                     let var = v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (n - 1.0);
                     (var / n).sqrt() / scale
                 };
-                let mean_of = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
                 let iterations = times_us.len();
                 let sum_us: f64 = times_us.iter().sum();
                 let mean_us = if iterations > 0 {
@@ -303,7 +302,10 @@ fn main() {
                     0.0
                 };
                 let p95_us = percentile_us(&times_us, 0.95);
-                let max_us = mean_of(&per_draw_max_us);
+                // The worst over every draw, not the mean of per-draw worsts:
+                // a defect striking one draw in eight used to be diluted
+                // eightfold before it met a limit named max.
+                let max_us = per_draw_max_us.iter().copied().fold(0.0f64, f64::max);
                 let success_rate = if iterations > 0 {
                     measured_count as f64 / iterations as f64
                 } else {
@@ -317,7 +319,8 @@ fn main() {
                     errors_deg.iter().sum::<f64>() / errors_deg.len() as f64
                 };
                 let p95_abs_bearing_error_deg = percentile_deg(&errors_deg, 0.95);
-                let max_abs_bearing_error_deg = mean_of(&per_draw_max_error);
+                let max_abs_bearing_error_deg =
+                    per_draw_max_error.iter().copied().fold(0.0f64, f64::max);
                 println!(
                     "{}",
                     serde_json::json!({

@@ -23,13 +23,16 @@ struct Scenario {
     step_to_frequency_hz: Option<f32>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct TimingMetrics {
     matched: usize,
     detection_rate: f32,
     false_positive_rate: f32,
     mean_abs_error_samples: f32,
     p95_abs_error_samples: f32,
+    /// Raw matched errors, kept so the row's percentile pools every draw's
+    /// samples rather than averaging per-draw summaries.
+    raw_errors: Vec<f32>,
 }
 
 fn generate_truth_pulses(
@@ -176,6 +179,7 @@ fn compute_timing_metrics(expected: &[f64], ticks: &[NorthTick], tolerance: f32)
         false_positive_rate: unmatched_detections as f32 / expected_len,
         mean_abs_error_samples: mean(&errors),
         p95_abs_error_samples: percentile(&errors, 0.95),
+        raw_errors: errors,
     }
 }
 
@@ -200,12 +204,31 @@ fn se_of(runs: &[TimingMetrics], f: fn(&TimingMetrics) -> f32) -> f32 {
 fn average_timing_metrics(runs: &[TimingMetrics]) -> TimingMetrics {
     let n = runs.len() as f32;
     let mean = |f: fn(&TimingMetrics) -> f32| runs.iter().map(f).sum::<f32>() / n;
+    // Rates average across draws; the error columns are computed over the
+    // pool of every draw's matched errors, so a defect striking one draw
+    // meets the limit undiluted instead of divided by the draw count.
+    let pooled: Vec<f32> = runs
+        .iter()
+        .flat_map(|m| m.raw_errors.iter().copied())
+        .collect();
+    let mut sorted = pooled.clone();
+    sorted.sort_by(f32::total_cmp);
+    let p95 = if sorted.is_empty() {
+        0.0
+    } else {
+        sorted[((sorted.len() - 1) as f32 * 0.95) as usize]
+    };
     TimingMetrics {
         matched: runs.iter().map(|m| m.matched).sum::<usize>() / runs.len(),
         detection_rate: mean(|m| m.detection_rate),
         false_positive_rate: mean(|m| m.false_positive_rate),
-        mean_abs_error_samples: mean(|m| m.mean_abs_error_samples),
-        p95_abs_error_samples: mean(|m| m.p95_abs_error_samples),
+        mean_abs_error_samples: if pooled.is_empty() {
+            0.0
+        } else {
+            pooled.iter().sum::<f32>() / pooled.len() as f32
+        },
+        p95_abs_error_samples: p95,
+        raw_errors: Vec::new(),
     }
 }
 
