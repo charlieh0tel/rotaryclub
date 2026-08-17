@@ -235,6 +235,13 @@ impl PeakDetector {
         if let Some(&start) = self.crossing_indices.last()
             && start + w + self.trailing_context_samples > n
         {
+            // A pending peak re-deferred above (buffer shorter than its
+            // remaining deferral) must not be overwritten: resolve it with
+            // its best-so-far rather than losing the tick. Its `rel` was
+            // already shifted to next-buffer coordinates, so shift back.
+            if let Some(old) = self.pending_peak.take() {
+                peaks.push((old.rel + n as isize, old.amp));
+            }
             self.crossing_indices.pop();
             let mut amp = buffer[start];
             let mut rel = start as isize;
