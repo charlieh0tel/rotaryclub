@@ -3293,7 +3293,7 @@ dependencies = [
 
 [[package]]
 name = "rotaryclub"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -3322,7 +3322,7 @@ dependencies = [
 
 [[package]]
 name = "rotaryclub-metrics"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "anyhow",
  "clap",
