@@ -178,34 +178,35 @@ and the north loop already locked.
 
 | In-band SNR | 256 sample buffer | 1024 sample buffer |
 | ---: | ---: | ---: |
-| +7 dB | **95 ms** | 140 ms |
+| +7 dB | **95 ms** | 95 ms |
 | +1 dB | **200 ms** | 300 ms |
-| −8 dB (about ft-70d) | **940 ms** | 940 ms |
+| −8 dB (about ft-70d) | **640 ms** | 1400 ms |
 
 So a tenth of a second on a clean channel, a fifth of a second at +1 dB, and
-just under a second at −8 dB, where the rotation tone sits below the audio on
-top of it.
+two thirds of a second at −8 dB, where the rotation tone sits below the audio
+on top of it.
 
-The clean-channel cells doubled from an earlier version of this table (45 and
-65 ms) when two small-sample leaks in the stated-uncertainty test were closed
-— bursts too short to estimate their own look-correlation now assume the
-worst measured one instead of independence, and the lag-1 estimator's small-n
-bias is corrected — and the generated conditions became exact rather than
-0.6 dB easy. Those cells are decided by the stated test, so they moved most;
-the weak-channel cells are error-limited and did not move. T90's resolution
-is one buffer (5.3 ms at 256, 21.3 ms at 1024): each cell now carries the
-number of chunks it scored, and adjacent cells sharing that count are the
-same measurement.
+These numbers have moved twice as the criterion was made honest, and each
+move is on the record. The clean cells doubled (45 to 95 ms) when two
+small-sample leaks in the stated-uncertainty test were closed and the
+generated conditions became exact rather than 0.6 dB easy. The −8 dB cell at
+256 samples then improved from 940 to 640 ms when the doppler bandpass was
+actually realized — 1023 taps against a 127-tap filter that had been passing
+double the design's noise — which is a genuine accuracy gain, not
+bookkeeping. T90's resolution is one buffer (5.3 ms at 256, 21.3 ms at
+1024): each cell carries the number of chunks it scored, and adjacent cells
+sharing that count are the same measurement.
 
 The control is the same criterion applied to a window of the longest
 duration, 2000 ms, with no transmission in it — the worst case, since a
 longer window offers more chunks and a smaller stated uncertainty for an
-aggregate of noise to hide behind. It reads 0.02 (1 draw in 48) at both
-buffer sizes, so the detection rates above sit far clear of the false-alarm
-floor. With no burst present the channel is the same hiss whatever the SNR
-label says, so the control varies only with buffer size. An earlier version
-of this measurement reported 0.00 from a zero-length control window that
-scored no chunks at all; 0.02 is the number that could actually have moved.
+aggregate of noise to hide behind. It reads 0.06 at 256 samples and 0.10 at
+1024 — approximately the 5.6 percent chance level of the angle test alone,
+because with the stated uncertainty now honest, a two-second aggregate of
+hiss genuinely does carry a stated figure near ten degrees and the stated
+leg stops rejecting it. The floor is real, measured, and sits far below the
+0.90 criterion; an earlier version of this measurement reported 0.00 from a
+zero-length control window that scored nothing.
 
 `scripts/plot_shortest_signal.py` draws the curves from the harness's JSONL,
 marking each crossing.

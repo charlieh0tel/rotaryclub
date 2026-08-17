@@ -82,7 +82,10 @@ Key tunable parameters in `config.rs`:
 target_rms: 0.3, attack_time_ms: 10.0, release_time_ms: 100.0
 
 // Doppler processing
-expected_freq: 1602.56, bandpass: 1350-1850 Hz
+expected_freq: 1602.56, bandpass: 1350-1850 Hz (1023 taps; the filter's
+// noise-equivalent bandwidth is measured from the taps and feeds the
+// uncertainty's look count, so an unrealizable design costs accuracy but
+// cannot miscalibrate the stated figure)
 method: Correlation  // or ZeroCrossing
 
 // North tick detection
@@ -164,9 +167,11 @@ Test file (11.6s, moving radio source):
   10 Hz by default, since the rest are averaged into it. The 265 once quoted
   here matched neither number and is not a rate this pipeline produces.
 - **Confidence:** signal-dependent; see `bearing_uncertainty_deg`. A clean
-  synthetic signal reads about 0.97 and a bearing forty degrees out reads
-  0.02. The 0.90-1.00 once quoted here described the weighted-sum score that
-  floored near 0.59 whatever the signal did, and is not comparable.
+  synthetic signal reads near 1.0 and a bearing forty degrees out reads
+  0.02. Earlier versions quoted 0.97, capped by a reference term charged at
+  raw detection scatter -- about twenty-six times the emitted tick's error --
+  and before that 0.90-1.00 from a weighted-sum score that floored near 0.59
+  whatever the signal did; neither is comparable.
 - **Latency:** <100ms — unverified. No harness measures end-to-end latency;
   the gates measure per-sample processing time, which is a different thing.
 - **CPU usage:** <5% — unverified, and load-dependent enough that the timing

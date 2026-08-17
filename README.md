@@ -91,17 +91,22 @@ gates cover, and how to add a metric without fooling yourself.
   half-confidence point, six degrees by default, and 0 when the uncertainty could not
   be estimated at all — which is the absence of a claim, not a claim of a bad bearing.
 - `bearing_uncertainty_deg`: Estimated one-sigma uncertainty of this bearing, in degrees.
-  Two terms in quadrature: the doppler tone against the noise it sits in, as
-  `1 / sqrt(snr * looks)` where `looks` is the buffer length over the noise correlation
-  time, and the timing scatter of the north reference it was measured against. Empty when
-  it cannot be estimated. This is precision rather than accuracy: a displacement every
-  estimate shares is invisible to it. Measured against the bearing scatter actually seen,
-  it runs at about 1.1 on synthetic signal and about 1.06 on the recordings, counting only
-  the stretches that have a carrier on them.
+  Two terms in quadrature: the doppler tone against the noise it sits in — `1/(snr·looks)`
+  with `looks` counted against the filter's measured noise-equivalent bandwidth and
+  deflated by the residual's measured lag correlation, plus a threshold correction where
+  outliers leave the linear regime — and the timing variance of the north tick actually
+  emitted. Empty when it cannot be estimated. This is precision rather than accuracy: a
+  displacement every estimate shares — a reflection, a mis-set north offset, a detection
+  bias the DPLL follows perfectly — is invisible to it. Measured against the bearing
+  scatter at precision scale (contiguous 40 ms windows on carrier-bearing stretches), it
+  runs at 1.2 to 1.4 on all three recordings and about 1.2 to 1.8 on synthetic signal —
+  slightly conservative everywhere.
 
-  The qualifier matters: ungated the recordings read 0.65, because seventy percent of the
-  ft-70d capture is receiver hiss between overs and a bearing measured on hiss is a
-  uniformly distributed number.
+  Scale matters when checking it: fading and multipath wander the bearing over seconds,
+  and at long windows that wander lands in measured scatter as apparent understatement of
+  a thing the figure never claimed. Seventy percent of the ft-70d capture is receiver
+  hiss between overs, and a bearing measured on hiss is uniformly distributed; gate on
+  carrier before comparing.
 
   It is largely blind to reflections. Noise moves the SNR this is derived from, so it sees
   noise by construction; a reflection puts the bearing between two paths while the tone
