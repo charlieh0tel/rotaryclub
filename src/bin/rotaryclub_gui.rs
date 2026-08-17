@@ -181,6 +181,12 @@ fn start_processing(
         );
     }
 
+    // Validate the whole configuration before any input is opened -- the
+    // same fix the CLI carries: the worker used to build the processor
+    // after the capture stream was already running, so a config error lit
+    // the microphone and then died into the debug log.
+    rotaryclub::RdfProcessor::new(&config, args.remove_dc, true).map(drop)?;
+
     let is_file_input = args.input.is_some();
     let default_speed = if is_file_input { 1.0_f32 } else { 0.0_f32 };
     let playback_speed = Arc::new(AtomicU32::new(default_speed.to_bits()));
@@ -350,6 +356,7 @@ fn run_processing(
         let rotation_freq = processor.rotation_frequency();
         let phase_error_variance = processor.phase_error_variance();
 
+        let mut gui_gone = false;
         for result in &tick_results {
             if send_tick_update(
                 &tx,
@@ -362,8 +369,15 @@ fn run_processing(
             )
             .is_err()
             {
+                gui_gone = true;
                 break;
             }
+        }
+        // A dead receiver means the UI is gone without running on_exit
+        // (a panic); without this the worker spins at full speed forever,
+        // still writing any dump.
+        if gui_gone {
+            break;
         }
 
         let speed = f32::from_bits(playback_speed.load(Ordering::Relaxed));
