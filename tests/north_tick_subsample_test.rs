@@ -779,3 +779,53 @@ fn test_subsample_timing_across_chunk_sizes() {
         );
     }
 }
+
+/// A missed pulse must not poison the simple tracker's period estimate.
+///
+/// The interval across a dropout spans two rotations, and feeding it into
+/// the period average unfolded ran the estimate 5 percent high and wandering
+/// in the pipeline gate's dropout scenario -- which turned the correlation
+/// reference with it and uniformized the bearings across the doppler
+/// filter's group delay, while the ticks themselves stayed good to 0.17
+/// samples. The tracker folds multi-rotation intervals before its
+/// statistics see them; this pins that.
+#[test]
+fn test_simple_period_survives_dropouts() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    let rotation_hz = 1602.564f32;
+    let true_period = sample_rate / rotation_hz;
+    let seconds = 3.0f32;
+    let n = (seconds * sample_rate) as usize;
+
+    // Band-limited pulses at every rotation epoch except each 17th.
+    let mut epochs = Vec::new();
+    let mut k = 0usize;
+    let mut t = 0.5f64 * true_period as f64;
+    while (t as usize) < n {
+        if k % 17 != 0 {
+            epochs.push(t);
+        }
+        k += 1;
+        t += true_period as f64;
+    }
+    let north =
+        rotaryclub::simulation::render_north_pulse_train(n, &epochs, 0.8 / 0.8_f32.max(0.01));
+
+    let mut tick_config = config.north_tick.clone();
+    tick_config.mode = NorthTrackingMode::Simple;
+    let mut tracker = NorthReferenceTracker::new(&tick_config, sample_rate).unwrap();
+    let mut last_period = None;
+    for chunk in north.chunks(1024) {
+        for tick in tracker.process_buffer(chunk) {
+            last_period = tick.period;
+        }
+    }
+    let period = last_period.expect("a settled period");
+    let error = (period - true_period).abs() / true_period;
+    assert!(
+        error < 0.005,
+        "simple period {period:.4} vs true {true_period:.4}: {:.2}% off under 1-in-17 dropouts",
+        error * 100.0
+    );
+}

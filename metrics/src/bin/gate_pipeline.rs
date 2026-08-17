@@ -385,6 +385,24 @@ fn run_case(
                     .push(r.north_tick.sample_index as f32 + r.north_tick.fractional_sample_offset);
                 if let Some(b) = r.bearing {
                     bearing_errors.push(angle_error_deg(b.raw_bearing, expected_bearing_deg));
+                    // Diagnostic tap for chasing distribution-shape questions
+                    // like the simple-mode low_snr_dc uniformity: per-bearing
+                    // rows on stderr, off unless asked for.
+                    if std::env::var("RC_DUMP_BEARINGS").is_ok() {
+                        eprintln!(
+                            "DUMP {} {} {} {} {} {:.4} {:.3} {:.4} {:.6} {:.2}",
+                            north_mode_name(north_mode),
+                            scenario.name,
+                            buffer_size,
+                            draw,
+                            r.north_tick.sample_index,
+                            r.north_tick.fractional_sample_offset,
+                            b.raw_bearing,
+                            r.north_tick.frequency,
+                            r.north_tick.period.unwrap_or(0.0),
+                            b.metrics.snr_db,
+                        );
+                    }
                 }
             }
         }

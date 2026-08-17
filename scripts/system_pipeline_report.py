@@ -330,24 +330,21 @@ BASELINE_LIMITS[("simple", "zero_crossing", "low_snr_dc")].update(
 # so the pulse wins over the trigger. Detection reads 0.995 to 0.997 with a
 # standard error under 0.0004, and the limits below are tight again.
 #
-# The simple tracker's bearings in this scenario are uninformative -- the
-# mean sits at the uniform circle's 90 degrees -- and the column can only
-# catch a regression that biases them. Realizing the doppler bandpass (127
-# to 1023 taps) moved the cell from 75.6, weakly coherent garbage, to 90.4,
-# pure garbage, while the dpll rows at the same doppler input read 40 to 63
-# and improved; the mechanism of that mode gap is an open question (TODO:
-# ruled out by A/B in a worktree at dafc774: the tap count reproduces it
-# alone; the tick timing, sigma 0.17 samples, and the period-jitter lever
-# arm, tested with nominal omega, do not explain it). This row's teeth are
-# the detection, false-positive, tick-error and success columns, which are
-# tight; the bearing limit sits just above uniform so only a bias can trip
-# it.
+# These sat at 97 degrees -- just above the uniform circle -- while the
+# simple tracker's period average was being poisoned by the scenario's
+# dropped pulses: the two-rotation interval across each dropout ran the
+# estimate 5 percent high, the correlation reference turned with it, and
+# the bearings uniformized across the doppler filter's group delay while
+# the ticks stayed good to 0.17 samples. With multi-rotation intervals
+# folded before the statistics see them, the simple rows read within a few
+# degrees of the dpll's, and the limits are re-derived at measured worst
+# plus three inflated standard errors plus headroom.
 for bearing_method in ("correlation", "zero_crossing"):
     BASELINE_LIMITS[("simple", bearing_method, "low_snr_dc")].update(
         {
             "bearing_success_rate": 0.99,
             "detection_rate": 0.99,
-            "mean_abs_bearing_error_deg": 97.0,
+            "mean_abs_bearing_error_deg": 70.0,
             "p95_abs_bearing_error_deg": 176.0,
         }
     )

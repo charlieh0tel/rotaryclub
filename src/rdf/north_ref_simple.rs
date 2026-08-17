@@ -266,8 +266,31 @@ impl SimpleNorthTracker {
 
             // Update rotation period estimate with exponential averaging
             if let Some(last) = self.last_tick_sample {
-                let period = (compensated_sample - last) as f32 + fractional_sample_offset
+                let mut period = (compensated_sample - last) as f32 + fractional_sample_offset
                     - self.last_tick_fraction;
+
+                // A missed pulse makes the next interval span two rotations,
+                // and feeding that into the average poisons everything built
+                // on it. Measured in the pipeline gate's low_snr_dc scenario,
+                // which drops one pulse in seventeen: the period estimate ran
+                // 5 percent high and wandering, the correlation reference
+                // turned with it, and the bearings -- computed across the
+                // doppler filter's group delay at that wrong rate -- were
+                // uniform on the circle while the ticks themselves were fine
+                // to 0.17 samples. An interval near an integer multiple of
+                // the current estimate is that many rotations, so it is
+                // folded before the statistics see it; one far from any
+                // multiple is evidence of nothing and is skipped.
+                if let Some(mean) = self.samples_per_rotation {
+                    if mean > f32::EPSILON {
+                        let rotations = (period / mean).round();
+                        if rotations >= 2.0 && (period / mean - rotations).abs() < 0.25 {
+                            period /= rotations;
+                        } else if rotations >= 2.0 {
+                            period = mean;
+                        }
+                    }
+                }
 
                 // How far this interval sits from the average, before the
                 // average absorbs it. Smoothed the same way the period is,

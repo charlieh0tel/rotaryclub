@@ -564,18 +564,26 @@ for on every sweep.
       and there is no separate bearing-path bias to find. What remains at five
       to ten seconds is about 0.2 degrees, at the correlation floor.
 
-- [ ] Why are the simple tracker's low_snr_dc bearings more uniform than
-      the DPLL's, given the identical doppler input?
+- [x] Why are the simple tracker's low_snr_dc bearings more uniform than
+      the DPLL's, given the identical doppler input? Solved: the period
+      average was poisoned by dropped pulses.
 
-      At -8 dB in-band the pipeline gate reads dpll 40-63 degrees mean
-      error and simple 90 -- pure uniform -- although the simple ticks
-      are the better ones in that scenario (0.17 samples against 0.36).
-      Bisected in a worktree at dafc774: the 127-to-1023-tap filter
-      change moves simple from 75.6 to 90.4 alone and leaves the dpll
-      rows unchanged; substituting the crystal-nominal omega for the
-      tracker's EMA frequency does not move it, so the period-jitter
-      lever arm is not the mechanism; the mode gap itself (75 against
-      39) predates the filter change. Something about how simple-mode
-      ticks combine with the bearing path at heavy noise is not
-      understood, and the pipeline limit at 97 documents rather than
-      explains it.
+      The scenario drops one pulse in seventeen, and the interval across
+      each dropout spans two rotations. The simple tracker fed those
+      double intervals straight into its period EMA, running the
+      estimate 5 percent high and wandering (measured 29.8 to 33.8
+      samples against a true 29.95, matching (16x30 + 60)/17 = 31.76
+      exactly). The correlation reference turned at that wrong rate, and
+      across the doppler filter's group-delay lever the bearing phase
+      uniformized while the ticks themselves stayed good to 0.17
+      samples. Every earlier observation follows: the longer filter
+      worsened it because the lever grew from 63 to 511 samples; the
+      nominal-omega experiment did not engage because its 0.5 percent
+      guard could not accept a frequency 5 percent off; and the mode gap
+      predated the filter because the poisoning did.
+
+      Fixed by folding an interval near an integer multiple of the
+      current estimate by that multiple before any statistic sees it.
+      simple/low_snr_dc went from 90.4 to 43.9 degrees, within a few of
+      the dpll's 41.2, and test_simple_period_survives_dropouts pins the
+      period under 1-in-17 dropouts.
