@@ -55,6 +55,49 @@ const MIN_TIMING_GATE_SAMPLES: f32 = 0.25;
 /// from, so without this a tracker whose rotation estimate has gone stale
 /// would reject every real pulse forever.
 const MAX_CONSECUTIVE_REJECTIONS: usize = 8;
+/// Detection intervals collected before the acquisition seed may fire.
+const SEED_INTERVALS: usize = 8;
+/// How many of them must agree with their median, and how closely, before
+/// the median is believed. Impulse interference and dropouts produce
+/// inconsistent intervals; a real rotation produces intervals identical to
+/// within the sample grid -- and the grid is the point: detection times are
+/// integers, so a fractional period alternates between adjacent counts, and
+/// a purely relative tolerance finer than one sample rejected half of a
+/// perfectly clean train (at 1520 Hz, period 31.6, the 31s sit 3.1 percent
+/// from a median of 32 and the seed never fired). The tolerance is one and
+/// a half samples or two percent, whichever is larger.
+const SEED_AGREEING: usize = 6;
+/// Wide on purpose: this guard exists to exclude what is not a rotation
+/// interval at all -- a dropout-doubled interval at twice the median, an
+/// impulse splitting one -- and must NOT trim the tails of honest jitter.
+/// A tighter trim was tried twice: at 1.5 samples it cut half of a clean
+/// train's quantization flicker so the seed never fired, and around a
+/// flapping median it cut jitter asymmetrically, biasing the trimmed mean
+/// by up to 0.7 samples and ping-ponging the oscillator +-2 percent.
+const SEED_TOLERANCE: f32 = 0.25;
+/// Above this disagreement the seed jumps on a single measurement: the
+/// stuck-forever defect lives out here (a band-edge start is 5 to 9
+/// percent off), and no plausible interval noise reaches it.
+const SEED_FAR_STEP: f32 = 0.04;
+/// Below SEED_FAR_STEP a jump additionally requires either that the
+/// timing gate has never activated (cold start: there is no tracking to
+/// protect) or the loop's own evidence of breakdown -- a rejection rate of
+/// twelve in the last sixteen gated detections. Amplitude-only triggers in
+/// the marginal zone were tried twice and failed twice: a single-shot
+/// threshold fired on interval noise and threw a converging loop
+/// sideways, and a smoothed one raced the loop's own pull and lost. A
+/// consecutive-rejection streak was tried too, and per-pulse jitter
+/// resets a streak indefinitely; a rate does not.
+const SEED_MIN_STEP: f32 = 0.005;
+const SEED_REJECT_WINDOW_ONES: u32 = 12;
+/// Detections a jump is followed by before another jump may fire. A seed
+/// from eight jittery intervals scatters by a couple of percent, and
+/// re-jumping on that noise cleared the lock statistics faster than the
+/// loop could ever satisfy them -- each jump honest on its own, the
+/// sequence a livelock. One jump lands inside the loop's pull-in from
+/// anywhere in the band; the cooldown is long enough for the loop to
+/// demonstrate lock, which then disables seeding entirely.
+const SEED_COOLDOWN_TICKS: u32 = 128;
 /// Timing error, in samples, that coasting is allowed to accumulate before
 /// the tracker stops predicting.
 ///
@@ -213,6 +256,15 @@ pub struct DpllNorthTracker {
     /// past 2^24 an f32 absolute time cannot represent a sample.
     last_emitted: Option<(usize, f32)>,
     emitted_intervals_seen: u32,
+    /// Recent detection intervals while unlocked, for acquisition seeding.
+    /// See `try_seed_from_intervals`.
+    seed_intervals: Vec<f32>,
+    seed_last_detection: Option<usize>,
+    seed_cooldown: u32,
+    /// One marginal-zone jump is armed when the gate's recent rejection
+    /// rate says tracking broke. Bit per gated detection, 1 = rejected.
+    seed_armed: bool,
+    gate_reject_history: u16,
     lock_quality_weights: LockQualityWeights,
 
     // Pre-allocated buffer for filtering
@@ -244,6 +296,129 @@ impl DpllNorthTracker {
     #[inline]
     fn wrap_phase_error(phase_error: f32) -> f32 {
         (phase_error + PI).rem_euclid(2.0 * PI) - PI
+    }
+
+    /// Acquisition seeding: measure the rotation instead of sweeping onto it.
+    ///
+    /// The loop's measured pull-in at the shipped bandwidth is about +-50 Hz,
+    /// against a configured band of +-125: started far enough from the true
+    /// rate it sat at the wrong frequency forever, silently, reporting a
+    /// steady oscillator the whole time. But the rate needs no search -- the
+    /// interval between detections is the period, the same estimator the
+    /// simple tracker runs, and a handful of them seed the oscillator to
+    /// within a couple of Hz on a clean channel and well inside pull-in on a
+    /// jittered one. The alternative, widening the loop until it can sweep
+    /// the band, was measured and rejected: it forks every locked-loop
+    /// constant into wide and narrow regimes and hangs re-narrowing on a
+    /// trustworthy lock detector.
+    ///
+    /// Only runs while unlocked, so the locked loop is never touched. The
+    /// guard is consistency, not plausibility: at least SEED_AGREEING of
+    /// SEED_INTERVALS intervals within SEED_TOLERANCE of their median.
+    /// Impulse trains and dropout-doubled intervals fail that test; a real
+    /// rotation cannot.
+    fn try_seed_from_intervals(&mut self, compensated_sample: usize, gate_inactive: bool) {
+        if let Some(last) = self.seed_last_detection {
+            let interval = compensated_sample.saturating_sub(last) as f32;
+            if interval > 0.0 {
+                if self.seed_intervals.len() == SEED_INTERVALS {
+                    self.seed_intervals.remove(0);
+                }
+                self.seed_intervals.push(interval);
+            }
+        }
+        self.seed_last_detection = Some(compensated_sample);
+
+        if std::env::var("RC_SEED_DEBUG").is_ok() {
+            eprintln!(
+                "SEED n={} last={:?} intervals={:?}",
+                self.seed_intervals.len(),
+                self.seed_last_detection,
+                self.seed_intervals
+            );
+        }
+        if self.seed_cooldown > 0 {
+            self.seed_cooldown -= 1;
+            return;
+        }
+        if self.seed_intervals.len() < SEED_INTERVALS {
+            return;
+        }
+        let mut sorted = self.seed_intervals.clone();
+        sorted.sort_by(f32::total_cmp);
+        let median = sorted[sorted.len() / 2];
+        if median <= 1.0 {
+            return;
+        }
+        // Consistency is judged against the median, but the seed itself is
+        // the mean of the agreeing intervals: detection times are integer
+        // samples, so at a period like 31.6 the intervals alternate 31 and
+        // 32 and the median carries half a sample of bias -- 25 Hz here --
+        // while the mean averages the quantization away to a quarter
+        // percent.
+        let tolerance = median * SEED_TOLERANCE;
+        let agreeing: Vec<f32> = self
+            .seed_intervals
+            .iter()
+            .copied()
+            .filter(|&i| (i - median).abs() < tolerance)
+            .collect();
+        if agreeing.len() < SEED_AGREEING {
+            return;
+        }
+        let mean = agreeing.iter().sum::<f32>() / agreeing.len() as f32;
+        let n = agreeing.len() as f32;
+        let variance = agreeing
+            .iter()
+            .map(|i| (i - mean) * (i - mean))
+            .sum::<f32>()
+            / n;
+        // The seed must not jump on its own measurement noise: the
+        // disagreement has to exceed three standard errors of the seed
+        // itself, which self-scales with whatever jitter the channel has.
+        let noise_floor = 3.0 * (variance / n).sqrt() / mean;
+        let seed_omega = (2.0 * PI / mean).clamp(self.min_omega, self.max_omega);
+        let delta = ((seed_omega - self.frequency) / self.frequency).abs();
+        if delta < SEED_MIN_STEP {
+            // Nothing to correct; the loop is closer than the seed can aim.
+            self.seed_armed = false;
+            return;
+        }
+        // Three grounds to jump, in decreasing strength of evidence:
+        // far (no plausible noise reaches 4 percent); armed (the gate's own
+        // rejection rate already proved the loop disagrees with the signal,
+        // so the seed's noise floor does not additionally bind); cold start
+        // (nothing demonstrated yet to protect -- but here the disagreement
+        // must clear the seed's own 3-sigma noise floor, or startup jitter
+        // throws a converging loop sideways).
+        let far = delta > SEED_FAR_STEP;
+        let cold = gate_inactive && delta > noise_floor;
+        if !far && !self.seed_armed && !cold {
+            return;
+        }
+        self.seed_armed = false;
+        self.gate_reject_history = 0;
+        if std::env::var("RC_SEED_DEBUG").is_ok() {
+            eprintln!(
+                "JUMP at {} to {:.2} Hz (delta {:.4}, floor {:.4}, gate_inactive {}, mean {:.3})",
+                compensated_sample,
+                seed_omega * 48000.0 / (2.0 * PI),
+                delta,
+                SEED_MIN_STEP.max(noise_floor),
+                gate_inactive,
+                mean
+            );
+        }
+        // Jump: frequency to the measurement, phase to zero at this
+        // detection, and the lock statistics start over -- they described an
+        // oscillator that no longer exists.
+        self.frequency = seed_omega;
+        self.phase = 0.0;
+        self.phase_error_stats.clear();
+        self.freq_stats.clear();
+        self.last_measured_sample = None;
+        self.seed_intervals.clear();
+        self.seed_cooldown = SEED_COOLDOWN_TICKS;
     }
 
     /// Whether the oscillator has seen enough ticks for its phase to be a
@@ -452,6 +627,11 @@ impl DpllNorthTracker {
             emitted_interval_variance: None,
             last_emitted: None,
             emitted_intervals_seen: 0,
+            seed_intervals: Vec::with_capacity(SEED_INTERVALS),
+            seed_last_detection: None,
+            seed_cooldown: 0,
+            seed_armed: false,
+            gate_reject_history: 0,
             freq_stats: RollingWindowStats::new(LOCK_STATS_WINDOW_TICKS),
             lock_quality_weights: config.lock_quality_weights,
             filter_buffer: Vec::new(),
@@ -865,6 +1045,22 @@ impl DpllNorthTracker {
                 }
             }
 
+            // Acquisition seeding runs only while unlocked; once the loop
+            // demonstrates lock the seed state is dropped so a later unlock
+            // starts a fresh measurement rather than trusting stale
+            // intervals.
+            if self.locked() {
+                if std::env::var("RC_SEED_DEBUG").is_ok() {
+                    eprintln!("SEED skipped: locked()");
+                }
+                self.seed_intervals.clear();
+                self.seed_last_detection = None;
+                self.seed_armed = false;
+            } else {
+                let gate_inactive = self.timing_gate_samples(period_estimate).is_none();
+                self.try_seed_from_intervals(compensated_sample, gate_inactive);
+            }
+
             // Phase error: how far are we from expected zero phase?
             // The oscillator was advanced to the whole-sample peak index, so
             // the estimator's sub-sample offset is added here rather than
@@ -892,13 +1088,23 @@ impl DpllNorthTracker {
                 if disagreement.abs() > gate {
                     self.consecutive_rejections += 1;
                     self.last_rejection_sample = Some(compensated_sample);
+                    // Rate, not streak: per-pulse jitter resets a streak
+                    // indefinitely while the loop is genuinely broken.
+                    self.gate_reject_history = (self.gate_reject_history << 1) | 1;
+                    if self.gate_reject_history.count_ones() >= SEED_REJECT_WINDOW_ONES {
+                        self.seed_armed = true;
+                    }
                     if self.consecutive_rejections < MAX_CONSECUTIVE_REJECTIONS {
                         last_sample_idx = peak_idx;
                         continue;
                     }
                     // Everything is being rejected, so the rotation estimate
                     // is what is wrong. Drop the history the gate is built
-                    // from and reacquire from this pulse.
+                    // from and reacquire from this pulse -- and arm one
+                    // marginal-zone acquisition seed: this event is the
+                    // loop's own declaration that tracking broke, the
+                    // discrete evidence a noise threshold cannot be.
+                    self.seed_armed = true;
                     self.phase_error_stats.clear();
                     self.freq_stats.clear();
                     self.last_measured_sample = None;
@@ -906,6 +1112,7 @@ impl DpllNorthTracker {
             }
             self.consecutive_rejections = 0;
             self.last_rejection_sample = None;
+            self.gate_reject_history <<= 1;
 
             // The gate believes this one, so it is evidence about the pulse
             // level -- but only while the oscillator is locked. Above about a

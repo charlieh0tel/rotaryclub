@@ -98,6 +98,15 @@ max_coast_ms: 1000.0, gate_sigma: 3.0
 // DPLL tracking band: 1400-1650 Hz. min_interval_ms must stay shorter
 // than the period at frequency_max_hz; conflicting values are a config
 // error (0.6 ms supports up to ~1666 Hz).
+//
+// The loop's raw pull-in at the shipped bandwidth is about +-50 Hz; the
+// rest of the band is reached by acquisition seeding, which measures the
+// rotation from the detection intervals and jumps the oscillator --
+// 0.17 s to lock from anywhere in the band, measured, where a band-edge
+// start used to sit at the wrong rate forever, silently. Seeding runs
+// only while unlocked and jumps only on strong evidence: disagreement
+// past 4 percent, the timing gate's own rejection rate, or a cold start
+// clearing the seed's self-measured noise floor.
 
 // Output
 smoothing_window: 5, output_rate_hz: 10.0

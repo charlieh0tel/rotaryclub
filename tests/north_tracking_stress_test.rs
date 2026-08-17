@@ -451,8 +451,14 @@ fn test_north_tracking_jitter_sweep() {
 
 #[test]
 fn test_north_tracking_frequency_step() {
-    let mut config = RdfConfig::default();
-    config.north_tick.dpll.natural_frequency_hz = 25.0;
+    // At the SHIPPED bandwidth, deliberately. An earlier version ran the
+    // loop at 25 Hz and asserted with 60-to-120 Hz tolerances against a
+    // 32 Hz step -- bands wider than the step itself, so a tracker that
+    // ignored the step entirely passed every assertion. The step is now
+    // followed by the acquisition seed (rejections drain the gate, the
+    // seed measures the new rate from the intervals and jumps), which is
+    // the shipped mechanism, and the tolerances are smaller than the step.
+    let config = RdfConfig::default();
     let sample_rate = config.audio.sample_rate as f32;
     let duration_secs = 1.4;
     let start_time_secs = 0.05;
@@ -494,38 +500,81 @@ fn test_north_tracking_frequency_step() {
         step_time_secs,
         StepResponseEvalConfig {
             pre_window: (0.25, 0.65),
-            post_window: (0.95, 1.35),
+            // Starts 0.4 s after the step: the settle assertion below owns
+            // the transient, and this mean asserts where the loop LANDS. A
+            // window that includes the approach reads a few Hz shy of the
+            // target and says nothing the settle time does not.
+            post_window: (1.1, 1.35),
             target_post_hz: f2_hz,
-            settle_band_hz: 60.0,
+            settle_band_hz: 2.0,
             settle_consecutive_ticks: 10,
         },
     );
 
     assert!(
-        (step_metrics.pre_step_mean_hz - f1_hz).abs() < 70.0,
+        (step_metrics.pre_step_mean_hz - f1_hz).abs() < 2.0,
         "Pre-step frequency {:.1}Hz too far from {:.1}Hz",
         step_metrics.pre_step_mean_hz,
         f1_hz
     );
     assert!(
-        (step_metrics.post_step_mean_hz - f2_hz).abs() < 90.0,
-        "Post-step frequency {:.1}Hz too far from {:.1}Hz",
+        (step_metrics.post_step_mean_hz - f2_hz).abs() < 2.0,
+        "Post-step frequency {:.1}Hz too far from {:.1}Hz -- a tracker that \
+         ignored the step would read {:.1}",
         step_metrics.post_step_mean_hz,
-        f2_hz
-    );
-    assert!(
-        step_metrics.max_abs_error_after_step_hz < 120.0,
-        "Step overshoot/error {:.1}Hz too high",
-        step_metrics.max_abs_error_after_step_hz
+        f2_hz,
+        f1_hz
     );
     let settle_time = step_metrics
         .settle_time_secs
         .expect("Frequency step should settle within test duration");
     assert!(
-        settle_time < 0.35,
-        "Frequency step settle time {:.3}s exceeds 0.35s",
+        settle_time < 0.5,
+        "Frequency step settle time {:.3}s exceeds 0.5s",
         settle_time
     );
+}
+
+/// The loop must acquire from anywhere in its configured band, at the
+/// shipped bandwidth. Its raw pull-in is about +-50 Hz; beyond that it used
+/// to sit at the wrong rate forever, silently -- 60 seconds at 1450 Hz
+/// without locking, while reporting a rock-steady oscillator. The
+/// acquisition seed measures the rate from the detection intervals and
+/// jumps, making pull-in offset-independent: 0.17 s from -150 Hz, measured.
+#[test]
+fn test_dpll_acquires_across_the_configured_band() {
+    let config = RdfConfig::default();
+    let sample_rate = config.audio.sample_rate as f32;
+    for true_hz in [1450.0f32, 1520.0, 1640.0] {
+        let duration_secs = 1.0f32;
+        let num_samples = (duration_secs * sample_rate) as usize;
+        let period = (sample_rate / true_hz) as f64;
+        let epochs: Vec<f64> = (0..)
+            .map(|k| (0.5 + k as f64) * period)
+            .take_while(|&t| (t as usize) < num_samples)
+            .collect();
+        let north = rotaryclub::simulation::render_north_pulse_train(num_samples, &epochs, 0.8);
+
+        let mut tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate).unwrap();
+        let mut freq_hz = 0.0f32;
+        let mut locked_at: Option<f32> = None;
+        let mut samples = 0usize;
+        for chunk in north.chunks(1024) {
+            for tick in tracker.process_buffer(chunk) {
+                freq_hz = tick.frequency * sample_rate / (2.0 * std::f32::consts::PI);
+                if (freq_hz - true_hz).abs() < 1.0 && locked_at.is_none() {
+                    locked_at = Some(samples as f32 / sample_rate);
+                }
+            }
+            samples += chunk.len();
+        }
+        assert!(
+            (freq_hz - true_hz).abs() < 1.0,
+            "never acquired {true_hz} Hz: ended at {freq_hz:.1}"
+        );
+        let t = locked_at.unwrap();
+        assert!(t < 0.5, "acquired {true_hz} Hz only after {t:.2}s");
+    }
 }
 
 #[test]

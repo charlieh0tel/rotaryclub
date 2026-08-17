@@ -62,20 +62,23 @@ METRICS = [
 # convolution over the 127 taps the old budgets were set for, bought
 # deliberately: realizing the filter took low_snr_dc's mean bearing error
 # from 6.0 to 1.0 degrees. Measured worst after the change is 0.92 us per
-# sample -- 4.4 percent of the 20.8 us real-time budget at 48 kHz.
+# sample -- 4.4 percent of the 20.8 us real-time budget at 48 kHz -- but the
+# same binary has read anywhere from 0.9 to 2.5 across sessions with host
+# load, so the limits carry that variance rather than one quiet reading:
+# they exist to catch an algorithmic blowup, not to referee the scheduler.
 METHOD_DEFAULTS: Dict[str, Dict[str, float]] = {
     "correlation": {
         "success_rate": 1.0,
-        "mean_us_per_sample": 1.40,
-        "p95_us_per_sample": 2.00,
+        "mean_us_per_sample": 2.60,
+        "p95_us_per_sample": 3.60,
         "mean_abs_bearing_error_deg": 7.0,
         "p95_abs_bearing_error_deg": 9.0,
         "max_abs_bearing_error_deg": 10.5,
     },
     "zero_crossing": {
         "success_rate": 1.0,
-        "mean_us_per_sample": 1.40,
-        "p95_us_per_sample": 2.00,
+        "mean_us_per_sample": 2.60,
+        "p95_us_per_sample": 3.60,
         "mean_abs_bearing_error_deg": 7.0,
         "p95_abs_bearing_error_deg": 8.0,
         "max_abs_bearing_error_deg": 10.0,
