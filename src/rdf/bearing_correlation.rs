@@ -1,12 +1,14 @@
-use crate::config::{AgcConfig, BearingMethod, ConfidenceConfig, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::power_to_db;
 use std::f32::consts::PI;
 
-use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg, resultant_length_from_snr};
+use super::bearing::{
+    MIN_POWER_THRESHOLD, MIN_SIGNAL_STRENGTH_POWER, bearing_uncertainty_deg,
+    resultant_length_from_snr,
+};
 /// Below this the buffer is too short to say anything at all.
 const MIN_BUFFER_SAMPLES: usize = 2;
-const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
 // Below this normalized correlation magnitude there is no Doppler tone to
 // measure (a dead channel yields i = q = 0 and atan2(0, 0) would report a
 // confident 0 degrees); samples are normalized to +/-1.0, so real noise
@@ -134,10 +136,7 @@ impl CorrelationBearingCalculator {
             raw_bearing,
             confidence: metrics.score(self.base.confidence()),
             signal_present: metrics.signal_strength
-                >= self
-                    .base
-                    .confidence()
-                    .resolved_min_signal_strength(BearingMethod::Correlation),
+                >= self.base.confidence().resolved_min_signal_strength(),
             metrics,
         })
     }

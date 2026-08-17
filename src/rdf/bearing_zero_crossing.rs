@@ -1,9 +1,12 @@
-use crate::config::{AgcConfig, BearingMethod, ConfidenceConfig, DopplerConfig};
+use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
 use crate::error::Result;
 use crate::signal_processing::{ZeroCrossingDetector, power_to_db};
 use std::f32::consts::PI;
 
-use super::bearing::{MIN_POWER_THRESHOLD, bearing_uncertainty_deg, resultant_length_from_snr};
+use super::bearing::{
+    MIN_POWER_THRESHOLD, MIN_SIGNAL_STRENGTH_POWER, bearing_uncertainty_deg,
+    resultant_length_from_snr,
+};
 
 use super::bearing::phase_to_bearing;
 use super::bearing_calculator_base::BearingCalculatorBase;
@@ -100,10 +103,7 @@ impl ZeroCrossingBearingCalculator {
             raw_bearing,
             confidence: metrics.score(self.base.confidence()),
             signal_present: metrics.signal_strength
-                >= self
-                    .base
-                    .confidence()
-                    .resolved_min_signal_strength(BearingMethod::ZeroCrossing),
+                >= self.base.confidence().resolved_min_signal_strength(),
             metrics,
         })
     }
@@ -119,35 +119,25 @@ impl ZeroCrossingBearingCalculator {
             return ConfidenceMetrics::default();
         }
 
-        // Crossing density against the density the rotation tone implies,
-        // scored by how close it is in *either* direction. This used to clamp
-        // the ratio at 1, which discarded the only direction that
-        // discriminates: broadband noise crosses zero far more often than a
-        // 1602 Hz tone, so hiss ran a ratio of 4.3 to 5.8 and the clamp folded
-        // it onto the same 1.000 that a perfect tone reads. Measured, the two
-        // populations do not overlap at all once the excess is kept -- real
-        // signal spans 0.99 to 1.29 across every channel condition in
-        // METRICS.md.
-        //
-        // Below 1 this is exactly the old fraction-of-expected-crossings, so
-        // nothing that already worked changes.
-        let expected_crossings = self.base.work_buffer.len() as f32 / samples_per_rotation;
-        let signal_strength = if expected_crossings > 0.0 {
-            let ratio = crossings.len() as f32 / expected_crossings;
-            if ratio > 0.0 {
-                ratio.min(ratio.recip()).clamp(0.0, 1.0)
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
+        // Signal strength was crossing density against the density the
+        // rotation tone implies. That discriminated only while the 127-tap
+        // bandpass leaked broadband noise (hiss ran 4.3 to 5.8 times the
+        // expected crossings); the realized 1023-tap filter narrows hiss
+        // into the passband, where its crossing density matches the tone's
+        // -- measured 0.94 to 0.97 against the tone's 0.94 to 1.00 at every
+        // buffer size, no floor between them. The fraction of power that
+        // projects onto the tick-locked reference separates instead, 0.000
+        // on hiss against 0.96 or better on a tone under broadband noise at
+        // twice its amplitude, so signal strength is now the same quantity
+        // the correlation method reports and shares its floor. It is
+        // computed in the SNR block below.
 
         // --- SNR Estimation via projection onto ideal Doppler sine ---
         // Reconstruct an ideal sine wave at the known bearing phase and north tick
         // frequency, then measure how much of the actual signal correlates with it.
         let omega = north_tick.frequency;
         let mut tone_power_for_looks = 0.0f32;
+        let mut signal_strength = 0.0f32;
         let snr_db = if omega > 0.0 {
             let mut projection_sum = 0.0f32;
             let mut power_sum = 0.0f32;
@@ -168,6 +158,13 @@ impl ZeroCrossingBearingCalculator {
             // Correlated power = 2 * projection² reconstructs the full signal power.
             let correlated_power = (2.0 * projection * projection).max(0.0).min(signal_power);
             tone_power_for_looks = correlated_power;
+            // The same amplitude fraction the correlation method reports as
+            // its signal strength, behind the same absolute power gate --
+            // which is the part that actually separates hiss from tone;
+            // see MIN_SIGNAL_STRENGTH_POWER.
+            if signal_power > MIN_SIGNAL_STRENGTH_POWER {
+                signal_strength = (correlated_power / signal_power).sqrt().clamp(0.0, 1.0);
+            }
             let noise_power = (signal_power - correlated_power).max(MIN_POWER_THRESHOLD);
             power_to_db(correlated_power / noise_power)
         } else {

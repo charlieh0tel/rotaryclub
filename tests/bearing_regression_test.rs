@@ -1367,10 +1367,10 @@ fn test_confidence_config_guardrails() {
 
 #[test]
 fn test_signal_strength_and_signal_present_separate_hiss_from_tone() {
-    // Correlation separates cleanly: on hiss almost no power correlates
-    // with the reference, on a tone almost all of it does. Zero-crossing is
-    // asserted on the tone side only -- see the ignored test below for why
-    // its hiss side cannot currently be locked in.
+    // Both methods report the projection fraction now; the tone side is
+    // asserted for both here, and the hiss side for correlation. The
+    // zero-crossing hiss side has its own test below with the history of
+    // why it changed.
     let sample_rate = 48_000.0;
     let rotation = 1602.564;
     let len = 8192;
@@ -1410,19 +1410,16 @@ fn test_signal_strength_and_signal_present_separate_hiss_from_tone() {
     }
 }
 
-// The review measured the zero-crossing separation at 0.203 (hiss) against
-// 0.991 (tone) -- through the 127-tap bandpass, whose -10.6 dB stopband
-// leaked enough broadband noise to keep the crossing density high. The
-// realized 1023-tap filter (-42 dB) turns hiss into narrowband noise
-// centered in the passband, whose crossing density matches the tone's:
-// measured 0.910 on pure hiss, far above MIN_SIGNAL_STRENGTH_ZERO_CROSSING.
-// The density metric's discriminating power came from the old filter's
-// defect, and the floor's documentation in config.rs still describes the
-// pre-fix populations. Locking the current behavior in would cement a
-// signal_present verdict of true on open-squelch hiss; this stays ignored
-// until the metric is redesigned or the floor re-derived.
+// The review measured the old crossing-density separation at 0.203 (hiss)
+// against 0.991 (tone) -- through the 127-tap bandpass, whose -10.6 dB
+// stopband leaked enough broadband noise to keep hiss's crossing density
+// high. The realized 1023-tap filter turned hiss into narrowband noise
+// whose crossing density matched the tone's (0.910 measured), so density
+// was replaced by the tick-locked projection fraction both methods now
+// report, behind a shared absolute in-band power gate. Hiss measures 0.000
+// against 0.95 or better for a tone under broadband noise at twice its
+// amplitude, across buffer sizes 128 to 8192 and twelve seeds.
 #[test]
-#[ignore = "zc crossing-density no longer separates hiss after the 1023-tap filter fix"]
 fn test_zero_crossing_signal_strength_separates_hiss() {
     let sample_rate = 48_000.0;
     let rotation = 1602.564;
@@ -1443,39 +1440,24 @@ fn test_zero_crossing_signal_strength_separates_hiss() {
     if let Some(on_hiss) = calc.process_buffer(&hiss, &tick) {
         assert!(
             !on_hiss.signal_present,
-            "zero_crossing: hiss read signal_strength {:.3}, above its floor",
+            "zero_crossing: hiss read signal_strength {:.3}, above the floor",
             on_hiss.metrics.signal_strength
         );
     }
 }
 
 #[test]
-fn test_resolved_min_signal_strength_per_method_and_override() {
-    use rotaryclub::config::{
-        BearingMethod, MIN_SIGNAL_STRENGTH_CORRELATION, MIN_SIGNAL_STRENGTH_ZERO_CROSSING,
-    };
+fn test_resolved_min_signal_strength_default_and_override() {
+    use rotaryclub::config::MIN_SIGNAL_STRENGTH;
 
+    // Both methods report the same projection-fraction quantity, so one
+    // default floor serves them; an explicit setting overrides it.
     let defaults = ConfidenceConfig::default();
-    assert_eq!(
-        defaults.resolved_min_signal_strength(BearingMethod::Correlation),
-        MIN_SIGNAL_STRENGTH_CORRELATION
-    );
-    assert_eq!(
-        defaults.resolved_min_signal_strength(BearingMethod::ZeroCrossing),
-        MIN_SIGNAL_STRENGTH_ZERO_CROSSING
-    );
-    // The two floors must differ; a shared value is exactly the bug the
-    // per-method resolution exists to prevent.
-    assert_ne!(
-        MIN_SIGNAL_STRENGTH_CORRELATION,
-        MIN_SIGNAL_STRENGTH_ZERO_CROSSING
-    );
+    assert_eq!(defaults.resolved_min_signal_strength(), MIN_SIGNAL_STRENGTH);
 
     let overridden = ConfidenceConfig {
         min_signal_strength: Some(0.33),
         ..ConfidenceConfig::default()
     };
-    for method in [BearingMethod::Correlation, BearingMethod::ZeroCrossing] {
-        assert_eq!(overridden.resolved_min_signal_strength(method), 0.33);
-    }
+    assert_eq!(overridden.resolved_min_signal_strength(), 0.33);
 }

@@ -6,18 +6,27 @@
 
 ## Review long tail
 
-- [ ] Zero-crossing `signal_strength` no longer separates hiss from tone.
+- [x] Zero-crossing `signal_strength` no longer separated hiss from tone.
       Measured 0.910 on pure hiss against the documented 0.28 worst case: the
       old 0.203/0.991 separation was an artifact of the 127-tap filter's
       -10.6 dB stopband leaking broadband noise, and the realized 1023-tap
-      filter turns hiss into narrowband noise whose crossing density matches
-      the tone's. In zero-crossing mode `signal_present` now reads true on
-      open squelch. Crossing density cannot discriminate behind an honest
-      bandpass; a redesign (crossing-time regularity, or the correlation
-      figure) wants deciding, not just a re-derived floor. The ignored test
-      `test_zero_crossing_signal_strength_separates_hiss` pins the defect,
-      and the population figures documented at
-      `MIN_SIGNAL_STRENGTH_ZERO_CROSSING` are stale until then.
+      filter turned hiss into narrowband noise whose crossing density matched
+      the tone's, so `signal_present` read true on open squelch. Crossing
+      density cannot discriminate behind an honest bandpass.
+
+      Fixed by making zero-crossing report the same quantity as correlation:
+      the fraction of in-band amplitude projecting onto the tick-locked
+      reference, behind the shared absolute in-band power gate (which is the
+      part that actually separates -- the bandpass strips ~96 percent of
+      broadband power, so hiss fails the gate and reads 0.000, while a few
+      independent noise phasors would otherwise project a large fraction of
+      a small power at short buffers). Measured over twelve seeds at buffers
+      128 to 8192: hiss 0.000 everywhere, tone under broadband noise at
+      twice its amplitude 0.95 or better. The per-method floors collapsed to
+      one shared `MIN_SIGNAL_STRENGTH`. A crossing-phase resultant was also
+      measured (separates 512 up, thin at 128: 1.00 vs 0.80) and set aside;
+      its sums already exist in process_tick_impl if the multipath item ever
+      wants a measured coherence.
 
 - [ ] Two sources of truth for the rotation frequency. The bearing
       calculators take `doppler_config.expected_freq` at construction (noise

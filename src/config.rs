@@ -710,7 +710,7 @@ pub struct ConfidenceConfig {
     /// Signal strength at or above which the bearing is reported as having a
     /// signal behind it.
     ///
-    /// `None` resolves per method; see `resolved_min_signal_strength`.
+    /// `None` resolves to `MIN_SIGNAL_STRENGTH`.
     ///
     /// This decides a reported verdict, not whether anything is emitted. The
     /// bearing, its uncertainty and every metric are reported either way, so
@@ -722,48 +722,34 @@ pub struct ConfidenceConfig {
     pub min_signal_strength: Option<f32>,
 }
 
-/// Signal strength separating hiss from signal, for the correlation method.
+/// Signal strength separating hiss from signal.
 ///
-/// Correlation reports the fraction of power that correlated with its
-/// reference. On squelch-open hiss that is 0.000 at the 99th percentile,
+/// Both methods report the same quantity: the fraction of in-band amplitude
+/// that projects onto the tick-locked reference, behind an absolute in-band
+/// power gate. On squelch-open hiss that reads 0.000 -- the bandpass strips
+/// about 96 percent of broadband power, so hiss fails the power gate --
 /// against 0.192 at the 5th percentile of the worst channel the recordings
 /// show, so a low floor separates them. It is low on purpose for a second
 /// reason: the figure also falls when the reference is merely wrong -- a
 /// rotation rate mismatch drops it well below a half while the channel is
 /// perfectly alive -- and calling that "no signal" would hide the mismatch
 /// rather than report it.
-pub const MIN_SIGNAL_STRENGTH_CORRELATION: f32 = 0.05;
-
-/// Signal strength separating hiss from signal, for the zero-crossing method.
 ///
-/// Much higher because the metric is a different quantity: how close the
-/// crossing density is to the density the rotation tone implies. Noise
-/// crosses zero several times too often, which reads as far from the expected
-/// density, so hiss lands at 0.28 at worst against 0.743 at the weakest real
-/// signal measured. This sits in the gap, a factor of 1.8 above the one and
-/// 1.5 below the other.
-///
-/// Those populations were measured through the 127-tap bandpass and do not
-/// survive the realized 1023-tap filter, which narrows hiss into the
-/// passband where its crossing density matches the tone's (measured 0.910).
-/// See the TODO entry on zero-crossing signal_strength; until it is
-/// resolved this floor separates nothing in practice.
-pub const MIN_SIGNAL_STRENGTH_ZERO_CROSSING: f32 = 0.5;
+/// Zero-crossing used to report crossing density instead, with its own much
+/// higher floor. Density discriminated only through the leaky 127-tap
+/// bandpass; behind the realized 1023-tap filter, hiss narrows into the
+/// passband and matches the tone's crossing density (measured 0.94 to 0.97
+/// against 0.94 to 1.00, no floor between them), so the method now reports
+/// the projection fraction like correlation does.
+pub const MIN_SIGNAL_STRENGTH: f32 = 0.05;
 
 impl ConfidenceConfig {
-    /// The signal strength separating hiss from signal, for a given method.
+    /// The signal strength separating hiss from signal.
     ///
-    /// Resolved per method rather than fixed, because the two methods report
-    /// different quantities under the same name and their populations sit on
-    /// different scales. No single value works: the zero-crossing floor would
-    /// discard most of the weakest real signal in correlation mode, and the
-    /// correlation floor sits below where zero-crossing reads pure hiss.
-    /// Setting the field explicitly overrides both.
-    pub fn resolved_min_signal_strength(&self, method: BearingMethod) -> f32 {
-        self.min_signal_strength.unwrap_or(match method {
-            BearingMethod::Correlation => MIN_SIGNAL_STRENGTH_CORRELATION,
-            BearingMethod::ZeroCrossing => MIN_SIGNAL_STRENGTH_ZERO_CROSSING,
-        })
+    /// Both methods report the same quantity, so one default floor serves;
+    /// setting the field explicitly overrides it.
+    pub fn resolved_min_signal_strength(&self) -> f32 {
+        self.min_signal_strength.unwrap_or(MIN_SIGNAL_STRENGTH)
     }
 }
 

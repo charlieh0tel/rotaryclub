@@ -1,5 +1,17 @@
 pub use crate::config::ConfidenceConfig;
 pub use crate::constants::MIN_POWER_THRESHOLD;
+
+/// In-band signal power below which signal strength reads zero.
+///
+/// The work buffer is AGC'd toward an RMS of 0.3 before the bandpass, so a
+/// channel whose in-band content is real carries power well above this;
+/// broadband hiss loses about 96 percent of its power to the filter and
+/// lands under it. This absolute gate is what separates hiss from tone for
+/// the strength figure -- the projection fraction alone cannot at small
+/// buffers, where a few independent noise phasors project a large fraction
+/// of a small power. Shared by both bearing methods, which report the same
+/// quantity under the same name.
+pub(super) const MIN_SIGNAL_STRENGTH_POWER: f32 = 0.01;
 use crate::error::{RdfError, Result};
 
 use super::NorthTick;

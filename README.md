@@ -115,7 +115,10 @@ gates cover, and how to add a metric without fooling yourself.
   23 to 58 percent on a clean channel, and rank correlation against actual error falls from
   0.40 to 0.13. See `probe_confidence_multipath`.
 - `snr_db`: Estimated in-band Doppler SNR (dB), computed from correlated signal power versus residual power.
-- `signal_strength`: Carrier-presence metric in `[0, 1]` (correlation-energy ratio for correlation method; observed/expected crossing density for zero-crossing method).
+- `signal_strength`: Carrier-presence metric in `[0, 1]`: the fraction of in-band amplitude
+  that projects onto the tick-locked reference, behind an absolute in-band power gate. Both
+  methods report the same quantity. (Zero-crossing used to report crossing density, which
+  only discriminated through the old leaky bandpass.)
 - `resultant_length`: Mean resultant length of the Doppler phase, `[0, 1]` — 1 when the
   looks all point the same way, 0 when they are scattered. KR6DD averages the per-zero-crossing
   phase vectors directly; here it is derived from the estimated SNR instead, as
