@@ -204,7 +204,10 @@ impl BearingCalculator for ZeroCrossingBearingCalculator {
     }
 
     fn advance_samples(&mut self, samples: usize) {
-        self.base.advance_counter(samples);
+        self.base.advance_over_gap(samples);
+        // Crossings straddling the gap would be interpolated across audio
+        // that is not contiguous.
+        self.zero_detector.reset_continuity();
     }
 
     fn advance_buffer(&mut self) {

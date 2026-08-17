@@ -57,6 +57,16 @@ impl AutomaticGainControl {
 
     /// Process a single audio sample through the AGC
     ///
+    /// Discard the partially accumulated RMS window after a capture gap:
+    /// the samples in it no longer adjoin what follows, so finishing the
+    /// window across the gap would measure a level no real signal had. The
+    /// converged gain itself is kept -- the signal level is unchanged by a
+    /// dropout.
+    pub fn reset_window(&mut self) {
+        self.rms_accumulator = 0.0;
+        self.sample_count = 0;
+    }
+
     /// Accumulates RMS measurements over a window and adjusts gain as needed.
     ///
     /// # Arguments

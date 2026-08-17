@@ -183,4 +183,14 @@ impl BearingCalculatorBase {
     pub fn advance_counter(&mut self, samples: usize) {
         self.sample_counter += samples;
     }
+
+    /// Advance over a capture gap: move the counter and drop the DSP state
+    /// that spans buffers, mirroring what the north trackers do. The FIR
+    /// delay line and the AGC's partial RMS window hold pre-gap audio that
+    /// no longer adjoins what follows.
+    pub fn advance_over_gap(&mut self, samples: usize) {
+        self.advance_counter(samples);
+        self.bandpass.reset();
+        self.agc.reset_window();
+    }
 }

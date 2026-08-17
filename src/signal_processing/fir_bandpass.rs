@@ -86,6 +86,11 @@ impl FirBandpass {
         self.core.process_buffer(buffer)
     }
 
+    /// Clear the delay line after a capture gap; see FirFilterCore::reset.
+    pub fn reset(&mut self) {
+        self.core.reset()
+    }
+
     /// Get the number of taps (filter length)
     #[allow(dead_code)]
     pub fn num_taps(&self) -> usize {

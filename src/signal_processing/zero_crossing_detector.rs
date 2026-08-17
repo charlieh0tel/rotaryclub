@@ -33,6 +33,16 @@ impl ZeroCrossingDetector {
         }
     }
 
+    /// Forget cross-buffer state after a capture gap: the previous sample
+    /// and any pending crossing belong to audio that no longer adjoins what
+    /// follows, so interpolating across the boundary would invent a
+    /// crossing time.
+    pub fn reset_continuity(&mut self) {
+        self.armed = false;
+        self.prev_sample = None;
+        self.pending_crossing = None;
+    }
+
     /// Detect a zero crossing in the next sample
     ///
     /// Returns `true` if a rising-edge crossing is detected (transition from

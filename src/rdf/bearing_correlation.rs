@@ -201,7 +201,7 @@ impl BearingCalculator for CorrelationBearingCalculator {
     }
 
     fn advance_samples(&mut self, samples: usize) {
-        self.base.advance_counter(samples);
+        self.base.advance_over_gap(samples);
     }
 
     fn advance_buffer(&mut self) {
