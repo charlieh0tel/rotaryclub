@@ -21,7 +21,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 HARNESSES = {
     "system_pipeline": (
@@ -71,6 +71,10 @@ def numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
         return []
     out = []
     for name, value in rows[0].items():
+        # A standard error is not a metric; it qualifies one. It is consumed
+        # alongside its metric below, not diffed on its own.
+        if name.endswith("_se"):
+            continue
         try:
             float(value)
         except (TypeError, ValueError):
@@ -182,8 +186,24 @@ def main() -> int:
             if abs(y - x) <= abs(x) * args.threshold:
                 unchanged += 1
                 continue
+            # A difference inside the runs' own sampling noise is not a
+            # change: three combined standard errors covers what two
+            # honest draws of the same code can disagree by.
+            try:
+                se = (
+                    float(old.get(f"{column}_se", 0) or 0) ** 2
+                    + float(row.get(f"{column}_se", 0) or 0) ** 2
+                ) ** 0.5
+            except (TypeError, ValueError):
+                se = 0.0
+            if se > 0 and abs(y - x) <= 3 * se:
+                unchanged += 1
+                continue
             moved += 1
-            print(f"  {'/'.join(key):<48} {column:<30} {x:>12.5g} -> {y:<12.5g}")
+            noise = f"  (3se={3 * se:.3g})" if se > 0 else ""
+            print(
+                f"  {'/'.join(key):<48} {column:<30} {x:>12.5g} -> {y:<12.5g}{noise}"
+            )
 
     print(
         f"\n{moved} values moved by more than {args.threshold:.0%}, {unchanged} did not.",
