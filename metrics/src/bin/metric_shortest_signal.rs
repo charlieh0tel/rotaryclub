@@ -268,6 +268,12 @@ fn main() {
     };
     let only_buffer: Option<usize> = flag("--buffer").map(|v| v.parse().expect("--buffer"));
     let only_noise: Option<f32> = flag("--noise").map(|v| v.parse().expect("--noise"));
+    // Duration bounds, for the same reason as the cell filters: with the
+    // realized 1023-tap filter a full block outruns a ten-minute budget, and
+    // rows are deterministic per (noise, buffer, duration, draw), so halves
+    // concatenate exactly. The control belongs to the upper half.
+    let min_ms: f32 = flag("--min-ms").map_or(0.0, |v| v.parse().expect("--min-ms"));
+    let max_ms: f32 = flag("--max-ms").map_or(f32::MAX, |v| v.parse().expect("--max-ms"));
     // Log-spaced, so the knee is resolved rather than interpolated between
     // two points an octave apart.
     let durations_ms = [
@@ -304,6 +310,9 @@ fn main() {
             }
             let mut t90: Option<f32> = None;
             for ms in durations_ms {
+                if ms < min_ms || ms > max_ms {
+                    continue;
+                }
                 let hits = (0..DRAWS)
                     .filter(|&draw| trial(ms / 1000.0, noise, buffer_size, draw, true))
                     .count();
@@ -343,6 +352,9 @@ fn main() {
             // uncertainty for the aggregate to hide behind, so its false
             // alarm rate bounds every shorter cell from above.
             let control_ms = *durations_ms.last().expect("durations");
+            if control_ms < min_ms || control_ms > max_ms {
+                continue;
+            }
             let control_hits = (0..DRAWS)
                 .filter(|&draw| trial(control_ms / 1000.0, noise, buffer_size, draw, false))
                 .count();
