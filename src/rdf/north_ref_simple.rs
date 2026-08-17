@@ -198,8 +198,19 @@ impl SimpleNorthTracker {
             .samples_per_rotation
             .map(|p| 2.0 * PI / p)
             .unwrap_or(0.0);
-        let (reported_sample, fractional_sample_offset) =
-            split_effective_time(compensated_sample, delay.fractional_sample_offset);
+        // The estimator's sub-sample refinement applies here exactly as on
+        // the normal path.
+        let estimator_fraction = estimate_fraction(
+            &self.filter_tail,
+            &self.filter_buffer,
+            rel,
+            self.estimator,
+            self.centroid_half_width,
+        );
+        let (reported_sample, fractional_sample_offset) = split_effective_time(
+            compensated_sample,
+            delay.fractional_sample_offset + estimator_fraction,
+        );
         self.last_tick_sample = Some(compensated_sample);
         vec![NorthTick {
             sample_index: reported_sample,

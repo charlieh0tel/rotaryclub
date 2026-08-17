@@ -688,8 +688,20 @@ impl DpllNorthTracker {
                 return Vec::new();
             }
         }
-        let (reported_sample, fractional_sample_offset) =
-            split_effective_time(compensated_sample, delay.fractional_sample_offset);
+        // The estimator's sub-sample refinement applies here exactly as on
+        // the normal path; only the phase timing correction is omitted,
+        // because no PI update follows this tick.
+        let estimator_fraction = estimate_fraction(
+            &self.filter_tail,
+            &self.filter_buffer,
+            rel,
+            self.estimator,
+            self.centroid_half_width,
+        );
+        let (reported_sample, fractional_sample_offset) = split_effective_time(
+            compensated_sample,
+            delay.fractional_sample_offset + estimator_fraction,
+        );
         self.last_tick_sample = Some(compensated_sample);
         vec![NorthTick {
             sample_index: reported_sample,
