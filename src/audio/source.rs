@@ -46,7 +46,10 @@ impl DeviceSource {
         let capture = AudioCapture::new(config, tx, device_name)?;
         Ok(Self {
             rx,
-            sample_rate: config.sample_rate,
+            // The negotiated rate, not the configured one: the DSP chain is
+            // built from what this reports, so it must be what the stream
+            // actually delivers.
+            sample_rate: capture.sample_rate(),
             _capture: capture,
             pending_gap_frames: 0,
             total_dropped_frames: 0,
