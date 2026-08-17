@@ -51,6 +51,9 @@ pub struct NorthPulseAgc {
     /// Weight given to a single gain step, from the time constant.
     alpha: f32,
     observations: u64,
+    /// Level implied by the last undetected buffer that looked like pulses,
+    /// awaiting confirmation by a second one; see observe_undetected.
+    undetected_candidate: Option<f32>,
 }
 
 /// Detected peaks kept for the median. Long enough that a run of noise
@@ -96,6 +99,7 @@ impl NorthPulseAgc {
             recent: VecDeque::with_capacity(ROBUST_WINDOW),
             alpha: 1.0 - (-1.0 / observations_per_constant).exp(),
             observations: 0,
+            undetected_candidate: None,
         }
     }
 
@@ -149,6 +153,10 @@ impl NorthPulseAgc {
     /// arriving; it only reconsiders once what it settled on has demonstrably
     /// failed. The current gain is kept as the starting point, and the next
     /// observation is free to move it the whole way.
+    /// The undetected-buffer candidate is deliberately kept: unfreeze fires
+    /// on every quiet buffer, and clearing it here would reset the two-
+    /// buffer confirmation in observe_undetected before it could ever
+    /// complete.
     pub fn unfreeze(&mut self) {
         self.observations = 0;
         self.recent.clear();
@@ -167,13 +175,25 @@ impl NorthPulseAgc {
         let peak = filtered.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
         let mean_abs = filtered.iter().map(|s| s.abs()).sum::<f32>() / filtered.len() as f32;
         if mean_abs <= f32::EPSILON || peak / mean_abs < PULSE_CREST_FACTOR {
+            self.undetected_candidate = None;
             return;
         }
         // Deliberately not counted as an observation: this is a guess at the
         // level from an undetected buffer, and the first real detection should
         // still be free to move the gain the whole way.
         let level = peak / self.gain.max(f32::EPSILON);
-        self.gain = (self.target_peak / level).clamp(self.min_gain, self.max_gain);
+        // A single buffer is not enough: one noise impulse in an otherwise
+        // quiet buffer has exactly the crest factor of a pulse. A pulse
+        // train is periodic, so it shows the same level in consecutive
+        // buffers; demand two in a row within a factor of two before the
+        // gain moves.
+        if let Some(prev) = self.undetected_candidate
+            && level <= prev * 2.0
+            && level >= prev * 0.5
+        {
+            self.gain = (self.target_peak / level).clamp(self.min_gain, self.max_gain);
+        }
+        self.undetected_candidate = Some(level);
     }
 
     /// Note the filtered peak of a detected pulse.
