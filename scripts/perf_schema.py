@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
 import json
 import subprocess
-import sys
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
@@ -16,7 +15,6 @@ from pathlib import Path
 class MetricSpec:
     name: str
     direction: str  # "min" or "max"
-    strict_transform: Callable[[float], float]
     display_name: str
     fmt: str = "{:.6f}"
 
@@ -28,23 +26,11 @@ class MetricSpec:
         return self.fmt.format(value)
 
 
-def apply_profile_limits(
-    baseline: Mapping[Tuple[str, str], Mapping[str, float]],
-    metrics: Sequence[MetricSpec],
-    profile: str,
-) -> Dict[Tuple[str, str], Dict[str, float]]:
-    if profile not in {"baseline", "strict"}:
-        raise ValueError(f"unsupported profile: {profile}")
-
-    out: Dict[Tuple[str, str], Dict[str, float]] = {}
-    for key, limits in baseline.items():
-        row_out: Dict[str, float] = {}
-        for spec in metrics:
-            spec.validate()
-            base = limits[spec.name]
-            row_out[spec.name] = base if profile == "baseline" else spec.strict_transform(base)
-        out[key] = row_out
-    return out
+# There is deliberately one profile. A "strict" profile derived by
+# transforming the baseline limits ran in CI as advisory-only (its failures
+# were swallowed by an exit 0), which is governance theater: a limit either
+# means something or it is noise. The baseline limits are re-derived at
+# measured-plus-margin instead, so the one gate that exists can fail.
 
 
 def summarize_rows(
