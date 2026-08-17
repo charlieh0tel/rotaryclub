@@ -1,7 +1,6 @@
 use clap::Parser;
 use rolling_stats::Stats;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 
 mod output;
 
@@ -144,17 +143,17 @@ fn main() -> anyhow::Result<()> {
     // start capturing and then die on the same error moments later.
     rotaryclub::RdfProcessor::new(&config, args.remove_dc, true).map(drop)?;
 
-    let (source, throttle_output): (Box<dyn AudioSource>, bool) = match &args.input {
+    let (source, is_file_input): (Box<dyn AudioSource>, bool) = match &args.input {
         Some(path) => {
             eprintln!("Loading WAV file: {}", path.display());
             let chunk_size = config.audio.buffer_size * 2;
-            (Box::new(WavFileSource::new(path, chunk_size)?), false)
+            (Box::new(WavFileSource::new(path, chunk_size)?), true)
         }
         None => {
             eprintln!("Starting audio capture...");
             (
                 Box::new(DeviceSource::new(&config.audio, args.device.as_deref())?),
-                true,
+                false,
             )
         }
     };
@@ -197,7 +196,7 @@ fn main() -> anyhow::Result<()> {
         source,
         config,
         formatter,
-        throttle_output,
+        is_file_input,
         args.remove_dc,
         args.dump_audio.as_deref(),
     )?;
@@ -241,14 +240,19 @@ fn run_processing_loop(
     mut source: Box<dyn AudioSource>,
     config: RdfConfig,
     formatter: Box<dyn Formatter>,
-    throttle_output: bool,
+    is_file_input: bool,
     remove_dc: bool,
     dump_audio: Option<&std::path::Path>,
 ) -> anyhow::Result<ProcessingStats> {
     let mut processor = RdfProcessor::new(&config, remove_dc, true)?;
 
-    let mut last_output = Instant::now();
-    let output_interval = Duration::from_secs_f32(1.0 / config.bearing.output_rate_hz);
+    // Output throttling runs in signal time (sample frames), not wall
+    // clock: on live capture the two agree, and on file input a wall clock
+    // would let a faster-than-real-time decode emit every rotation's tick
+    // regardless of the configured rate.
+    let output_interval_frames =
+        config.audio.sample_rate as f64 / config.bearing.output_rate_hz as f64;
+    let mut next_output_frame: f64 = 0.0;
 
     let mut bearing_stats = CircularStats::new();
     let mut rotation_stats: Stats<f32> = Stats::new();
@@ -272,13 +276,22 @@ fn run_processing_loop(
     let emit_tick = |result: &rotaryclub::processing::TickResult,
                      phase_error_variance: Option<f32>,
                      bearing_stats: &mut CircularStats,
-                     last_output: &mut Instant,
+                     next_output_frame: &mut f64,
                      force: bool| {
-        if let Some(ref bearing) = result.bearing
-            && (force || !throttle_output || last_output.elapsed() >= output_interval)
-        {
+        if let Some(ref bearing) = result.bearing {
             let adjusted_bearing =
                 (bearing.bearing_degrees + config.bearing.north_offset_degrees).rem_euclid(360.0);
+            // Only for file input, where the summary is printed at the
+            // end. Live mode ran this Vec unbounded -- about 864,000
+            // entries a day at the default rate -- for a summary nothing
+            // ever read. Fed before the throttle so the summary covers
+            // every tick, not just the emitted lines.
+            if is_file_input {
+                bearing_stats.update(adjusted_bearing);
+            }
+            if !force && (result.north_tick.sample_index as f64) < *next_output_frame {
+                return;
+            }
             let adjusted_raw =
                 (bearing.raw_bearing + config.bearing.north_offset_degrees).rem_euclid(360.0);
             let output = BearingOutput {
@@ -294,13 +307,6 @@ fn run_processing_loop(
                 lock_quality: result.north_tick.lock_quality,
                 phase_error_variance,
             };
-            // Only for file input, where the summary is printed at the
-            // end. Live mode ran this Vec unbounded -- about 864,000
-            // entries a day at the default rate -- for a summary nothing
-            // ever read.
-            if !throttle_output {
-                bearing_stats.update(adjusted_bearing);
-            }
             // Empty means the formatter has no honest encoding for this
             // record (KN5R with a non-finite bearing); print nothing rather
             // than a blank line in a fixed-width stream.
@@ -308,7 +314,7 @@ fn run_processing_loop(
             if !line.is_empty() {
                 println!("{line}");
             }
-            *last_output = Instant::now();
+            *next_output_frame = result.north_tick.sample_index as f64 + output_interval_frames;
         }
     };
 
@@ -354,7 +360,7 @@ fn run_processing_loop(
                 result,
                 phase_error_variance,
                 &mut bearing_stats,
-                &mut last_output,
+                &mut next_output_frame,
                 false,
             );
         }
@@ -396,7 +402,7 @@ fn run_processing_loop(
             result,
             phase_error_variance,
             &mut bearing_stats,
-            &mut last_output,
+            &mut next_output_frame,
             true,
         );
     }

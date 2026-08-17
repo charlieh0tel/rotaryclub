@@ -162,6 +162,9 @@ gates cover, and how to add a metric without fooling yourself.
 -s, --swap-channels              Swap left/right channels
 
 -r, --output-rate <OUTPUT_RATE>  Output rate in Hz [default: 10.0]
+                                 Throttled in signal time, so file input
+                                 emits at this rate too; raise it to see
+                                 more of a recording's ticks
 
 -o, --north-offset <DEGREES>     North reference offset in degrees [default: 0.0]
                                  Added to all bearings for calibration
