@@ -878,10 +878,10 @@ impl DpllNorthTracker {
     /// Widest disagreement between a detection and the tracked rotation that
     /// is still treated as the same pulse, in samples.
     ///
-    /// Scaled to the phase error the tracker is actually seeing, with a floor
-    /// of one sample so quantization alone can never trip it and a ceiling of
-    /// a quarter rotation so the gate cannot swallow a genuine half-rate
-    /// stream.
+    /// Scaled to the phase error the tracker is actually seeing, with a
+    /// floor of `MIN_TIMING_GATE_SAMPLES` so a momentarily quiet tracker
+    /// cannot collapse the gate, and a ceiling of a quarter rotation so the
+    /// gate cannot swallow a genuine half-rate stream.
     fn timing_gate_samples(&self, period_estimate: f32) -> Option<f32> {
         if !self.locked() || self.frequency <= FREQUENCY_EPSILON {
             return None;
