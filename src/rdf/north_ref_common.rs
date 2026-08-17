@@ -407,9 +407,16 @@ pub(super) fn split_effective_time(base_sample: usize, offset: f32) -> (usize, f
         return (base_sample, 0.0);
     }
     let whole = offset.round();
-    let index = (base_sample as i64 + whole as i64).max(0) as usize;
+    let index = base_sample as i64 + whole as i64;
+    if index < 0 {
+        // The effective time is before the stream started. Clamping only
+        // the index while keeping the fraction would report an offset from
+        // a sample the time does not neighbour, breaking the half-sample
+        // contract above.
+        return (0, 0.0);
+    }
     let fraction = offset - whole;
-    (index, fraction)
+    (index as usize, fraction)
 }
 
 pub(super) fn preprocess_north_buffer(
