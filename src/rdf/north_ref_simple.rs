@@ -281,14 +281,14 @@ impl SimpleNorthTracker {
                 // the current estimate is that many rotations, so it is
                 // folded before the statistics see it; one far from any
                 // multiple is evidence of nothing and is skipped.
-                if let Some(mean) = self.samples_per_rotation {
-                    if mean > f32::EPSILON {
-                        let rotations = (period / mean).round();
-                        if rotations >= 2.0 && (period / mean - rotations).abs() < 0.25 {
-                            period /= rotations;
-                        } else if rotations >= 2.0 {
-                            period = mean;
-                        }
+                if let Some(mean) = self.samples_per_rotation
+                    && mean > f32::EPSILON
+                {
+                    let rotations = (period / mean).round();
+                    if rotations >= 2.0 && (period / mean - rotations).abs() < 0.25 {
+                        period /= rotations;
+                    } else if rotations >= 2.0 {
+                        period = mean;
                     }
                 }
 

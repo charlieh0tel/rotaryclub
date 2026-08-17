@@ -803,7 +803,7 @@ fn test_simple_period_survives_dropouts() {
     let mut k = 0usize;
     let mut t = 0.5f64 * true_period as f64;
     while (t as usize) < n {
-        if k % 17 != 0 {
+        if !k.is_multiple_of(17) {
             epochs.push(t);
         }
         k += 1;
