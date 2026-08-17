@@ -132,10 +132,13 @@ gates cover, and how to add a metric without fooling yourself.
 
 #### North Tracking Quality Measures
 
-- `lock_quality`: DPLL-only lock score in `[0, 1]`, computed as weighted phase and frequency stability:
-  `phase_weight * phase_score + frequency_weight * freq_score`.
-- `phase_score`: `1 - (phase_error_std_dev / pi)`, clamped to `[0, 1]`.
-- `freq_score`: `1 - (100 * freq_coeff_of_variation)`, clamped to `[0, 1]`, where `freq_coeff_of_variation = freq_std_dev / freq_mean`.
+- `lock_quality`: DPLL-only lock score in `[0, 1]`: `1 - phase_error_std_dev / (pi/sqrt(3))`,
+  clamped. The divisor is the standard deviation of a uniformly distributed phase error, so
+  a loop learning nothing from its detections reads 0 and a tight lock reads near 1. It once
+  blended in a frequency-stability term, which rewarded exactly the failure the field exists
+  to catch — a stuck oscillator has the steadiest frequency of all, and read 0.596 while
+  tracking nothing. What it still cannot claim: a loop locked onto a coherent interferer
+  reads high; this is loop-against-input coherence, never input-against-truth.
 - `phase_error_variance`: Rolling variance (rad^2) of DPLL phase error; lower indicates tighter phase lock.
 - Windowing: rolling statistics are computed over the last 128 detected ticks.
 - Availability: in `--north-mode dpll` these fields are populated; in `--north-mode simple` they are not produced (`null`/empty in JSON/CSV).

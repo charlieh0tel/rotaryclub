@@ -1,4 +1,4 @@
-use crate::config::{LockQualityWeights, NorthPulseEstimator, NorthTickConfig};
+use crate::config::{NorthPulseEstimator, NorthTickConfig};
 use crate::constants::FREQUENCY_EPSILON;
 use crate::error::{RdfError, Result};
 use crate::rdf::NorthTick;
@@ -265,7 +265,6 @@ pub struct DpllNorthTracker {
     /// rate says tracking broke. Bit per gated detection, 1 = rejected.
     seed_armed: bool,
     gate_reject_history: u16,
-    lock_quality_weights: LockQualityWeights,
 
     // Pre-allocated buffer for filtering
     filter_buffer: Vec<f32>,
@@ -633,7 +632,6 @@ impl DpllNorthTracker {
             seed_armed: false,
             gate_reject_history: 0,
             freq_stats: RollingWindowStats::new(LOCK_STATS_WINDOW_TICKS),
-            lock_quality_weights: config.lock_quality_weights,
             filter_buffer: Vec::new(),
             filter_tail: Vec::new(),
             quiet_watch: QuietChannelWatch::new(sample_rate),
@@ -1272,31 +1270,34 @@ impl DpllNorthTracker {
         self.phase_error_stats.variance()
     }
 
+    /// How well the loop is tracking its input, 0 to 1.
+    ///
+    /// One statistic: the phase-error spread, normalised so the worst
+    /// possible state reads zero. A uniformly distributed phase error --
+    /// the loop learning nothing at all from its detections -- has a
+    /// standard deviation of pi over root three, and that is the divisor;
+    /// normalising by pi, as an earlier version did, floored garbage at
+    /// 0.42 because no real spread reaches pi.
+    ///
+    /// The frequency-stability term the score used to blend in is gone,
+    /// and deliberately: frequency steadiness is evidence of lock only
+    /// conditional on phase health. Conditioned, it is redundant with the
+    /// phase spread; unconditioned, it rewarded the one failure this field
+    /// exists to catch -- a stuck oscillator has the steadiest frequency
+    /// of all, and read 0.596 here while tracking nothing. Its removal
+    /// also deletes three tuned constants (the 0.7/0.3 blend and a
+    /// hundredfold scale) in favour of one derived normaliser.
+    ///
+    /// What this cannot claim: a loop locked onto a coherent interferer
+    /// reads high. Lock quality is loop-against-input coherence, never
+    /// input-against-truth.
     pub fn lock_quality(&self) -> Option<f32> {
-        if self.phase_error_stats.count() < 2 || self.freq_stats.count() < 2 {
+        if self.phase_error_stats.count() < 2 {
             return None;
         }
-
-        // Phase error std dev in radians - lower is better
-        // A well-locked PLL should have phase error < 0.1 rad (~6 degrees)
         let phase_std = self.phase_error_stats.std_dev()?.abs();
-        let phase_score = (1.0 - phase_std / PI).clamp(0.0, 1.0);
-
-        // Frequency stability - lower variance relative to mean is better
-        let freq_mean = self.freq_stats.mean()?;
-        let freq_std = self.freq_stats.std_dev()?;
-        let freq_cv = if freq_mean.abs() > FREQUENCY_EPSILON {
-            (freq_std / freq_mean).abs()
-        } else {
-            1.0
-        };
-        let freq_score = (1.0 - freq_cv * 100.0).clamp(0.0, 1.0);
-
-        // Combined score using configured weights
-        Some(
-            self.lock_quality_weights.phase_weight * phase_score
-                + self.lock_quality_weights.frequency_weight * freq_score,
-        )
+        let uniform_std = PI / 3.0f32.sqrt();
+        Some((1.0 - phase_std / uniform_std).clamp(0.0, 1.0))
     }
 
     pub fn filtered_buffer(&self) -> &[f32] {

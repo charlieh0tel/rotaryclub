@@ -17,7 +17,7 @@ method.
 | `signal_strength` | Whether there is a carrier at all | Whether the bearing derived from it agrees with itself |
 | `resultant_length` † | Whether the looks agreed with each other | How strong they were. Derived from `snr_db`, so under a reflection it reads high where a directly measured one would read low |
 | `tone_peak` † | Absolute level of the filtered Doppler signal | Everything else. It is a level |
-| `lock_quality` | Whether the north DPLL is tracking | The Doppler side entirely |
+| `lock_quality` | Whether the north DPLL is tracking its input | The Doppler side entirely, and whether the input is the right signal — a loop locked onto a coherent interferer reads high |
 
 † Defined by KR6DD; see [Attribution](#attribution).
 

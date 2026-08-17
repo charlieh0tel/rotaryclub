@@ -672,8 +672,6 @@ pub struct NorthTickConfig {
     pub gate_sigma: f32,
     /// DPLL configuration (only used when mode is Dpll)
     pub dpll: DpllConfig,
-    /// Weights for lock quality calculation
-    pub lock_quality_weights: LockQualityWeights,
 }
 
 /// Bearing output configuration
@@ -768,26 +766,6 @@ impl Default for ConfidenceConfig {
         Self {
             half_confidence_deg: 6.0,
             min_signal_strength: None,
-        }
-    }
-}
-
-/// Weights for DPLL lock quality calculation
-///
-/// Lock quality combines phase stability and frequency stability scores.
-#[derive(Debug, Clone, Copy)]
-pub struct LockQualityWeights {
-    /// Weight for phase error component (default: 0.7)
-    pub phase_weight: f32,
-    /// Weight for frequency stability component (default: 0.3)
-    pub frequency_weight: f32,
-}
-
-impl Default for LockQualityWeights {
-    fn default() -> Self {
-        Self {
-            phase_weight: 0.7,
-            frequency_weight: 0.3,
         }
     }
 }
@@ -929,7 +907,6 @@ impl Default for NorthTickConfig {
             max_coast_ms: 1000.0,
             gate_sigma: 3.0,
             dpll: DpllConfig::default(),
-            lock_quality_weights: LockQualityWeights::default(),
         }
     }
 }
