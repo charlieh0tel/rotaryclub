@@ -170,7 +170,13 @@ both sides are produced identically.
 
 The shortest burst duration T for which, over N independent noise
 realisations, at least 90 percent yield a reported bearing within E degrees of
-truth with a stated uncertainty at or below U.
+truth with a stated uncertainty at or below U -- and every longer duration
+holds that rate too. The measured rate curve wobbles by its binomial error
+(about 0.05 near the criterion at 48 draws), and the first cell to cross is
+systematically a lucky one; requiring the crossing to hold removes that
+first-passage bias. Re-measured under the held criterion, every cell below
+is unchanged: the wobble is visible in the curves (0.94 to 0.92 past the
+crossing at -8 dB) but never dips back below the line.
 
 Measured by `metric_shortest_signal` at E = U = 10 degrees, over 48 draws at
 each of 13 log-spaced durations, with the burst embedded in squelch-open hiss

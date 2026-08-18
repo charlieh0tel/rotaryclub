@@ -293,7 +293,7 @@ fn main() {
             "bearing within {ERROR_LIMIT_DEG:.0} deg of truth and stating at most \
              {STATED_LIMIT_DEG:.0} deg,\n\
              over {DRAWS} draws. T90 is the shortest duration reaching \
-             {:.0} percent.\n",
+             {:.0} percent and holding it at every longer duration.\n",
             REQUIRED_RATE * 100.0
         );
         print!("{:>7} {:>8}", "buffer", "snr dB");
@@ -308,7 +308,7 @@ fn main() {
             if !jsonl {
                 print!("{buffer_size:>7} {:>8.0}", snr_db(noise));
             }
-            let mut t90: Option<f32> = None;
+            let mut rates: Vec<(f32, f64)> = Vec::new();
             for ms in durations_ms {
                 if ms < min_ms || ms > max_ms {
                     continue;
@@ -317,9 +317,7 @@ fn main() {
                     .filter(|&draw| trial(ms / 1000.0, noise, buffer_size, draw, true))
                     .count();
                 let r = hits as f64 / DRAWS as f64;
-                if t90.is_none() && r >= REQUIRED_RATE {
-                    t90 = Some(ms);
-                }
+                rates.push((ms, r));
                 if jsonl {
                     // Binomial standard error, so a curve drawn from this can
                     // carry the uncertainty it actually has.
@@ -375,6 +373,19 @@ fn main() {
                     })
                 );
             } else {
+                // The true rate curve is monotone in duration; the measured
+                // one wobbles by its binomial error (about 0.05 near 0.9),
+                // and the FIRST cell to cross 90 percent is systematically a
+                // lucky one -- first passage of a noisy curve runs ahead of
+                // sustained arrival. T90 is therefore the start of the
+                // longest suffix that holds the criterion, not the first
+                // touch of it.
+                let t90 = rates
+                    .iter()
+                    .rev()
+                    .take_while(|(_, r)| *r >= REQUIRED_RATE)
+                    .last()
+                    .map(|(ms, _)| *ms);
                 match t90 {
                     Some(ms) => print!("{:>9}", format!("{ms:.0}ms")),
                     None => print!("{:>9}", ">2000ms"),

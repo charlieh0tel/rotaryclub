@@ -72,9 +72,14 @@
       phases, integers and f64 for absolute time. Blanket f64 would halve
       FIR SIMD throughput on arm64 for zero measured accuracy.
 
-- [ ] T90 first-crossing bias in `metric_shortest_signal`: time-to-90% is
-      scored at the first crossing of the threshold, which on a noisy
-      trajectory is biased early relative to sustained convergence.
+- [x] T90 first-crossing bias in `metric_shortest_signal`. Fixed: T90 is
+      now the start of the longest suffix of durations holding the 90
+      percent rate, not the first cell to touch it; the plot script's
+      crossing marker uses the same rule. Re-measured over 48 draws, every
+      published cell is unchanged (95/200/640 ms at 256, 95/300/1400 at
+      1024) -- the measured curves wobble past the crossing but never dip
+      back below the criterion at this draw count, so the bias existed and
+      cost nothing here. METRICS.md states the held criterion.
 
 ## Measured with sweep_config
 

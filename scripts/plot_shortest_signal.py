@@ -69,11 +69,20 @@ def load(path: Path):
 
 
 def t90(points):
-    """Shortest measured duration reaching the required rate."""
+    """Shortest duration reaching the required rate and holding it.
+
+    The measured curve wobbles by its binomial error, and the first cell to
+    cross is systematically a lucky one; the answer is the start of the
+    longest suffix that holds the criterion, matching the harness.
+    """
+    start = None
     for duration, rate, _ in points:
         if rate >= REQUIRED_RATE:
-            return duration
-    return None
+            if start is None:
+                start = duration
+        else:
+            start = None
+    return start
 
 
 def main() -> int:
