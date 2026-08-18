@@ -240,8 +240,12 @@ fn build_chunk(
     doppler_audio: &[f32],
     draw: u64,
 ) -> Vec<f32> {
-    let omega = 2.0 * PI * rotation_hz / sample_rate;
-    let bearing_rad = expected_bearing_deg.to_radians();
+    // Phase in f64 like the tick positions above: an f32 product
+    // omega * global reaches a granularity of about 0.001 rad (0.11 degrees
+    // of generated tone phase) by the end of a run, which inflates the
+    // harness's own noise floor for no reason.
+    let omega = 2.0 * PI as f64 * rotation_hz as f64 / sample_rate as f64;
+    let bearing_rad = expected_bearing_deg.to_radians() as f64;
     let mut out = Vec::with_capacity(chunk_size * 2);
 
     // A pulse centred outside this chunk still reaches into it, so the window
@@ -253,12 +257,11 @@ fn build_chunk(
 
     for i in 0..chunk_size {
         let global = chunk_start + i;
-        let t = global as f32;
-        let p = omega * t - bearing_rad;
+        let p = omega * global as f64 - bearing_rad;
 
-        let fundamental = p.sin();
-        let second = (2.0 * p).sin();
-        let third = (3.0 * p).sin();
+        let fundamental = p.sin() as f32;
+        let second = (2.0 * p).sin() as f32;
+        let third = (3.0 * p).sin() as f32;
         let doppler = scenario.amplitude * fundamental
             + scenario.second_tone_ratio * second
             + scenario.third_tone_ratio * third

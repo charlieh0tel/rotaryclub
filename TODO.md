@@ -54,12 +54,23 @@
       window depth counts independent audio. Gates score raw_bearing and
       are unaffected.
 
-- [ ] f32 phase accumulation. `north_tick.phase + samples_since_tick *
-      omega` style expressions lose sub-sample phase resolution as
-      magnitudes grow (a 24-bit mantissa is down to 1/16 sample granularity
-      by ~768k samples); the trackers difference integer sample counts for
-      this reason, but the bearing-side phase arithmetic has not been
-      audited to the same standard.
+- [x] f32 phase accumulation. Audited: the live pipeline is clean --
+      absolute sample counts stay in integers and are differenced (isize,
+      i64) before conversion everywhere a phase is built from them, so the
+      largest live-path phase is ~545 rad (samples_since_tick bounded by a
+      couple of buffers plus group delay), where the f32 ulp is 3e-5 rad,
+      0.0004 degrees of bearing. The DPLL wraps per update, coasts in f64,
+      and differences intervals in i64; the output throttle is f64. The
+      harness exposure was bounded, not runaway (rounding of omega*n is
+      per-product, not a walk): census whole-file correlations lose under
+      0.05 percent of power at 75 s and use only power; the segmented
+      estimators are bounded at ~4000 rad; gate tick scoring is exact to
+      349 s of signal. The one slip -- gate_pipeline's generator computing
+      omega * global in f32, a 0.11 degree phase granularity at run end --
+      now computes in f64 like its tick positions. The rule stands:
+      precision follows the quantity; f32 for signal data and bounded
+      phases, integers and f64 for absolute time. Blanket f64 would halve
+      FIR SIMD throughput on arm64 for zero measured accuracy.
 
 - [ ] T90 first-crossing bias in `metric_shortest_signal`: time-to-90% is
       scored at the first crossing of the threshold, which on a noisy
