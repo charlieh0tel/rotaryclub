@@ -209,6 +209,12 @@ pub enum BearingMethod {
 #[derive(Debug, Clone)]
 pub struct DopplerConfig {
     /// Initial/nominal rotation frequency in Hz (actual frequency tracked by DPLL)
+    /// Coupled to `north_tick.dpll.initial_frequency_hz` and the DPLL band:
+    /// set the rate through `RdfConfig::apply_rotation`, which moves them
+    /// together, and `RdfProcessor::new` rejects an expected_freq outside
+    /// the tracker's band. At runtime the bearing math follows the tick's
+    /// tracked frequency; this field seeds construction-time properties
+    /// only (the filter's noise-bandwidth reference point, validation).
     pub expected_freq: f32,
     /// Bandpass filter lower cutoff in Hz
     pub bandpass_low: f32,
@@ -388,6 +394,10 @@ impl NorthPulseEstimator {
 #[derive(Debug, Clone)]
 pub struct DpllConfig {
     /// Initial rotation frequency estimate in Hz
+    /// Coupled to `doppler.expected_freq`; see that field and
+    /// `apply_rotation`. Standalone tracker harnesses may set this alone
+    /// deliberately (acquisition-from-offset experiments); the full
+    /// pipeline validates consistency at RdfProcessor::new.
     pub initial_frequency_hz: f32,
     /// DPLL natural frequency in Hz (bandwidth)
     pub natural_frequency_hz: f32,

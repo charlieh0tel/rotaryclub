@@ -64,6 +64,32 @@ impl RdfProcessor {
             }
         }
 
+        // The rotation rate lives in two places: doppler.expected_freq on
+        // the bearing side and the DPLL's seed and band on the north side.
+        // apply_rotation moves them together, but the fields are public and
+        // nothing else ties them -- a doppler side expecting a rotation the
+        // tracker is forbidden from locking to is a config that can only
+        // produce garbage, silently. This is the one place both halves are
+        // visible, so the consistency check lives here.
+        let expected = config.doppler.expected_freq;
+        let (band_min, band_max) = (
+            config.north_tick.dpll.frequency_min_hz,
+            config.north_tick.dpll.frequency_max_hz,
+        );
+        if !expected.is_finite() || expected <= 0.0 {
+            return Err(crate::error::RdfError::Config(format!(
+                "doppler.expected_freq is {expected}, must be a positive finite number"
+            )));
+        }
+        if expected < band_min || expected > band_max {
+            return Err(crate::error::RdfError::Config(format!(
+                "doppler.expected_freq is {expected} Hz but the north tracker's \
+                 band is {band_min}..{band_max} Hz; the tracker could never lock \
+                 at the rate the doppler side expects. Set the rate through \
+                 apply_rotation, which moves both together"
+            )));
+        }
+
         let sample_rate = config.audio.sample_rate as f32;
         let north_tracker = NorthReferenceTracker::new(&config.north_tick, sample_rate)?;
 
@@ -604,5 +630,31 @@ mod tests {
             },
             Ok(_) => panic!("Expected zero smoothing window to be rejected"),
         }
+    }
+
+    #[test]
+    fn test_expected_freq_outside_tracker_band_rejected() {
+        // The rate lives in two places; a doppler side expecting a rotation
+        // the tracker cannot lock to must be refused, and the refusal must
+        // name the way to set the rate consistently.
+        let mut config = default_config();
+        config.doppler.expected_freq = 480.0;
+
+        match RdfProcessor::new(&config, false, true) {
+            Err(crate::error::RdfError::Config(msg)) => {
+                assert!(
+                    msg.contains("expected_freq") && msg.contains("apply_rotation"),
+                    "Unexpected config error message: {}",
+                    msg
+                );
+            }
+            Err(_) => panic!("Expected a configuration error"),
+            Ok(_) => panic!("Expected an out-of-band expected_freq to be rejected"),
+        }
+
+        // Set through apply_rotation the same rate is consistent and valid.
+        let mut config = default_config();
+        config.apply_rotation(crate::config::RotationFrequency::from_hz(480.0));
+        assert!(RdfProcessor::new(&config, false, true).is_ok());
     }
 }

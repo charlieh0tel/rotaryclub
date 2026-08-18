@@ -28,12 +28,20 @@
       its sums already exist in process_tick_impl if the multipath item ever
       wants a measured coherence.
 
-- [ ] Two sources of truth for the rotation frequency. The bearing
-      calculators take `doppler_config.expected_freq` at construction (noise
-      bandwidth, zero-crossing expectations) and the tick's tracked
-      `frequency`/`period` at runtime. A tracker locked far from nominal is
-      exactly when the two disagree, and which one each computation should
-      use has never been decided per use.
+- [x] Two sources of truth for the rotation frequency. Audited: at runtime
+      both bearing methods follow the tick's tracked frequency, and the one
+      construction-time use of `doppler.expected_freq` in the bearing path
+      is the filter's noise-bandwidth reference point -- a property of the
+      filter as built, insensitive to where in the band the tone sits. The
+      real hazard was config-side: `doppler.expected_freq` and the DPLL's
+      seed and band are public fields kept consistent only by
+      `apply_rotation`, so a hand-set expected_freq outside the tracker's
+      band produced a pipeline that could never lock at the rate the
+      doppler side expected, silently. `RdfProcessor::new` now rejects
+      that, naming `apply_rotation` as the way to move the rate; the field
+      docs point at each other. Standalone tracker harnesses can still set
+      the seed alone deliberately (acquisition-from-offset experiments
+      construct the tracker directly, below the validation).
 
 - [ ] The bearing smoothing window fills with duplicates. Ticks arrive per
       rotation (~1602/s) while the work buffer advances per buffer, so
