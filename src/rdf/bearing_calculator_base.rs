@@ -24,6 +24,9 @@ pub struct BearingCalculatorBase {
     buffer_start_sample: usize,
     bearing_smoother_cos: MovingAverage,
     bearing_smoother_sin: MovingAverage,
+    // Whether the smoothing window has taken an entry from the current
+    // work buffer yet; see smooth_bearing.
+    smoother_fed_this_buffer: bool,
     pub work_buffer: Vec<f32>,
 }
 
@@ -79,6 +82,7 @@ impl BearingCalculatorBase {
             buffer_start_sample: 0,
             bearing_smoother_cos: MovingAverage::new(smoothing),
             bearing_smoother_sin: MovingAverage::new(smoothing),
+            smoother_fed_this_buffer: false,
             work_buffer: Vec::new(),
         })
     }
@@ -149,6 +153,7 @@ impl BearingCalculatorBase {
         self.work_buffer.extend_from_slice(input);
         self.agc.process_buffer(&mut self.work_buffer);
         self.bandpass.process_buffer(&mut self.work_buffer);
+        self.smoother_fed_this_buffer = false;
     }
 
     /// Calculate the sample offset from the north tick using buffer_start_sample.
@@ -172,10 +177,30 @@ impl BearingCalculatorBase {
 
     /// Apply circular smoothing to a raw bearing value.
     /// Uses vector averaging (cos/sin components) to handle 0°/360° wraparound.
+    ///
+    /// The window holds one entry per work buffer, not per tick: a buffer
+    /// spans dozens of rotations (~34 ticks at 1024 samples), and every
+    /// bearing in it is computed from the same filtered audio, so entries
+    /// within a buffer are near-copies carrying no new information. Filled
+    /// per tick, a window of 5 spanned ~3 ms and smoothed almost nothing;
+    /// per buffer it spans 5 buffers of independent audio, which is what
+    /// the smoothing_window constant reads as. Later ticks in the same
+    /// buffer revise the buffer's slot rather than consuming the window,
+    /// so the reported value still follows the newest measurement.
     pub fn smooth_bearing(&mut self, raw_bearing: f32) -> f32 {
         let rad = raw_bearing.to_radians();
-        let avg_cos = self.bearing_smoother_cos.add(rad.cos());
-        let avg_sin = self.bearing_smoother_sin.add(rad.sin());
+        let (avg_cos, avg_sin) = if self.smoother_fed_this_buffer {
+            (
+                self.bearing_smoother_cos.replace_last(rad.cos()),
+                self.bearing_smoother_sin.replace_last(rad.sin()),
+            )
+        } else {
+            self.smoother_fed_this_buffer = true;
+            (
+                self.bearing_smoother_cos.add(rad.cos()),
+                self.bearing_smoother_sin.add(rad.sin()),
+            )
+        };
         avg_sin.atan2(avg_cos).to_degrees().rem_euclid(360.0)
     }
 
@@ -192,5 +217,36 @@ impl BearingCalculatorBase {
         self.advance_counter(samples);
         self.bandpass.reset();
         self.agc.reset_window();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AgcConfig, ConfidenceConfig, DopplerConfig};
+
+    #[test]
+    fn test_smoothing_window_counts_buffers_not_ticks() {
+        // Three ticks in one buffer must occupy one window slot (revised in
+        // place), so the next buffer's bearing averages against one prior
+        // buffer, not against three near-copies of it.
+        let mut base = BearingCalculatorBase::new(
+            &DopplerConfig::default(),
+            &AgcConfig::default(),
+            ConfidenceConfig::default(),
+            48_000.0,
+            3,
+        )
+        .expect("base");
+
+        base.preprocess(&[0.0; 64]);
+        assert!((base.smooth_bearing(10.0) - 10.0).abs() < 0.01);
+        assert!((base.smooth_bearing(20.0) - 20.0).abs() < 0.01);
+        assert!((base.smooth_bearing(30.0) - 30.0).abs() < 0.01);
+
+        base.preprocess(&[0.0; 64]);
+        // Circular mean of 30 and 90 degrees; a per-tick window of 3 would
+        // have read the mean of 20, 30 and 90 instead.
+        assert!((base.smooth_bearing(90.0) - 60.0).abs() < 0.01);
     }
 }

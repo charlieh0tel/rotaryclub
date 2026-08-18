@@ -43,12 +43,16 @@
       the seed alone deliberately (acquisition-from-offset experiments
       construct the tracker directly, below the validation).
 
-- [ ] The bearing smoothing window fills with duplicates. Ticks arrive per
-      rotation (~1602/s) while the work buffer advances per buffer, so
-      consecutive entries in the size-5 smoother are computed from largely
-      the same audio. The smoothing constant does not mean what it appears
-      to; either the window should skip until the buffer has refreshed or
-      the default should be documented as near-cosmetic.
+- [x] The bearing smoothing window fills with duplicates. Fixed: the
+      window now holds one entry per work buffer instead of one per tick.
+      A buffer spans dozens of rotations and every bearing in it is
+      computed from the same filtered audio, so per-tick entries were
+      near-copies -- a window of 5 spanned ~3 ms and smoothed almost
+      nothing. Later ticks in the same buffer revise the buffer's slot
+      (MovingAverage::replace_last) rather than consuming the window, so
+      the reported value still follows the newest measurement while the
+      window depth counts independent audio. Gates score raw_bearing and
+      are unaffected.
 
 - [ ] f32 phase accumulation. `north_tick.phase + samples_since_tick *
       omega` style expressions lose sub-sample phase resolution as

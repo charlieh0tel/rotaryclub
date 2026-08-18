@@ -45,6 +45,22 @@ impl MovingAverage {
         self.average()
     }
 
+    /// Overwrite the most recently added value and return the updated
+    /// average. Falls back to `add` when the window is still empty.
+    ///
+    /// This is what lets a caller hold one window slot per independent
+    /// observation while still tracking the newest measurement: revisions
+    /// of the same observation replace their slot instead of consuming
+    /// the window.
+    pub fn replace_last(&mut self, value: f32) -> f32 {
+        if !self.filled && self.index == 0 {
+            return self.add(value);
+        }
+        let last = (self.index + self.buffer.len() - 1) % self.buffer.len();
+        self.buffer[last] = value;
+        self.average()
+    }
+
     /// Get the current average without adding a new value
     ///
     /// Returns the mean of all values currently in the window.
@@ -62,6 +78,17 @@ impl MovingAverage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_replace_last_revises_without_consuming_the_window() {
+        let mut ma = MovingAverage::new(3);
+        // Empty window: replace_last degrades to add.
+        assert!((ma.replace_last(1.0) - 1.0).abs() < 0.01);
+        // Revisions overwrite the newest slot; the older entry survives.
+        assert!((ma.replace_last(3.0) - 3.0).abs() < 0.01);
+        assert!((ma.add(9.0) - 6.0).abs() < 0.01); // (3+9)/2
+        assert!((ma.replace_last(3.0) - 3.0).abs() < 0.01); // (3+3)/2
+    }
 
     #[test]
     fn test_moving_average() {
