@@ -227,6 +227,9 @@ Channel assignment and signal processing parameters are in `src/config.rs`. See 
 
 ## Building
 
+The toolchain is pinned in `rust-toolchain.toml`; rustup installs the
+matching compiler on first build.
+
 ```bash
 # Build release binary
 cargo build --release
