@@ -45,9 +45,9 @@ fn main() -> anyhow::Result<()> {
     loop {
         match audio_rx.recv_timeout(print_interval) {
             Ok(Ok(chunk)) => {
-                for frame in chunk.samples.chunks_exact(2) {
-                    left_sum += frame[0] * frame[0];
-                    right_sum += frame[1] * frame[1];
+                for &[l, r] in chunk.samples.as_chunks::<2>().0 {
+                    left_sum += l * l;
+                    right_sum += r * r;
                     count += 1;
                 }
             }

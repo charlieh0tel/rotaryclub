@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Extract RIGHT channel (north tick)
     let mut right: Vec<f32> = Vec::new();
-    for chunk in samples.chunks_exact(2) {
-        right.push(chunk[1]);
+    for &[_, r] in samples.as_chunks::<2>().0 {
+        right.push(r);
     }
 
     println!("Analyzing RIGHT channel (north tick)...\n");

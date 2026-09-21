@@ -306,7 +306,7 @@ pub fn in_band_power(samples: &[f32], sample_rate: f32, low_hz: f32, high_hz: f3
     }
     let mut total = 0.0f64;
     let mut segments = 0usize;
-    for chunk in samples.chunks_exact(SEGMENT) {
+    for chunk in samples.as_chunks::<SEGMENT>().0 {
         total += in_band_power_segment(chunk, sample_rate, low_hz, high_hz);
         segments += 1;
     }

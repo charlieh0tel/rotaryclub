@@ -22,9 +22,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut left: Vec<f32> = Vec::new();
     let mut right: Vec<f32> = Vec::new();
 
-    for chunk in samples[..analyze_samples * 2].chunks_exact(2) {
-        left.push(chunk[0]);
-        right.push(chunk[1]);
+    for &[l, r] in samples[..analyze_samples * 2].as_chunks::<2>().0 {
+        left.push(l);
+        right.push(r);
     }
 
     println!(

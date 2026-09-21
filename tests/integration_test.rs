@@ -23,7 +23,12 @@ fn test_north_tick_detection() {
     let mut tick_count = 0;
 
     for chunk in signal.chunks(chunk_size) {
-        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let stereo: Vec<(f32, f32)> = chunk
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[l, r]| (l, r))
+            .collect();
         let (_, north_tick) = config.audio.split_channels(&stereo);
 
         let ticks = north_tracker.process_buffer(&north_tick);
@@ -86,7 +91,12 @@ fn calculate_bearing_from_synthetic(
     let mut last_tick: Option<NorthTick> = None;
 
     for chunk in signal.chunks(chunk_size) {
-        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let stereo: Vec<(f32, f32)> = chunk
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[l, r]| (l, r))
+            .collect();
         let (doppler, north_tick) = config.audio.split_channels(&stereo);
 
         if let Some(ref tick) = last_tick {
@@ -260,7 +270,12 @@ fn test_real_wav_file() {
     let mut tick_count = 0;
 
     for chunk in samples.chunks(chunk_size) {
-        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let stereo: Vec<(f32, f32)> = chunk
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[l, r]| (l, r))
+            .collect();
         let (doppler, north_tick) = config.audio.split_channels(&stereo);
 
         if let Some(ref tick) = last_tick {
@@ -437,7 +452,12 @@ fn test_rotating_bearing_through_zero() {
     let mut sample_idx = 0usize;
 
     for chunk in signal.chunks(chunk_size) {
-        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let stereo: Vec<(f32, f32)> = chunk
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[l, r]| (l, r))
+            .collect();
         let (doppler, north_tick) = config.audio.split_channels(&stereo);
 
         if let Some(ref tick) = last_tick {
@@ -527,7 +547,12 @@ fn test_dc_offset_removal() {
             let mut last_tick: Option<NorthTick> = None;
 
             for chunk in signal_with_dc.chunks(chunk_size) {
-                let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+                let stereo: Vec<(f32, f32)> = chunk
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&[l, r]| (l, r))
+                    .collect();
                 let (doppler, north_tick) = config.audio.split_channels(&stereo);
 
                 if let Some(ref tick) = last_tick {
@@ -583,7 +608,12 @@ fn test_dc_offset_removal() {
             let mut last_tick: Option<NorthTick> = None;
 
             for chunk in signal_with_dc.chunks(chunk_size) {
-                let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+                let stereo: Vec<(f32, f32)> = chunk
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&[l, r]| (l, r))
+                    .collect();
                 let (mut doppler, mut north_tick) = config.audio.split_channels(&stereo);
 
                 dc_remover_doppler.process(&mut doppler);

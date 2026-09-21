@@ -52,7 +52,12 @@ fn measure_bearing_with_noise(
     let mut last_tick: Option<NorthTick> = None;
 
     for chunk in signal.chunks(chunk_size) {
-        let stereo: Vec<(f32, f32)> = chunk.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let stereo: Vec<(f32, f32)> = chunk
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[l, r]| (l, r))
+            .collect();
         let (doppler, north_tick) = config.audio.split_channels(&stereo);
 
         if let Some(ref tick) = last_tick {

@@ -737,7 +737,7 @@ impl RdfGuiApp {
         painter.circle_stroke(
             center,
             radius,
-            egui::Stroke::new(1.5, egui::Color32::from_rgb(80, 80, 100)),
+            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(80, 80, 100)),
         );
 
         for deg in (0..360).step_by(10) {
@@ -745,11 +745,11 @@ impl RdfGuiApp {
             let sin_a = angle_rad.sin();
             let cos_a = angle_rad.cos();
             let (inner, stroke_width) = if deg % 90 == 0 {
-                (0.82, 2.5)
+                (0.82, 2.5_f32)
             } else if deg % 30 == 0 {
-                (0.87, 1.5)
+                (0.87, 1.5_f32)
             } else {
-                (0.92, 0.7)
+                (0.92, 0.7_f32)
             };
             let p1 = center + egui::vec2(sin_a * radius * inner, -cos_a * radius * inner);
             let p2 = center + egui::vec2(sin_a * radius, -cos_a * radius);
@@ -785,7 +785,10 @@ impl RdfGuiApp {
             painter.circle_stroke(
                 center,
                 ring_r,
-                egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(80, 80, 100, 40)),
+                egui::Stroke::new(
+                    0.5_f32,
+                    egui::Color32::from_rgba_unmultiplied(80, 80, 100, 40),
+                ),
             );
             let label_angle: f32 = 45.0_f32.to_radians();
             let label_pos =

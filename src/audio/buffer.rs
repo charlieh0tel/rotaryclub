@@ -26,12 +26,8 @@ impl AudioRingBuffer {
 
     /// Push interleaved stereo samples [L, R, L, R, ...]
     pub fn push_interleaved(&mut self, data: &[f32]) {
-        for chunk in data.chunks_exact(2) {
-            let sample = StereoSample {
-                left: chunk[0],
-                right: chunk[1],
-            };
-            self.buffer.push(sample);
+        for &[left, right] in data.as_chunks::<2>().0 {
+            self.buffer.push(StereoSample { left, right });
         }
 
         // Keep only the most recent samples
