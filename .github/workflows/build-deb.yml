@@ -17,6 +17,10 @@ jobs:
     permissions:
       contents: write
     with:
+      # Must match rust-toolchain.toml; the toml wins when cargo runs, so
+      # without this the job installs stable and then pulls the pinned
+      # version too.
+      toolchain: "1.98.1"
       build-deps: "libasound2-dev libdbus-1-dev"
 
   update-apt-repo:
