@@ -1,0 +1,23 @@
+# The actions in .github/workflows are pinned to commit SHAs, which is
+# what makes an upgrade deliberate -- and what makes them rot silently
+# without something watching.  Dependabot understands the pinned form
+# and rewrites both the SHA and its trailing version comment.
+#
+# Grouped so the whole set arrives as one PR: each diff is a SHA and a
+# comment, and CI here runs for twenty minutes.
+#
+# Not covered: rust-toolchain.toml is not an ecosystem Dependabot knows,
+# so the compiler pin stays a manual bump, in both that file and ci.yml.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      # Ours, and deliberately tracking the v1 tag so changes there land
+      # without a commit here.
+      - dependency-name: charlieh0tel/deb-workflows/*
