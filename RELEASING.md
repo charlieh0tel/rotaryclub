@@ -61,13 +61,23 @@ This triggers the GitHub Actions workflow which automatically:
 - Creates a GitHub release with auto-generated release notes
 - Attaches the .deb packages to the release
 
-### 6. Publish to crates.io
+### 6. Check the release
+
+The tag push is the whole release: the workflow builds the binaries, runs
+the tests, builds the .deb for amd64 and arm64, and attaches them to a
+GitHub release. It also audits the dependency tree first and will not
+publish a release if an advisory is outstanding.
+
+The APT repository picks the new .deb up on its daily run, or immediately
+if you dispatch it:
 
 ```bash
-cargo publish
+gh workflow run update-repo.yml -R charlieh0tel/apt-repo
 ```
 
-Note: Ensure there are no uncommitted or untracked files in the working directory, or use `--allow-dirty` to proceed anyway.
+This crate is not published to crates.io. A `cargo publish` step used to
+be documented here, but `rotaryclub` has never existed on crates.io, so
+the step has never run.
 
 ## Version Format
 

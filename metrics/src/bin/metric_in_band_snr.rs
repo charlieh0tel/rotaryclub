@@ -126,7 +126,7 @@ fn measure(doppler: &[f32], sample_rate: f32, band_low: f32, band_high: f32) -> 
     // which would put the tone band in a different place every time.
     let mut spectrum = vec![0.0f64; bins.len()];
     let mut spectra: Vec<Vec<f64>> = Vec::new();
-    for chunk in doppler.chunks_exact(SEGMENT) {
+    for chunk in doppler.as_chunks::<SEGMENT>().0 {
         let windowed: Vec<f32> = chunk.iter().zip(&window).map(|(s, w)| s * w).collect();
         let seg: Vec<f64> = bins
             .iter()
