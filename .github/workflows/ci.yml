@@ -14,10 +14,11 @@ jobs:
   rust-ci:
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@v1
     with:
-      # rust-toolchain.toml governs the version; these keep the jobs from
-      # installing a nightly they would not end up using.
-      toolchain: "1.98.1"
-      fmt-toolchain: "1.98.1"
+      # rust-toolchain.toml governs the version and the workflow now reads
+      # the channel out of it, so neither job installs a toolchain it will
+      # not use. fmt-toolchain is emptied rather than dropped: left at its
+      # default it would fetch a nightly for rustfmt alone.
+      fmt-toolchain: ""
       check-args: "--all-targets"
       build-deps: "libasound2-dev libdbus-1-dev"
 
