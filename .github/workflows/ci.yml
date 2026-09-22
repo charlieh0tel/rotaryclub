@@ -19,7 +19,10 @@ jobs:
       # not use. fmt-toolchain is emptied rather than dropped: left at its
       # default it would fetch a nightly for rustfmt alone.
       fmt-toolchain: ""
-      check-args: "--all-targets"
+      # --workspace, not just the default package: the metrics crate is a
+      # workspace member, and without this clippy never looked at it. A lint
+      # sat there unnoticed until a release check ran clippy by hand.
+      check-args: "--workspace --all-targets"
       build-deps: "libasound2-dev libdbus-1-dev"
 
   test:
