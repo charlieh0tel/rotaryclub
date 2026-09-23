@@ -1,6 +1,8 @@
 [package]
 name = "rotaryclub"
 version = "4.3.1"
+# Not published today. Delete this line when it should be.
+publish = false
 edition = "2024"
 authors = ["Christopher Hoover <ch@murgatroid.com>"]
 license = "Apache-2.0"
