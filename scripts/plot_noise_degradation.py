@@ -9,10 +9,11 @@ Usage:
     cargo run --release --bin noise_analysis --features test-utils | python scripts/plot_noise_degradation.py
 """
 
-import sys
 import csv
-import matplotlib.pyplot as plt
+import sys
 from collections import defaultdict
+
+import matplotlib.pyplot as plt
 
 
 def parse_csv(input_stream):
@@ -39,17 +40,42 @@ def parse_csv(input_stream):
     return data
 
 
-def plot_panel(ax, params, zc_mean, zc_std, corr_mean, corr_std, title, xlabel, ylabel="Mean Error (degrees)"):
+def plot_panel(
+    ax,
+    params,
+    zc_mean,
+    zc_std,
+    corr_mean,
+    corr_std,
+    title,
+    xlabel,
+    ylabel="Mean Error (degrees)",
+):
     """Plot a single panel with both methods and error bars."""
     ax.errorbar(
-        params, zc_mean, yerr=zc_std,
-        fmt="b-o", label="Zero-Crossing", markersize=4, linewidth=1.5,
-        capsize=2, capthick=1, alpha=0.8
+        params,
+        zc_mean,
+        yerr=zc_std,
+        fmt="b-o",
+        label="Zero-Crossing",
+        markersize=4,
+        linewidth=1.5,
+        capsize=2,
+        capthick=1,
+        alpha=0.8,
     )
     ax.errorbar(
-        params, corr_mean, yerr=corr_std,
-        fmt="r--s", label="Correlation", markersize=3, linewidth=1.5,
-        capsize=2, capthick=1, alpha=0.8, markerfacecolor="none"
+        params,
+        corr_mean,
+        yerr=corr_std,
+        fmt="r--s",
+        label="Correlation",
+        markersize=3,
+        linewidth=1.5,
+        capsize=2,
+        capthick=1,
+        alpha=0.8,
+        markerfacecolor="none",
     )
     ax.set_title(title)
     ax.set_xlabel(xlabel)
@@ -63,7 +89,9 @@ def main():
     data = parse_csv(sys.stdin)
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("RDF Bearing Estimation: Noise Degradation Analysis (N=10 trials)", fontsize=14)
+    fig.suptitle(
+        "RDF Bearing Estimation: Noise Degradation Analysis (N=10 trials)", fontsize=14
+    )
 
     if "awgn" in data:
         plot_panel(

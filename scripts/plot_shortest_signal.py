@@ -27,8 +27,8 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.patheffects as path_effects  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.patheffects as path_effects
+import matplotlib.pyplot as plt
 
 # Fixed order, never cycled. Validated for colour-vision deficiency against the
 # chart surface; series are direct-labelled as well, which the low-contrast

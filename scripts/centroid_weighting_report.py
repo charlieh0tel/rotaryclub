@@ -25,13 +25,14 @@ Usage:
     python3 scripts/centroid_weighting_report.py --cutoff 1000      # one cutoff
     python3 scripts/centroid_weighting_report.py --loop             # add DPLL curves
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
 import wave
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -49,7 +50,7 @@ ROTATION_HZ_NOMINAL = 1602.564
 DEFAULT_CUTOFFS = (1000.0, 5000.0)
 
 # Weighting schemes. Name -> (exponent, clip-to-positive).
-SCHEMES: Dict[str, Tuple[int, bool]] = {
+SCHEMES: dict[str, tuple[int, bool]] = {
     "amplitude clipped": (1, True),
     "energy clipped": (2, True),
     "energy unclipped": (2, False),
@@ -60,7 +61,7 @@ WIDTHS = (2, 3, 4, 5, 6, 8)
 LOOP_BANDWIDTHS = (0.5, 2.0, 8.0, 20.0)
 
 
-def read_channel(path: Path, channel: int) -> Tuple[float, np.ndarray]:
+def read_channel(path: Path, channel: int) -> tuple[float, np.ndarray]:
     with wave.open(str(path), "rb") as handle:
         rate = handle.getframerate()
         frames = handle.getnframes()
@@ -85,7 +86,7 @@ def find_picks(y: np.ndarray, rate: float) -> np.ndarray:
     period = rate / ROTATION_HZ_NOMINAL
     threshold = 0.35 * np.abs(y).max()
     candidates = np.where(np.abs(y) > threshold)[0]
-    picks: List[int] = []
+    picks: list[int] = []
     last = -1e9
     for i in candidates:
         if i - last > 0.7 * period:
@@ -136,7 +137,9 @@ def parabolic_offset(v: np.ndarray, j: int) -> float:
     return float(np.clip(0.5 * (a - c) / denominator, -1, 1))
 
 
-def build_template(y: np.ndarray, picks: np.ndarray, offsets: np.ndarray, W: int = 8) -> np.ndarray:
+def build_template(
+    y: np.ndarray, picks: np.ndarray, offsets: np.ndarray, W: int = 8
+) -> np.ndarray:
     """Average the pulses onto a common sub-sample grid by sinc resampling."""
     n = np.arange(-W, W + 1)
     accumulator = np.zeros(2 * W + 1)
@@ -152,7 +155,9 @@ def build_template(y: np.ndarray, picks: np.ndarray, offsets: np.ndarray, W: int
     return template / peak if peak > 0 else template
 
 
-def matched_filter_offsets(y: np.ndarray, picks: np.ndarray, template: np.ndarray, W: int = 8) -> np.ndarray:
+def matched_filter_offsets(
+    y: np.ndarray, picks: np.ndarray, template: np.ndarray, W: int = 8
+) -> np.ndarray:
     out = []
     for j in picks:
         lo, hi = j - W - 3, j + W + 4
@@ -166,7 +171,7 @@ def matched_filter_offsets(y: np.ndarray, picks: np.ndarray, template: np.ndarra
     return np.array(out)
 
 
-def fit_rotation(epochs: np.ndarray, rate: float) -> Tuple[float, np.ndarray]:
+def fit_rotation(epochs: np.ndarray, rate: float) -> tuple[float, np.ndarray]:
     """Fit samples-per-rotation and return the modelled epoch of each tick."""
     period = rate / ROTATION_HZ_NOMINAL
     k = np.round((epochs - epochs[0]) / period)
@@ -177,7 +182,9 @@ def fit_rotation(epochs: np.ndarray, rate: float) -> Tuple[float, np.ndarray]:
     return float(fit[0]), np.polyval(fit, k)
 
 
-def run_dpll(epochs: np.ndarray, rate: float, f0: float, bandwidth: float, zeta: float = 0.707) -> np.ndarray:
+def run_dpll(
+    epochs: np.ndarray, rate: float, f0: float, bandwidth: float, zeta: float = 0.707
+) -> np.ndarray:
     """Second-order loop, emitting the NCO prediction for each tick."""
     wn = 2 * np.pi * bandwidth / f0
     kp = 2 * zeta * wn
@@ -220,12 +227,14 @@ def measure(path: Path, cutoff: float, skip: int, with_loop: bool, stride: int) 
         return float(np.sqrt(np.mean(np.clip(residual, -3, 3) ** 2)) / period * 360.0)
 
     print(f"\n=== {path.name}   highpass {cutoff:g} Hz ===")
-    print(f"rate {f0:.4f} Hz   ticks {len(picks)}   one sample = {360.0/period:.1f} deg")
+    print(
+        f"rate {f0:.4f} Hz   ticks {len(picks)}   one sample = {360.0 / period:.1f} deg"
+    )
     print("\nraw per-tick RMS bearing error, degrees")
     header = "".join(f"  w={w:<5}" for w in WIDTHS)
     print(f"{'scheme':<21}{header}")
 
-    best: Dict[str, Tuple[int, float]] = {}
+    best: dict[str, tuple[int, float]] = {}
     for name, (exponent, clip) in SCHEMES.items():
         row = []
         for w in WIDTHS:
@@ -234,8 +243,12 @@ def measure(path: Path, cutoff: float, skip: int, with_loop: bool, stride: int) 
         best[name] = (WIDTHS[int(np.argmin(row))], min(row))
         print(f"{name:<21}" + "".join(f"{v:7.3f} " for v in row))
 
-    print(f"{'hard limiter':<21}{bearing_rms((picks - model)[skip:]):7.3f}  (no interpolation)")
-    print(f"{'matched filter':<21}{bearing_rms((picks + mf - model)[skip:]):7.3f}  (template from this capture)")
+    print(
+        f"{'hard limiter':<21}{bearing_rms((picks - model)[skip:]):7.3f}  (no interpolation)"
+    )
+    print(
+        f"{'matched filter':<21}{bearing_rms((picks + mf - model)[skip:]):7.3f}  (template from this capture)"
+    )
 
     if not with_loop:
         return
@@ -259,7 +272,9 @@ def measure(path: Path, cutoff: float, skip: int, with_loop: bool, stride: int) 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--wav", type=Path, default=DEFAULT_WAV, help="capture to measure")
+    parser.add_argument(
+        "--wav", type=Path, default=DEFAULT_WAV, help="capture to measure"
+    )
     parser.add_argument(
         "--cutoff",
         type=float,

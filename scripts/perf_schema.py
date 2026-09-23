@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, Mapping, Sequence, Tuple
-import json
-import subprocess
-from datetime import datetime, timezone
 import hashlib
+import json
+import math
+import subprocess
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -37,8 +37,8 @@ def summarize_rows(
     rows: Iterable[Mapping[str, str]],
     group_keys: Sequence[str],
     metrics: Sequence[MetricSpec],
-) -> Dict[Tuple[str, ...], Dict[str, float]]:
-    summary: Dict[Tuple[str, ...], Dict[str, float]] = {}
+) -> dict[tuple[str, ...], dict[str, float]]:
+    summary: dict[tuple[str, ...], dict[str, float]] = {}
     for row in rows:
         key = tuple(row[k] for k in group_keys)
         if key not in summary:
@@ -60,8 +60,8 @@ def evaluate_row_against_limits(
     limits: Mapping[str, float],
     metrics: Sequence[MetricSpec],
     epsilon: float,
-) -> List[str]:
-    violations: List[str] = []
+) -> list[str]:
+    violations: list[str] = []
     for spec in metrics:
         observed = float(row[spec.name])
         limit = limits[spec.name]
@@ -87,7 +87,7 @@ def unsupported_metrics(
     exempt: Sequence[str] = (),
     physical_max: Mapping[str, float] = {},
     sigmas: float = 3.0,
-) -> List[str]:
+) -> list[str]:
     """Metrics whose spread is too large for this row to support a verdict.
 
     A limit check answers "is the value inside the limit". This answers the
@@ -115,7 +115,7 @@ def unsupported_metrics(
     itself a rough one -- about 40 percent at four draws.
     """
     draws = float(row.get("draws", 0) or 0)
-    failures: List[str] = []
+    failures: list[str] = []
     for spec in metrics:
         if spec.name in exempt:
             continue
@@ -140,7 +140,9 @@ def unsupported_metrics(
         margin = (value - limit) if spec.direction == "min" else (limit - value)
         if margin <= 0.0:
             continue
-        inflation = 1.0 + 1.0 / math.sqrt(2.0 * (draws - 1.0)) if draws > 1.0 else float("inf")
+        inflation = (
+            1.0 + 1.0 / math.sqrt(2.0 * (draws - 1.0)) if draws > 1.0 else float("inf")
+        )
         if sigmas * se * inflation > margin:
             failures.append(spec.name)
     return failures
@@ -148,10 +150,10 @@ def unsupported_metrics(
 
 def fine_coverage_failures(
     rows: Sequence[Mapping[str, str]],
-    group_key_fn: Callable[[Mapping[str, str]], Tuple[str, ...]],
-    fine_key_fn: Callable[[Mapping[str, str]], Tuple[str, ...]],
-    expected_count: Callable[[Tuple[str, ...]], int],
-) -> List[str]:
+    group_key_fn: Callable[[Mapping[str, str]], tuple[str, ...]],
+    fine_key_fn: Callable[[Mapping[str, str]], tuple[str, ...]],
+    expected_count: Callable[[tuple[str, ...]], int],
+) -> list[str]:
     """Fail when a group is missing rows of its finer matrix dimensions.
 
     The coarse coverage check only ensures each (mode, scenario) key appears;
@@ -161,11 +163,11 @@ def fine_coverage_failures(
     """
     from collections import defaultdict
 
-    fine: Dict[Tuple[str, ...], set] = defaultdict(set)
+    fine: dict[tuple[str, ...], set] = defaultdict(set)
     for row in rows:
         fine[group_key_fn(row)].add(fine_key_fn(row))
 
-    failures: List[str] = []
+    failures: list[str] = []
     for group in sorted(fine.keys()):
         want = expected_count(group)
         got = len(fine[group])
@@ -178,16 +180,16 @@ def fine_coverage_failures(
 
 def coverage_failures(
     rows: Sequence[Mapping[str, str]],
-    key_fn: Callable[[Mapping[str, str]], Tuple[str, ...]],
-    expected_keys: Iterable[Tuple[str, ...]],
-) -> List[str]:
+    key_fn: Callable[[Mapping[str, str]], tuple[str, ...]],
+    expected_keys: Iterable[tuple[str, ...]],
+) -> list[str]:
     """Fail when the metric rows do not cover the expected matrix.
 
     A harness regression that emits no rows (or silently skips scenarios)
     must not pass just because every row that *does* exist is within limits.
     Exact-duplicate rows are also rejected.
     """
-    failures: List[str] = []
+    failures: list[str] = []
     if not rows:
         failures.append("FAIL no metric rows produced")
         return failures
@@ -196,7 +198,7 @@ def coverage_failures(
     for key in sorted(set(expected_keys) - seen):
         failures.append(f"FAIL missing metric rows for {key}")
 
-    counts: Dict[Tuple[Tuple[str, str], ...], int] = {}
+    counts: dict[tuple[tuple[str, str], ...], int] = {}
     for row in rows:
         row_id = tuple(sorted(row.items()))
         counts[row_id] = counts.get(row_id, 0) + 1
@@ -211,7 +213,7 @@ def render_markdown_table(
     headers: Sequence[str],
     aligns: Sequence[str],
     rows: Sequence[Sequence[str]],
-) -> List[str]:
+) -> list[str]:
     if len(headers) != len(aligns):
         raise ValueError("headers and aligns length mismatch")
 
@@ -241,7 +243,9 @@ def _git(*args: str) -> str:
         return subprocess.run(
             ["git", *args], check=True, capture_output=True, text=True
         ).stdout.strip()
-    except Exception:
+    except (subprocess.CalledProcessError, OSError):
+        # A git that fails or is missing means no digest; anything else here
+        # would be a bug in this file and should not be silent.
         return ""
 
 
@@ -284,7 +288,9 @@ def source_digest(roots: Sequence[str] = ("src", "metrics")) -> str:
     return digest.hexdigest()
 
 
-def write_metrics(path: Path, harness: str, rows_from: Callable[[object], None]) -> None:
+def write_metrics(
+    path: Path, harness: str, rows_from: Callable[[object], None]
+) -> None:
     """Write a JSONL metrics file: a meta record, then the harness's rows.
 
     The harnesses print their rows to stdout and this is the only place that
@@ -306,12 +312,12 @@ def write_metrics(path: Path, harness: str, rows_from: Callable[[object], None])
         rows_from(handle)
 
 
-def read_metrics(path: Path) -> Tuple[Dict[str, object], List[Dict[str, object]]]:
+def read_metrics(path: Path) -> tuple[dict[str, object], list[dict[str, object]]]:
     """Read a JSONL metrics file into its meta record and its rows."""
     if not path.exists():
         raise SystemExit(f"{path} does not exist; run the `run` subcommand first")
-    meta: Dict[str, object] = {}
-    rows: List[Dict[str, object]] = []
+    meta: dict[str, object] = {}
+    rows: list[dict[str, object]] = []
     with path.open(encoding="utf-8") as handle:
         for number, line in enumerate(handle, start=1):
             line = line.strip()
@@ -342,7 +348,9 @@ def assert_metrics_are_current(path: Path, meta: Mapping[str, object]) -> None:
         )
     recorded = meta.get("source_digest")
     if not recorded:
-        raise SystemExit(f"{path} predates source digests. Re-run the `run` subcommand.")
+        raise SystemExit(
+            f"{path} predates source digests. Re-run the `run` subcommand."
+        )
     current = source_digest()
     if recorded != current:
         raise SystemExit(
@@ -352,5 +360,3 @@ def assert_metrics_are_current(path: Path, meta: Mapping[str, object]) -> None:
             f"Note that the harness prints to stdout; only `run` redirects it "
             f"into this file."
         )
-
-

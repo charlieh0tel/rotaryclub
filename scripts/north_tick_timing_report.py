@@ -5,19 +5,18 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, Tuple
 
 from perf_schema import (
-    assert_metrics_are_current,
-    read_metrics,
-    write_metrics,
-    coverage_failures,
-    fine_coverage_failures,
     MetricSpec,
+    assert_metrics_are_current,
+    coverage_failures,
     evaluate_row_against_limits,
-    unsupported_metrics,
+    fine_coverage_failures,
+    read_metrics,
     render_markdown_table,
     summarize_rows,
+    unsupported_metrics,
+    write_metrics,
 )
 
 # Timing spread is machine load, which no number of draws averages away, so
@@ -61,7 +60,7 @@ METRICS = [
 # row plus three inflated standard errors, times 1.5 for error columns, plus
 # 0.01 for false-positive rates, minus 0.02 for detection floors -- so a
 # limit is always close enough to measurement to fail.
-BASELINE_LIMITS: Dict[Tuple[str, str], Dict[str, float]] = {
+BASELINE_LIMITS: dict[tuple[str, str], dict[str, float]] = {
     ("dpll", "clean"): {
         "detection_rate": 0.979,
         "false_positive_rate": 0.01,
@@ -158,7 +157,15 @@ def run_example(metrics_path: Path) -> None:
         metrics_path,
         "north_tick_timing",
         lambda handle: subprocess.run(
-            ["cargo", "run", "--release", "-p", "rotaryclub-metrics", "--bin", "gate_north_tick"],
+            [
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "rotaryclub-metrics",
+                "--bin",
+                "gate_north_tick",
+            ],
             check=True,
             stdout=handle,
         ),
@@ -175,7 +182,9 @@ def evaluate_thresholds(
     failed_rows: list[dict[str, str]] = []
 
     failures.extend(
-        coverage_failures(rows, lambda row: (row["mode"], row["scenario"]), BASELINE_LIMITS.keys())
+        coverage_failures(
+            rows, lambda row: (row["mode"], row["scenario"]), BASELINE_LIMITS.keys()
+        )
     )
     failures.extend(
         fine_coverage_failures(
@@ -205,7 +214,9 @@ def evaluate_thresholds(
         if overrides["false_positive_rate"] is not None:
             limits["false_positive_rate"] = float(overrides["false_positive_rate"])
         if overrides["mean_abs_error_samples"] is not None:
-            limits["mean_abs_error_samples"] = float(overrides["mean_abs_error_samples"])
+            limits["mean_abs_error_samples"] = float(
+                overrides["mean_abs_error_samples"]
+            )
         if overrides["p95_abs_error_samples"] is not None:
             limits["p95_abs_error_samples"] = float(overrides["p95_abs_error_samples"])
 
@@ -229,15 +240,22 @@ def evaluate_thresholds(
             )
             failed_rows.append({**row, "reason": "unsupported by the measurement"})
         if violations:
-            observed = " ".join(f"{m.name}={m.format_value(float(row[m.name]))}" for m in METRICS)
-            limits_text = " ".join(f"limit_{m.name}={m.format_value(limits[m.name])}" for m in METRICS)
+            observed = " ".join(
+                f"{m.name}={m.format_value(float(row[m.name]))}" for m in METRICS
+            )
+            limits_text = " ".join(
+                f"limit_{m.name}={m.format_value(limits[m.name])}" for m in METRICS
+            )
             failures.append(
                 f"FAIL row: {row} ({observed}; {limits_text}; violations={','.join(violations)})"
             )
             failed_rows.append(
                 {
                     **row,
-                    **{f"limit_{m.name}": m.format_value(limits[m.name]) for m in METRICS},
+                    **{
+                        f"limit_{m.name}": m.format_value(limits[m.name])
+                        for m in METRICS
+                    },
                     "reason": "threshold exceeded",
                 }
             )
@@ -245,11 +263,10 @@ def evaluate_thresholds(
     return failures, failed_rows
 
 
-def write_failed_rows(rows: list[dict[str, str]], failed_rows_path: Path, input_rows: list[dict[str, str]]) -> None:
+def write_failed_rows(
+    rows: list[dict[str, str]], failed_rows_path: Path, input_rows: list[dict[str, str]]
+) -> None:
     failed_rows_path.parent.mkdir(parents=True, exist_ok=True)
-    input_fields = list(input_rows[0].keys()) if input_rows else []
-    limit_fields = [f"limit_{m.name}" for m in METRICS]
-    fieldnames = input_fields + limit_fields + ["reason"]
     with failed_rows_path.open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row) + "\n")
@@ -271,14 +288,25 @@ def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
     ]
     lines.extend(["Using baseline thresholds.", ""])
 
-    threshold_headers = ["mode", "scenario", "threshold set"] + [f"limit {m.display_name}" for m in METRICS]
+    threshold_headers = ["mode", "scenario", "threshold set"] + [
+        f"limit {m.display_name}" for m in METRICS
+    ]
     threshold_aligns = ["left", "left", "left"] + ["right"] * len(METRICS)
     threshold_rows = []
     for mode, scenario in sorted(BASELINE_LIMITS.keys()):
-        threshold_set = "impulsive_interference_simple_mode" if (mode, scenario) == ("simple", "impulsive_interference") else scenario
+        threshold_set = (
+            "impulsive_interference_simple_mode"
+            if (mode, scenario) == ("simple", "impulsive_interference")
+            else scenario
+        )
         lim = profile_limits[(mode, scenario)]
-        threshold_rows.append([mode, scenario, threshold_set] + [m.format_value(lim[m.name]) for m in METRICS])
-    lines.extend(render_markdown_table(threshold_headers, threshold_aligns, threshold_rows))
+        threshold_rows.append(
+            [mode, scenario, threshold_set]
+            + [m.format_value(lim[m.name]) for m in METRICS]
+        )
+    lines.extend(
+        render_markdown_table(threshold_headers, threshold_aligns, threshold_rows)
+    )
 
     lines.extend(["", "## Metrics", ""])
     metric_headers = ["mode", "scenario", "rows"] + [m.display_name for m in METRICS]
@@ -286,12 +314,17 @@ def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
     metric_rows = []
     for mode, scenario in sorted(grouped.keys()):
         s = grouped[(mode, scenario)]
-        metric_rows.append([mode, scenario, str(int(s["rows"]))] + [m.format_value(s[m.name]) for m in METRICS])
+        metric_rows.append(
+            [mode, scenario, str(int(s["rows"]))]
+            + [m.format_value(s[m.name]) for m in METRICS]
+        )
     lines.extend(render_markdown_table(metric_headers, metric_aligns, metric_rows))
     return lines
 
 
-def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: int) -> list[str]:
+def append_failed_rows_md(
+    lines: list[str], failed_rows_path: Path, max_rows: int
+) -> list[str]:
     lines.extend(["", "## Threshold Check", ""])
     if not failed_rows_path.exists():
         lines.append(f"`{failed_rows_path}` not found.")
@@ -308,7 +341,9 @@ def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: in
         + [f"limit {m.display_name}" for m in METRICS]
         + ["reason"]
     )
-    aligns = ["left", "left", "right", "right"] + ["right"] * (len(METRICS) * 2) + ["left"]
+    aligns = (
+        ["left", "left", "right", "right"] + ["right"] * (len(METRICS) * 2) + ["left"]
+    )
     table_rows = []
     for row in rows[:max_rows]:
         table_rows.append(
@@ -328,7 +363,13 @@ def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: in
     return lines
 
 
-def write_summary(metrics_path: Path, summary_path: Path, profile: str, failed_rows_path: Path | None, max_rows: int) -> None:
+def write_summary(
+    metrics_path: Path,
+    summary_path: Path,
+    profile: str,
+    failed_rows_path: Path | None,
+    max_rows: int,
+) -> None:
     meta, rows = read_metrics(metrics_path)
     assert_metrics_are_current(metrics_path, meta)
     lines = build_summary_lines(rows, profile)
@@ -404,7 +445,9 @@ def cmd_ci(args: argparse.Namespace) -> int:
     write_failed_rows(failed_rows, failed_rows_path, rows)
     print(f"Wrote {failed_rows_path}")
 
-    write_summary(metrics_path, summary_path, "baseline", failed_rows_path, args.max_rows)
+    write_summary(
+        metrics_path, summary_path, "baseline", failed_rows_path, args.max_rows
+    )
     print(f"Wrote {summary_path}")
 
     if failures:
