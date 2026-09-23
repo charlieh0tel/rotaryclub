@@ -24,7 +24,7 @@ default-members = ["."]
 cpal = { version = "0.17", features = ["audio_thread_priority"] }
 
 # Signal Processing
-pm-remez = "0.2"
+pm-remez = "0.3"
 
 # Concurrency and Real-time
 crossbeam-channel = "0.5"
