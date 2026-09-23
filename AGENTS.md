@@ -4,6 +4,8 @@
 - Always run `cargo clippy` after major changes and always before commits.
 - All tests must pass before committing (`cargo test`).
 - Use relative imports.
+- Use item-level imports, not nested crate/module imports.
+- Prefer `use` statements at module top over inline imports.
 - Do not add trivial, obvious or redundant comments.
 - Do not add Claude attribution to commit messages.
 - PRs should generally be comprised of one functional change; suggest
