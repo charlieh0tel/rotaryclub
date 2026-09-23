@@ -69,7 +69,7 @@ required-features = ["simulation"]
 
 [features]
 simulation = ["rand", "rand_distr", "rand_chacha"]
-gui = ["dep:eframe", "dep:egui_plot"]
+gui = ["dep:eframe", "dep:egui_plot", "dep:winit"]
 
 [dependencies.serde]
 version = "1.0"
@@ -82,11 +82,20 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.eframe]
-version = "0.33"
+version = "0.36"
+optional = true
+default-features = false
+features = ["accesskit", "default_fonts", "glow", "wayland", "x11"]
+
+# Not used directly. eframe is built without default features so it keeps
+# the glow renderer, which also drops winit's defaults; this restores them
+# (Wayland client-side title bars on GNOME, and runtime-loaded libwayland).
+[dependencies.winit]
+version = "0.30"
 optional = true
 
 [dependencies.egui_plot]
-version = "0.34"
+version = "0.37"
 optional = true
 
 [dependencies.rand]

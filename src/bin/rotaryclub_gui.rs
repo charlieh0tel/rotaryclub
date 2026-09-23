@@ -1113,7 +1113,8 @@ impl eframe::App for RdfGuiApp {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         self.drain_updates();
         ctx.request_repaint();
 
@@ -1148,7 +1149,7 @@ impl eframe::App for RdfGuiApp {
             }
         }
 
-        egui::TopBottomPanel::top("status_bar").show(ctx, |ui| {
+        egui::Panel::top("status_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if self.is_file_input {
                     let playing = self.is_playing.load(Ordering::Relaxed);
@@ -1291,10 +1292,10 @@ impl eframe::App for RdfGuiApp {
             });
         });
 
-        egui::TopBottomPanel::bottom("debug_log")
+        egui::Panel::bottom("debug_log")
             .resizable(true)
-            .default_height(150.0)
-            .show(ctx, |ui| {
+            .default_size(150.0)
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Debug Log")
@@ -1318,10 +1319,10 @@ impl eframe::App for RdfGuiApp {
                     });
             });
 
-        egui::SidePanel::left("compass_panel")
-            .default_width(350.0)
+        egui::Panel::left("compass_panel")
+            .default_size(350.0)
             .resizable(false)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     ui.label(
@@ -1334,7 +1335,7 @@ impl eframe::App for RdfGuiApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Window:").color(egui::Color32::LIGHT_GRAY));
                 ui.add(
