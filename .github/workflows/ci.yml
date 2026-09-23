@@ -148,3 +148,19 @@ jobs:
           --title "System Pipeline Baseline Threshold Failures (Top Rows)" \
           --max-rows 10 >> "$GITHUB_STEP_SUMMARY"
 
+
+  # The scripts under scripts/ are not incidental: three of them run in the
+  # job above and decide whether the performance gates pass. Nothing checked
+  # them until now.
+  python-ci:
+    uses: charlieh0tel/deb-workflows/.github/workflows/python-ci.yml@v1
+    with:
+      # No test suite here; the scripts are exercised by the metrics jobs.
+      test-command: ""
+      # No requirements.txt either: matplotlib and pandas are a developer's
+      # concern, not CI's, since CI only lints them.
+      requirements-file: ""
+      # Nothing to audit. With no project dependencies, bare pip-audit would
+      # report on whatever the runner image's interpreter ships, which is not
+      # this repository's business.
+      audit-command: ""
