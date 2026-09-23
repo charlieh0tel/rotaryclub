@@ -5,19 +5,18 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, Tuple
 
 from perf_schema import (
-    assert_metrics_are_current,
-    read_metrics,
-    write_metrics,
-    coverage_failures,
-    fine_coverage_failures,
     MetricSpec,
+    assert_metrics_are_current,
+    coverage_failures,
     evaluate_row_against_limits,
-    unsupported_metrics,
+    fine_coverage_failures,
+    read_metrics,
     render_markdown_table,
     summarize_rows,
+    unsupported_metrics,
+    write_metrics,
 )
 
 # Timing spread is machine load, which no number of draws averages away, so
@@ -25,8 +24,11 @@ from perf_schema import (
 SUPPORT_EXEMPT = ("mean_us_per_sample", "p95_us_per_sample")
 # A bearing error cannot exceed 180 degrees. A limit at or above that cannot
 # be crossed, so its margin is not a real one and must not demand precision.
-PHYSICAL_MAX = {"mean_abs_bearing_error_deg": 180.0, "p95_abs_bearing_error_deg": 180.0,
-    "max_abs_bearing_error_deg": 180.0}
+PHYSICAL_MAX = {
+    "mean_abs_bearing_error_deg": 180.0,
+    "p95_abs_bearing_error_deg": 180.0,
+    "max_abs_bearing_error_deg": 180.0,
+}
 
 EPSILON = 1e-6
 
@@ -97,7 +99,7 @@ EXPECTED_BUFFER_SIZES = 3
 # added below on their own policy: they carry measured cross-session host
 # variance (0.9 to 2.5 us/sample on identical code) and exist to catch
 # algorithmic blowups, not to referee the scheduler.
-BASELINE_LIMITS: Dict[Tuple[str, str, str], Dict[str, float]] = {
+BASELINE_LIMITS: dict[tuple[str, str, str], dict[str, float]] = {
     ("dpll", "correlation", "clean"): {
         "bearing_success_rate": 0.98,
         "detection_rate": 0.979,
@@ -278,7 +280,15 @@ def run_example(metrics_path: Path) -> None:
         metrics_path,
         "system_pipeline",
         lambda handle: subprocess.run(
-            ["cargo", "run", "--release", "-p", "rotaryclub-metrics", "--bin", "gate_pipeline"],
+            [
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "rotaryclub-metrics",
+                "--bin",
+                "gate_pipeline",
+            ],
             check=True,
             stdout=handle,
         ),
@@ -295,7 +305,11 @@ def evaluate_thresholds(
     failed_rows: list[dict[str, str]] = []
 
     failures.extend(
-        coverage_failures(rows, lambda row: (row["north_mode"], row["bearing_method"], row["scenario"]), BASELINE_LIMITS.keys())
+        coverage_failures(
+            rows,
+            lambda row: (row["north_mode"], row["bearing_method"], row["scenario"]),
+            BASELINE_LIMITS.keys(),
+        )
     )
     failures.extend(
         fine_coverage_failures(
@@ -344,15 +358,22 @@ def evaluate_thresholds(
             )
             failed_rows.append({**row, "reason": "unsupported by the measurement"})
         if violations:
-            observed = " ".join(f"{m.name}={m.format_value(float(row[m.name]))}" for m in METRICS)
-            limits_text = " ".join(f"limit_{m.name}={m.format_value(limits[m.name])}" for m in METRICS)
+            observed = " ".join(
+                f"{m.name}={m.format_value(float(row[m.name]))}" for m in METRICS
+            )
+            limits_text = " ".join(
+                f"limit_{m.name}={m.format_value(limits[m.name])}" for m in METRICS
+            )
             failures.append(
                 f"FAIL row: {row} ({observed}; {limits_text}; violations={','.join(violations)})"
             )
             failed_rows.append(
                 {
                     **row,
-                    **{f"limit_{m.name}": m.format_value(limits[m.name]) for m in METRICS},
+                    **{
+                        f"limit_{m.name}": m.format_value(limits[m.name])
+                        for m in METRICS
+                    },
                     "reason": "threshold exceeded",
                 }
             )
@@ -360,18 +381,19 @@ def evaluate_thresholds(
     return failures, failed_rows
 
 
-def write_failed_rows(rows: list[dict[str, str]], failed_rows_path: Path, input_rows: list[dict[str, str]]) -> None:
+def write_failed_rows(
+    rows: list[dict[str, str]], failed_rows_path: Path, input_rows: list[dict[str, str]]
+) -> None:
     failed_rows_path.parent.mkdir(parents=True, exist_ok=True)
-    input_fields = list(input_rows[0].keys()) if input_rows else []
-    limit_fields = [f"limit_{m.name}" for m in METRICS]
-    fieldnames = input_fields + limit_fields + ["reason"]
     with failed_rows_path.open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row) + "\n")
 
 
 def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
-    grouped = summarize_rows(rows, group_keys=["north_mode", "bearing_method", "scenario"], metrics=METRICS)
+    grouped = summarize_rows(
+        rows, group_keys=["north_mode", "bearing_method", "scenario"], metrics=METRICS
+    )
     profile_limits = {key: dict(val) for key, val in BASELINE_LIMITS.items()}
 
     lines = [
@@ -387,19 +409,30 @@ def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
     ]
     lines.extend(["Using baseline thresholds.", ""])
 
-    threshold_headers = ["north", "bearing", "scenario", "threshold set"] + [f"limit {m.display_name}" for m in METRICS]
+    threshold_headers = ["north", "bearing", "scenario", "threshold set"] + [
+        f"limit {m.display_name}" for m in METRICS
+    ]
     threshold_aligns = ["left", "left", "left", "left"] + ["right"] * len(METRICS)
     threshold_rows = []
     for north_mode, bearing_method, scenario in sorted(BASELINE_LIMITS.keys()):
         lim = profile_limits[(north_mode, bearing_method, scenario)]
         threshold_rows.append(
-            [north_mode, bearing_method, scenario, f"{north_mode}_{bearing_method}_{scenario}_{profile}"]
+            [
+                north_mode,
+                bearing_method,
+                scenario,
+                f"{north_mode}_{bearing_method}_{scenario}_{profile}",
+            ]
             + [m.format_value(lim[m.name]) for m in METRICS]
         )
-    lines.extend(render_markdown_table(threshold_headers, threshold_aligns, threshold_rows))
+    lines.extend(
+        render_markdown_table(threshold_headers, threshold_aligns, threshold_rows)
+    )
 
     lines.extend(["", "## Metrics", ""])
-    metric_headers = ["north", "bearing", "scenario", "rows"] + [m.display_name for m in METRICS]
+    metric_headers = ["north", "bearing", "scenario", "rows"] + [
+        m.display_name for m in METRICS
+    ]
     metric_aligns = ["left", "left", "left", "right"] + ["right"] * len(METRICS)
     metric_rows = []
     for north_mode, bearing_method, scenario in sorted(grouped.keys()):
@@ -412,7 +445,9 @@ def build_summary_lines(rows: list[dict[str, str]], profile: str) -> list[str]:
     return lines
 
 
-def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: int) -> list[str]:
+def append_failed_rows_md(
+    lines: list[str], failed_rows_path: Path, max_rows: int
+) -> list[str]:
     lines.extend(["", "## Threshold Check", ""])
     if not failed_rows_path.exists():
         lines.append(f"`{failed_rows_path}` not found.")
@@ -429,7 +464,9 @@ def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: in
         + [f"limit {m.display_name}" for m in METRICS]
         + ["reason"]
     )
-    aligns = ["left", "left", "left", "right"] + ["right"] * (len(METRICS) * 2) + ["left"]
+    aligns = (
+        ["left", "left", "left", "right"] + ["right"] * (len(METRICS) * 2) + ["left"]
+    )
     table_rows = []
     for row in rows[:max_rows]:
         table_rows.append(
@@ -449,7 +486,13 @@ def append_failed_rows_md(lines: list[str], failed_rows_path: Path, max_rows: in
     return lines
 
 
-def write_summary(metrics_path: Path, summary_path: Path, profile: str, failed_rows_path: Path | None, max_rows: int) -> None:
+def write_summary(
+    metrics_path: Path,
+    summary_path: Path,
+    profile: str,
+    failed_rows_path: Path | None,
+    max_rows: int,
+) -> None:
     meta, rows = read_metrics(metrics_path)
     assert_metrics_are_current(metrics_path, meta)
     lines = build_summary_lines(rows, profile)
@@ -537,7 +580,9 @@ def cmd_ci(args: argparse.Namespace) -> int:
     write_failed_rows(failed_rows, failed_rows_path, rows)
     print(f"Wrote {failed_rows_path}")
 
-    write_summary(metrics_path, summary_path, "baseline", failed_rows_path, args.max_rows)
+    write_summary(
+        metrics_path, summary_path, "baseline", failed_rows_path, args.max_rows
+    )
     print(f"Wrote {summary_path}")
 
     if failures:
@@ -549,11 +594,15 @@ def cmd_ci(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="System pipeline performance report tool")
+    parser = argparse.ArgumentParser(
+        description="System pipeline performance report tool"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--out-dir", type=Path, default=Path("target/system-pipeline-perf"))
+    common.add_argument(
+        "--out-dir", type=Path, default=Path("target/system-pipeline-perf")
+    )
 
     for name in ("run", "check", "summary", "ci"):
         p = sub.add_parser(name, parents=[common])
@@ -561,13 +610,23 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--override-min-bearing-success", type=float, default=None)
             p.add_argument("--override-min-detection-rate", type=float, default=None)
             p.add_argument("--override-max-false-positive", type=float, default=None)
-            p.add_argument("--override-max-mean-us-per-sample", type=float, default=None)
+            p.add_argument(
+                "--override-max-mean-us-per-sample", type=float, default=None
+            )
             p.add_argument("--override-max-p95-us-per-sample", type=float, default=None)
-            p.add_argument("--override-max-mean-bearing-error-deg", type=float, default=None)
-            p.add_argument("--override-max-p95-bearing-error-deg", type=float, default=None)
+            p.add_argument(
+                "--override-max-mean-bearing-error-deg", type=float, default=None
+            )
+            p.add_argument(
+                "--override-max-p95-bearing-error-deg", type=float, default=None
+            )
             p.add_argument("--override-max-bearing-error-deg", type=float, default=None)
-            p.add_argument("--override-max-mean-tick-error-samples", type=float, default=None)
-            p.add_argument("--override-max-p95-tick-error-samples", type=float, default=None)
+            p.add_argument(
+                "--override-max-mean-tick-error-samples", type=float, default=None
+            )
+            p.add_argument(
+                "--override-max-p95-tick-error-samples", type=float, default=None
+            )
         if name in {"summary", "ci"}:
             p.add_argument("--max-rows", type=int, default=10)
         if name == "summary":

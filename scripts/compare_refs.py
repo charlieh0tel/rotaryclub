@@ -21,7 +21,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 HARNESSES = {
     "system_pipeline": (
@@ -52,7 +52,7 @@ def working_tree_is_dirty() -> bool:
     return bool(git("status", "--porcelain"))
 
 
-def run_harness(script: str, metrics_path: str) -> List[Dict[str, Any]]:
+def run_harness(script: str, metrics_path: str) -> list[dict[str, Any]]:
     subprocess.run([sys.executable, script, "run"], check=True)
     rows = []
     with Path(metrics_path).open(encoding="utf-8") as handle:
@@ -66,7 +66,7 @@ def run_harness(script: str, metrics_path: str) -> List[Dict[str, Any]]:
     return rows
 
 
-def numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
+def numeric_columns(rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
         return []
     out = []
@@ -83,7 +83,7 @@ def numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
     return out
 
 
-def key_of(row: Dict[str, Any], keys: Tuple[str, ...]) -> Tuple[str, ...]:
+def key_of(row: dict[str, Any], keys: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(str(row.get(k, "")) for k in keys)
 
 
@@ -153,22 +153,22 @@ def main() -> int:
         if stashed:
             git("stash", "pop", "-q")
 
-    columns = (
-        args.columns.split(",") if args.columns else numeric_columns(after)
-    )
+    columns = args.columns.split(",") if args.columns else numeric_columns(after)
     # A non-unique key pairs the wrong rows and reports their difference as a
     # change, so reject one rather than silently producing noise.
     for side, rows in (("before", before), ("after", after)):
         missing = [k for k in keys if rows and k not in rows[0]]
         if missing:
-            raise SystemExit(f"{args.harness}: key columns {missing} are not in the output")
+            raise SystemExit(
+                f"{args.harness}: key columns {missing} are not in the output"
+            )
         seen = {key_of(r, keys) for r in rows}
         if len(seen) != len(rows):
             raise SystemExit(
                 f"{args.harness}: {keys} does not identify rows uniquely on the "
                 f"{side} side ({len(rows)} rows, {len(seen)} distinct keys)"
             )
-    index: Dict[Tuple[str, ...], Dict[str, Any]] = {key_of(r, keys): r for r in before}
+    index: dict[tuple[str, ...], dict[str, Any]] = {key_of(r, keys): r for r in before}
 
     moved = 0
     unchanged = 0
@@ -201,9 +201,7 @@ def main() -> int:
                 continue
             moved += 1
             noise = f"  (3se={3 * se:.3g})" if se > 0 else ""
-            print(
-                f"  {'/'.join(key):<48} {column:<30} {x:>12.5g} -> {y:<12.5g}{noise}"
-            )
+            print(f"  {'/'.join(key):<48} {column:<30} {x:>12.5g} -> {y:<12.5g}{noise}")
 
     print(
         f"\n{moved} values moved by more than {args.threshold:.0%}, {unchanged} did not.",

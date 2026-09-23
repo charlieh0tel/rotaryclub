@@ -76,10 +76,11 @@ def sig(value: float, figures: int = 3) -> float:
 def main() -> int:
     gate = GATES[sys.argv[1]]
     rows = []
-    for line in open(sys.argv[2], encoding="utf-8"):
-        record = json.loads(line)
-        if record.get("kind") != "meta":
-            rows.append(record)
+    with open(sys.argv[2], encoding="utf-8") as fh:
+        for line in fh:
+            record = json.loads(line)
+            if record.get("kind") != "meta":
+                rows.append(record)
 
     worst: dict[tuple, dict[str, float]] = defaultdict(dict)
     for row in rows:

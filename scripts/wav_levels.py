@@ -39,7 +39,7 @@ def analyze(path, channel_names=None):
         print(f"    dc  ={dc:+.6f}")
         print(f"    peak={peak:.4f} ({peak_db:+.1f} dBFS)")
         print(f"    rms ={rms:.4f} ({rms_db:+.1f} dBFS)  ac_rms={ac_rms:.4f}")
-        print(f"    crest factor={crest:.1f} ({20*math.log10(crest):+.1f} dB)")
+        print(f"    crest factor={crest:.1f} ({20 * math.log10(crest):+.1f} dB)")
         print(f"    samples >0.9={over_09}  >1.0={over_1}")
 
 
@@ -56,7 +56,7 @@ def main():
     for path in args.files:
         try:
             analyze(path, args.channels)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one bad file must not stop the rest
             print(f"{path}: error - {e}", file=sys.stderr)
         if path != args.files[-1]:
             print()
