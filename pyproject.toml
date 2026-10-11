@@ -1,0 +1,14 @@
+# Exists only to pin the tools CI runs over scripts/. With a uv.lock present
+# the shared python-ci workflow takes its uv path and runs ruff from the
+# locked environment, instead of pip-installing whatever ruff is current.
+[project]
+name = "rotaryclub-scripts"
+version = "0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["ruff==0.17.0"]
+
+[tool.uv]
+package = false

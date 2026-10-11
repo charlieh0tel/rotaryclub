@@ -21,3 +21,10 @@ updates:
       # Ours, and deliberately tracking the v1 tag so changes there land
       # without a commit here.
       - dependency-name: charlieh0tel/deb-workflows/*
+
+  # uv.lock pins the ruff that CI lints scripts/ with. Without this the pin
+  # would hold until someone remembered it.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
