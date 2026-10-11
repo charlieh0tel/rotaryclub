@@ -164,8 +164,8 @@ cargo run --example synthetic_rdf
 1. Create a feature branch: `git checkout -b feature/your-feature-name`
 2. Make your changes
 3. Run tests: `cargo test`
-4. Run formatting: `cargo fmt`
-5. Run linter: `cargo clippy -- -D warnings`
+4. Run formatting: `make fmt` (`cargo fmt`, plus ruff for `scripts/`)
+5. Run linters: `make lint` (rustfmt, clippy and ruff, as CI runs them)
 6. Commit your changes (see commit guidelines below)
 7. Push and create a pull request
 
