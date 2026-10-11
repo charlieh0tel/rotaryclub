@@ -158,9 +158,9 @@ jobs:
       # No test suite here; the scripts are exercised by the metrics jobs.
       test-command: ""
       # No requirements.txt either: matplotlib and pandas are a developer's
-      # concern, not CI's, since CI only lints them.
+      # concern, not CI's, since CI only lints them. uv.lock is what puts
+      # these jobs on the workflow's uv path, so ruff runs at the locked
+      # version rather than whatever PyPI has that day.
       requirements-file: ""
-      # Nothing to audit. With no project dependencies, bare pip-audit would
-      # report on whatever the runner image's interpreter ships, which is not
-      # this repository's business.
+      # Nothing to audit: the locked environment holds ruff and nothing else.
       audit-command: ""
