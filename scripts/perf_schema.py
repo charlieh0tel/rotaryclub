@@ -7,7 +7,7 @@ import math
 import subprocess
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -303,7 +303,7 @@ def write_metrics(
         "harness": harness,
         "git_sha": _git("rev-parse", "HEAD"),
         "git_dirty": bool(_git("status", "--porcelain")),
-        "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "source_digest": source_digest(),
     }
     with path.open("w", encoding="utf-8") as handle:
